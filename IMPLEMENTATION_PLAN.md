@@ -194,19 +194,85 @@ model Activity {
   @@index([userId, isRace])
 }
 
+// User-defined sport categories (pre-seeded with defaults, fully addable)
+model SportCategory {
+  id       String   @id @default(cuid())
+  userId   String
+  name     String   // "Running", "Cycling", "Nordic Skiing", "Roller Skiing", "Orienteering", "Strength"
+  color    String   // hex — used across calendar, charts, badges
+  icon     String   // icon slug ("run", "bike", "ski", etc.)
+  isDefault Boolean @default(false)
+  order    Int      @default(0)
+  user     User     @relation(fields: [userId], references: [id])
+  workoutTypes WorkoutType[]
+  templates    WorkoutTemplate[]
+}
+
+// User-defined workout types per sport (e.g. Easy Run, LT Run, Long Run, OL Sprint)
+model WorkoutType {
+  id         String   @id @default(cuid())
+  userId     String
+  sportId    String
+  name       String   // "Easy Run", "LT Run", "Long Run", "Intervals", "OL", "Strength A"
+  color      String?  // optional override
+  order      Int      @default(0)
+  sport      SportCategory @relation(fields: [sportId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+  templates  WorkoutTemplate[]
+}
+
 model WorkoutTemplate {
   id          String   @id @default(cuid())
   userId      String
   name        String
-  sportType   String
   description String?
-  color       String?  // hex color
-  structure   Json     // { intervals: [...], notes: "" }
-  targetDistance Float?
-  targetDuration Int?
-  targetIntensity String? // easy, moderate, tempo, threshold, vo2max
-  user        User     @relation(fields: [userId], references: [id])
+  sportId     String
+  typeId      String?
+  color       String?  // overrides sport color if set
+
+  // Estimated totals (auto-computed from sections)
+  estimatedDistance Float?   // meters
+  estimatedDuration Int?     // seconds
+  estimatedTSS      Float?   // training stress score
+  estimatedZoneDistribution Json? // { z1: 600, z2: 1200, z3: 300, ... } seconds per zone
+
+  sections    WorkoutSection[]
+  user        User            @relation(fields: [userId], references: [id])
+  sport       SportCategory   @relation(fields: [sportId], references: [id])
+  type        WorkoutType?    @relation(fields: [typeId], references: [id])
   planned     PlannedWorkout[]
+
+  @@index([userId, sportId])
+  @@index([userId, typeId])
+}
+
+// Ordered sections within a workout (warm-up, main block, recovery, etc.)
+model WorkoutSection {
+  id           String   @id @default(cuid())
+  templateId   String
+  order        Int
+
+  name         String   // "Warm-up", "Threshold block", "Recovery jog", "Cool-down"
+
+  // Volume — one of time or distance
+  durationType String   // "time" | "distance" | "open" (no target, just a note section)
+  duration     Int?     // seconds (if time-based)
+  distance     Float?   // meters (if distance-based)
+  repetitions  Int?     // if > 1: this section repeats N times (e.g. 5× 1km intervals)
+
+  // Intensity target — one of hr_zone, pace_zone, rpe, power_zone
+  zoneType     String?  // "hr_zone" | "pace_zone" | "power_zone" | "rpe"
+  targetZone   Int?     // 1–5 (for hr_zone or pace_zone using user's calculated zones)
+  targetPaceLow  Float? // m/s — lower bound of pace range
+  targetPaceHigh Float? // m/s — upper bound
+  targetHRLow  Int?     // bpm
+  targetHRHigh Int?
+  targetRPE    Int?     // 1–10
+  notes        String?
+
+  template     WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, order])
 }
 
 model PlannedWorkout {
@@ -371,30 +437,99 @@ Manual sync:    Button triggers same incremental sync immediately
 
 ### 6.4 Training Planner
 
+**Layout:**
+- Two-panel view: left = template library, right = calendar
+- Calendar fills the main area; library is a collapsible sidebar
+
 **Calendar View:**
 - Month view (default) and Week view
-- Each day shows planned workouts as colored pills
-- Completed activities appear alongside planned ones (auto-matched by date+sport)
-- Drag-and-drop to reschedule planned workouts
+- Each day shows planned workouts as colored pills (sport color or type color)
+- Completed Strava activities appear alongside planned ones (auto-matched by date + sport)
+- Drag-and-drop to reschedule planned workouts between days
+- Drag-and-drop from template library directly onto any calendar day
 
-**Workout Templates:**
-- Create reusable templates: name, sport, color, target distance/duration/intensity, structured description
-- Template library (browsable, filterable by sport)
-- Quick-add from template to any day
+**Template Library (sidebar):**
+- Full list of saved templates, grouped by sport then type
+- Search/filter bar: by sport (tabs), by type (chips), by name (text)
+- Sports and types are user-defined — manage via a Settings → Sports & Types page
+- Each template card shows: name, type badge, sport color, estimated distance/duration, zone bar (colored strip showing section intensity distribution)
+- Drag a card from the library → drop on a calendar day → creates a `PlannedWorkout` from that template
+- "+" button on each template card → adds to today or prompts for a date
+
+**Workout Builder:**
+- Accessible from: template library ("New template"), calendar day ("Custom workout"), or editing an existing template
+- **Fields:** Name, Sport (dropdown from `SportCategory`), Type (dropdown filtered by sport, from `WorkoutType`), Description, Color override
+- **Sections editor** (the core):
+  - List of sections, drag-to-reorder
+  - Each section row: `[Name] [Time or Distance] [×Reps] [Zone type] [Zone target] [Notes] [Delete]`
+  - Zone target: if `hr_zone` or `pace_zone` selected → shows zone selector (Z1–Z5) with user's actual pace/HR values shown as reference: `Z4 · 3:45–3:55/km · 168–178 bpm`
+  - If `rpe` → 1–10 slider
+  - "Add section" button: pre-fills with defaults based on previous section
+  - Section templates: quick-insert common blocks (Warm-up 15min Z1, Cool-down 10min Z1, etc.)
+- **Live preview panel** (right side of builder):
+  - Structured workout summary (like a Garmin workout preview)
+  - Estimated totals: distance, duration, TSS
+  - Zone distribution bar: horizontal stacked bar showing % time in each zone (Z1=blue, Z2=green, Z3=yellow, Z4=orange, Z5=red)
+  - `Save as template` / `Add to plan` buttons
+
+**Example section structure (LT run):**
+```
+Warm-up         15 min    pace_zone Z1–Z2
+Easy build       5 min    pace_zone Z2–Z3
+Threshold block 20 min    pace_zone Z4      ← "LT pace: ~3:55/km"
+Recovery jog    10 min    pace_zone Z1
+─────────────────────────────────────────
+Total: 50 min | ~11 km | TSS ~65
+Zone dist: Z1 42% · Z2 10% · Z3 0% · Z4 40% · Z5 0%  (rest: recovery)
+```
 
 **Planning:**
-- Click any day → add workout (from template or custom)
-- Set: name, sport, distance/duration, intensity, notes
-- Color-coded by sport or intensity
+- Click any calendar day → quick-add panel: choose from templates or "Custom (blank)"
+- Custom workouts: same builder, but saved only to the plan (not the template library unless user clicks "Save as template")
+- Color-coded by sport; intensity shown via a thin colored bottom border (green=easy, yellow=moderate, orange=hard, red=max)
 
 **Summary panels:**
-- **Week summary** (sidebar when week selected):
-  - Total planned: distance, time, load by sport
-  - Load distribution chart
-  - Completeness % (actual vs planned)
+- **Week summary** (sidebar when week view, or bottom panel in month view):
+  - Total planned: distance, time by sport (stacked)
+  - Load estimate (TSS)
+  - Completeness % (actual vs planned, updates as week progresses)
+  - Zone distribution for the week (see Intensity Analysis below)
 - **Month summary**:
-  - Monthly volume plan
-  - Week-by-week breakdown
+  - Monthly volume plan per sport
+  - Week-by-week breakdown table
+  - Load curve chart (planned TSS per day)
+
+**Intensity & Structure Analysis (week view):**
+
+Shown in a dedicated panel below or beside the week calendar:
+
+```
+Week 21 · May 19–25 · Planned load: 380 TSS
+
+Volume by sport:
+  Running   ████████████░░░  85 km · 7h 20min
+  Cycling   ███░░░░░░░░░░░░  45 km · 1h 30min
+
+Zone distribution (all sports):
+  Z1 Easy       ████████████░░░  52%  4h 32min
+  Z2 Aerobic    ████░░░░░░░░░░░  18%  1h 34min
+  Z3 Tempo      ██░░░░░░░░░░░░░   8%  0h 42min
+  Z4 Threshold  █████░░░░░░░░░░  15%  1h 18min
+  Z5 VO2max     ███░░░░░░░░░░░░   7%  0h 37min
+
+Intensity distribution:
+  Easy/recovery  70%  ← ideal endurance ratio: 75–80%
+  Hard/quality   30%  ← slightly high, watch recovery
+
+Quality sessions: 3  (LT run, Intervals, Race-pace)
+Interval time:  42 min
+Long run:       2h 10min (Sunday)
+```
+
+**Polarization analysis:**
+- Compares actual zone distribution to target profile (configurable: polarized 80/20, threshold-heavy, pyramidal)
+- Shows deviation with a recommendation: "Z3 is overrepresented — consider replacing the Tuesday moderate run with an easy run"
+- Historical polarization chart: how intensity distribution has shifted over weeks
 
 **Workout outcome logging:**
 - Past and today's workouts show a status indicator: `Completed`, `Missed`, `Partial`, or blank (planned)
@@ -642,7 +777,8 @@ claudetrainer/
 │   │   ├── stats/
 │   │   │   └── page.tsx          # Statistics dashboard
 │   │   ├── planner/
-│   │   │   └── page.tsx          # Training planner calendar
+│   │   │   ├── page.tsx          # Training planner calendar + library sidebar
+│   │   │   └── builder/page.tsx  # Workout template builder
 │   │   ├── coach/
 │   │   │   └── page.tsx          # AI coach chat
 │   │   └── races/
@@ -673,8 +809,13 @@ claudetrainer/
 │   │   └── PaceChart.tsx
 │   ├── planner/
 │   │   ├── TrainingCalendar.tsx
-│   │   ├── WorkoutCard.tsx
-│   │   └── WeeklySummary.tsx
+│   │   ├── TemplateLibrary.tsx      # Draggable sidebar with template cards
+│   │   ├── TemplateCard.tsx         # Single template with zone bar preview
+│   │   ├── WorkoutBuilder.tsx       # Section editor + live preview
+│   │   ├── WorkoutSection.tsx       # Single section row (zone picker, reps, etc.)
+│   │   ├── ZoneBar.tsx              # Stacked zone distribution bar
+│   │   ├── WeeklySummary.tsx        # Volume + zone + polarization panel
+│   │   └── IntensityAnalysis.tsx    # Polarization chart + recommendations
 │   ├── coach/
 │   │   ├── ChatInterface.tsx
 │   │   ├── MessageBubble.tsx
@@ -697,7 +838,9 @@ claudetrainer/
 │   ├── fitness/
 │   │   ├── vo2max.ts             # VO2max estimation
 │   │   ├── training-load.ts      # ATL/CTL/TSB
-│   │   └── paces.ts              # Training pace zones
+│   │   ├── paces.ts              # Training pace zones
+│   │   ├── zones.ts              # Zone definitions (HR + pace) per user
+│   │   └── plan-analysis.ts      # Zone dist, polarization, week structure analysis
 │   ├── db/
 │   │   └── prisma.ts             # Prisma client singleton
 │   └── utils.ts
@@ -806,13 +949,15 @@ GOOGLE_AI_API_KEY=""
 - [ ] HR zone analysis
 - [ ] Daily cron sync
 
-### Phase 3 — Training Planner (Week 3–4)
-- [ ] Calendar component integration
-- [ ] Workout template CRUD
-- [ ] Planned workout CRUD
-- [ ] Activity → Planned workout matching
-- [ ] Week/month summary panels
-- [ ] Drag-and-drop rescheduling
+### Phase 3 — Training Planner (Week 3–5)
+- [ ] Sport categories + workout types CRUD (Settings → Sports & Types)
+- [ ] Workout builder: sections editor, zone picker, live preview, zone bar
+- [ ] Template library: sidebar, filtering by sport/type, drag-and-drop to calendar
+- [ ] Calendar: month + week view, planned workout pills, drag-and-drop rescheduling
+- [ ] Planned workout CRUD (from template or custom/blank)
+- [ ] Activity → Planned workout matching (auto by date + sport)
+- [ ] Week/month summary panels (volume by sport, estimated TSS)
+- [ ] Intensity & structure analysis panel (zone distribution, polarization, quality sessions)
 
 ### Phase 4 — AI Coach (Week 4–5)
 - [ ] AI client abstraction (Claude + Gemini)
