@@ -403,37 +403,200 @@ Manual sync:    Button triggers same incremental sync immediately
 
 ### 6.3 Statistics Dashboard
 
-**Overview cards (top):**
-- This week: distance, time, elevation, TSS by sport
-- This month vs same month last year
-- YTD vs last year YTD
-- Current streak (consecutive training days)
+#### Educational Tooltips — Global Design Rule
+Every metric, chart, and section header has an `ⓘ` icon. Hovering/tapping it shows a compact tooltip with:
+- **What it is** — plain-language definition
+- **Why it matters** — what it tells you about your training
+- **Good range / what to aim for** — concrete target or rule of thumb
 
-**Charts:**
-- Weekly volume (stacked bar by sport) — rolling 12 weeks
-- Training load over time (ATL, CTL, TSB — fitness/fatigue/form)
-- Heart rate zones distribution (pie + trend)
-- Pace/speed trend per sport
-- Elevation climbed per week
+Example tooltip for TSB:
+> **Training Stress Balance (TSB)** — the difference between your long-term fitness (CTL) and short-term fatigue (ATL). A positive TSB means you're fresh; negative means you're carrying fatigue.
+> *Good range to race in: +5 to +25. Deep in a training block: −10 to −30 is normal. Below −40 is overreaching risk.*
 
-**Fitness Metrics (computed, stored/cached):**
-- **VO2max estimate** — from recent best paces at given distances, using Daniels/Vdot formula. Cross-referenced with HR data.
-- **Training paces** — auto-calculated zones from VO2max: Easy, Marathon, Threshold, Interval, Repetition
-- **HR Zones** — from max HR detected in data: Z1–Z5
-- **ATL (Acute Training Load)** — exponential weighted average, 7-day window
-- **CTL (Chronic Training Load)** — exponential weighted average, 42-day window
-- **TSB (Training Stress Balance)** — CTL − ATL (form indicator)
+Tooltip content is written in the app's copy layer (`lib/tooltips.ts`) so it can be updated without touching component code.
 
-**Customizable views:**
-- Date range picker
-- Sport filter (multi-select)
-- Metric selector (what to show on Y-axis)
-- Toggle: show planned vs actual overlay
+---
 
-**Comparisons:**
-- Year over year
-- Custom period A vs B
-- By sport
+#### Overview Cards (top row)
+Each card has an `ⓘ` tooltip and a sparkline showing the last 8 weeks trend.
+
+- This week: distance, time, elevation — per sport or total
+- This month: same + comparison vs same month last year (Δ% badge)
+- Year to date: vs same point last year
+- Rolling 4-week average: smoothed volume — *tooltip: "Removes week-to-week noise to show your true training trend"*
+- Consistency score: % of planned sessions completed in last 4 weeks — *tooltip: "Consistency matters more than any single session. 85%+ is elite-level adherence."*
+
+#### Volume & Load Charts
+
+**Weekly volume — stacked bar, rolling 12 weeks**
+- Y-axis: distance or time (toggle)
+- Bars stacked by sport (sport colors)
+- Overlay: 4-week rolling average as a line
+- Tooltip: *"Each bar is one week. Colors show how your sport mix shifts over time."*
+
+**Rullande 4-veckorssnitt (line chart)**
+- Smoothed distance and time trend per sport or total
+- Tooltip: *"Shows your underlying fitness trajectory. Rising = building. Falling = recovering or tapering."*
+
+**Höjdmeter per vecka (bar chart)**
+- Per sport or total
+- Tooltip: *"Elevation is a major driver of training load — the same distance uphill is significantly harder."*
+
+**Lifetime totals (stat grid)**
+- Total km, hours, elevation per sport since Strava start
+- Tooltip per sport: *"Your lifetime running distance: equivalent to X marathons / Y laps of a track."*
+
+**Training frequency (bar chart)**
+- Sessions per week, per sport, rolling 12 weeks
+- Tooltip: *"Frequency drives adaptation. Running 5× per week at lower volume beats 2× at high volume for most athletes."*
+
+**Weekday distribution (bar chart)**
+- Which days of the week you train most
+- Per sport breakdown
+- Tooltip: *"Reveals your structural patterns — useful for spotting if recovery days are consistent."*
+
+#### Intensity & Zones
+
+**HR zone distribution — stacked bar, per week, rolling 12 weeks**
+- Z1–Z5 colored bands per week
+- Tooltip per zone:
+  - Z1 *"Recovery — very easy, conversational. Builds aerobic base with minimal fatigue."*
+  - Z2 *"Aerobic — comfortable effort. The foundation of endurance. Most of your volume should be here."*
+  - Z3 *"Tempo — 'comfortably hard'. Efficient but accumulates fatigue quickly. Use sparingly."*
+  - Z4 *"Threshold — at or near lactate threshold. Raises your sustainable race pace ceiling."*
+  - Z5 *"VO2max — maximum effort. Develops top-end aerobic capacity. Short intervals only."*
+
+**Pace zone distribution — same layout as HR zones**
+- Overlays user's calculated pace zones on actual data
+- Tooltip: *"Pace zones are derived from your current VDOT. As you improve, zones shift automatically."*
+
+**Polarization trend (line chart)**
+- Shows % easy (Z1–Z2) vs % hard (Z4–Z5) over time
+- Reference line at 80% easy
+- Tooltip: *"Polarized training (80% easy, 20% hard, minimal moderate) is backed by the strongest evidence for endurance development. Most recreational athletes spend too much time in Z3."*
+
+**TRIMP / TSS per week (bar chart)**
+- Training load units — normalized across sports
+- Tooltip: *"Training Stress Score quantifies the total demand of a session accounting for both duration and intensity. 100 TSS ≈ an all-out 1-hour effort."*
+
+**ATL — Acute Training Load (line, 7-day rolling)**
+- Tooltip: *"Your 'fatigue number'. High ATL = tired. After a hard week you'll feel this before CTL catches up."*
+
+**CTL — Chronic Training Load (line, 42-day rolling)**
+- Tooltip: *"Your 'fitness number'. Slow-moving — takes weeks to build and weeks to lose. This is what peaks at your best races."*
+
+**TSB — Training Stress Balance (line + shaded zones)**
+- = CTL − ATL, with colored bands: fresh / optimal / fatigued / overreaching
+- Tooltip: *"Form indicator. Negative = carrying fatigue (normal in heavy training). Positive = fresh. Race when TSB is +5 to +25 after a taper."*
+
+#### Performance Metrics
+
+**VO2max estimate (gauge + trend line)**
+- Calculated from: race performances (VDOT), HR-rest ratio, tempo-HR regression — weighted average of available methods
+- Confidence indicator: High / Medium / Low based on data recency
+- Tooltip: *"VO2max is your aerobic engine size — the maximum oxygen your muscles can use. Elite runners: 70–85 ml/kg/min. Well-trained: 55–65. Improves with consistent training, especially intervals and volume."*
+
+**VDOT (number + history line)**
+- Jack Daniels' fitness index — directly maps to training paces and race predictions
+- Tooltip: *"VDOT is a single number describing your current running fitness. Developed by coach Jack Daniels. A VDOT of 50 predicts a ~20:00 5K, 41:40 10K, 1:32 HM."*
+
+**Training paces table**
+- Auto-calculated zones from VDOT: Easy, Marathon, Threshold, Interval, Repetition
+- Shows min/km range per zone
+- Tooltip per zone: explains the physiological purpose and when to use it
+
+**HR Efficiency trend (line chart)**
+- Pace-per-HR-beat over time on easy runs (Z1–Z2 only)
+- Rising = improving aerobic fitness
+- Tooltip: *"Cardiac efficiency: how fast you run per heartbeat. Improving this means your heart is delivering more oxygen per pump — a core sign of growing aerobic fitness."*
+
+**Aerobic decoupling / Pa:HR (per long run, scatter plot)**
+- % drift between pace:HR ratio in first vs second half of long runs
+- <5% = well-coupled (good aerobic base); >10% = struggling
+- Tooltip: *"Aerobic decoupling measures how much your HR drifts relative to pace during a long effort. Low drift means your aerobic system can sustain the effort. High drift = your aerobic base needs more work."*
+
+**Running economy trend (line)**
+- Pace per HR at a standardized effort, rolling 6-week average
+- Tooltip: *"Running economy is how efficiently you convert oxygen into speed. Improves with strength training, increased mileage, and technique work."*
+
+**Cadence trend (line)**
+- Steps/min average on runs, rolling 4-week
+- Tooltip: *"Optimal cadence is typically 170–185 spm. Low cadence often means overstriding, which increases injury risk. Improving cadence by 5–10% can meaningfully reduce impact forces."*
+
+**Stride length estimate (line)**
+- Derived from cadence + speed
+- Tooltip: *"Stride length × cadence = speed. Elite runners achieve speed primarily through longer strides, not faster cadence."*
+
+#### Race Predictions
+
+**Predicted race times table**
+- 1500m, 3K, 5K, 10K, 15K, Half Marathon, Marathon — derived from current VDOT
+- Color-coded vs your actual PBs: green (predicted faster), gray (similar), red (slower than PB)
+- Tooltip: *"These predictions assume peak fitness and a good race. They're most accurate when your VDOT is based on a recent race performance."*
+
+**Race readiness per distance (gauge row)**
+- How well your recent training matches the demands of each distance (volume, long runs, interval type)
+- Tooltip: *"A 5K demands more VO2max work; a marathon demands more aerobic volume and long runs. This score reflects how targeted your recent training is for each distance."*
+
+**Form history — CTL/TSB timeline (chart)**
+- Annotated with your actual races — shows what your fitness/form looked like for each race
+- Tooltip: *"Use this to learn your optimal taper. What was your TSB on your best race day? Repeat that pattern."*
+
+**Best 8-week training blocks (ranked list)**
+- Identifies your historically strongest build periods by CTL gain + performance outcome
+- Tooltip: *"Knowing which training blocks actually moved the needle helps you repeat what works."*
+
+#### Recovery & Health
+
+**Recovery time estimate (banner on dashboard)**
+- After each logged activity: estimated hours until fully recovered, based on duration + intensity + HR data
+- Tooltip: *"Rough estimate only — individual recovery varies greatly. Use it as a minimum guide, not a ceiling."*
+
+**Overtraining risk indicator (gauge)**
+- ATL/CTL ratio: if ATL rises >10% faster than CTL over 2 weeks, triggers warning
+- Tooltip: *"The '10% rule': avoid increasing weekly training load by more than 10% week-over-week. Rapid ATL spikes without CTL base are the leading predictor of overuse injury."*
+
+**Injury/illness log (timeline)**
+- Visual timeline of all missed-workout reasons over the past year
+- Monthly breakdown: missed sessions by category
+- Tooltip: *"Tracking why you miss sessions reveals patterns — recurring injuries at high mileage, illness during stress periods, etc."*
+
+#### Sport-Specific
+
+**Running: split analysis (scatter per activity)**
+- Negative vs positive splits across all runs
+- Tooltip: *"A negative split (second half faster) indicates better pacing and aerobic capacity. Consistently positive splits may indicate starting too fast or glycogen depletion."*
+
+**Running: interval analysis (auto-detected)**
+- Detects structured efforts from lap/HR data
+- Shows rep times, average HR per rep, coefficient of variation (consistency)
+- Tooltip: *"CV% across reps shows how consistent your effort was. <3% = very consistent execution. >8% = high variability, possibly pacing or fatigue issues."*
+
+**Running: elevation impact**
+- Gradient-adjusted pace (GAP) vs flat pace comparison
+- Tooltip: *"Grade Adjusted Pace normalizes your effort for hills, making hilly runs directly comparable to flat ones."*
+
+**Cycling: FTP estimate & w/kg (if power data available)**
+- Tooltip: *"Functional Threshold Power is the highest average wattage you can sustain for ~60 minutes. w/kg (watts per kilogram) is the key cycling performance number — comparable across different body weights."*
+
+#### Goals & Progress
+
+**Annual goal tracker (per sport)**
+- Set distance or time goal for the year → arc/gauge showing progress
+- "On track" projection based on current pace
+- Tooltip: *"Your projected year-end total assumes your current average weekly volume continues. Adjust training or the goal if needed."*
+
+**Monthly goal (auto-derived or custom)**
+- Breakdown of annual goal into monthly targets
+- Actual vs target bar
+
+**Comparison view (side-by-side)**
+- Pick any two time periods → all metrics shown side by side
+- Useful for: this year vs last year, pre-injury vs post-injury, summer vs winter
+
+**Season spider chart**
+- Radar/spider chart per month: shows how volume distributes across sports through the year
+- Tooltip: *"Reveals your seasonal patterns — e.g. heavy skiing in winter, running peaks in spring/autumn."*
 
 ### 6.4 Training Planner
 
@@ -940,13 +1103,22 @@ GOOGLE_AI_API_KEY=""
 - [ ] Activity storage and basic list view
 - [ ] Basic app shell (sidebar, navigation)
 
-### Phase 2 — Statistics (Week 2–3)
-- [ ] Activity aggregation queries
-- [ ] Weekly/monthly/yearly summary cards
-- [ ] Volume charts (by sport, over time)
-- [ ] Training load (ATL/CTL/TSB) calculation
-- [ ] VO2max estimation engine
-- [ ] HR zone analysis
+### Phase 2 — Statistics (Week 2–4)
+- [ ] Activity aggregation queries (volume, frequency, elevation by sport + period)
+- [ ] Overview cards with sparklines and YoY comparison
+- [ ] Volume charts: weekly stacked bar, 4-week rolling average, lifetime totals
+- [ ] Training load engine: ATL, CTL, TSB (with shaded form zones)
+- [ ] Zone engine: HR zones + pace zones from VO2max/VDOT, TRIMP/TSS per activity
+- [ ] HR zone distribution + polarization charts
+- [ ] VO2max estimation: race-based (VDOT), HR-ratio, tempo-HR regression
+- [ ] Training paces table + race time predictions
+- [ ] HR efficiency, aerobic decoupling, running economy, cadence trend
+- [ ] Split analysis + auto-detected interval analysis
+- [ ] Recovery time estimate + overtraining risk indicator
+- [ ] Annual/monthly goal tracker
+- [ ] Comparison view (period A vs B)
+- [ ] Season spider chart
+- [ ] Educational tooltips system (`lib/tooltips.ts`)
 - [ ] Daily cron sync
 
 ### Phase 3 — Training Planner (Week 3–5)
