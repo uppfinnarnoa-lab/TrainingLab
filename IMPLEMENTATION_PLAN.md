@@ -332,18 +332,31 @@ model RaceRecord {
 
 // Training block: a named period of weeks with a shared purpose (Base, Build, Peak, Taper)
 model TrainingBlock {
-  id          String    @id @default(cuid())
-  userId      String
-  name        String    // "Base 1", "Build", "Peak", "Taper", or custom
-  blockType   String    // "base" | "build" | "peak" | "taper" | "custom"
-  color       String    // hex — shown as colored band in calendar header
-  startDate   DateTime  @db.Date
-  endDate     DateTime  @db.Date
-  targetRaceId String?  // optional link to a PlannedWorkout or RaceCalendarEntry
-  notes       String?
-  user        User      @relation(fields: [userId], references: [id])
+  id           String    @id @default(cuid())
+  userId       String
+  name         String    // "Base 1", "Build", "Peak", "Taper", or custom
+  blockType    String    // "base" | "build" | "peak" | "taper" | "custom"
+  color        String    // hex — used as calendar week overlay and banner badge
+  startDate    DateTime  @db.Date
+  endDate      DateTime  @db.Date
+  targetRaceId String?   // optional link to a race calendar entry
+  notes        String?
+
+  // Targets (set when planning the block)
+  targetKmPerWeek   Float?
+  targetIntensity   String? // "polarized" | "pyramidal" | "threshold"
+
+  // Actuals (populated automatically when block is archived)
+  archived          Boolean  @default(false)
+  actualKm          Float?
+  actualTimeSec     Int?
+  actualTSS         Float?
+  actualCompletionRate Float? // 0–1
+
+  user         User      @relation(fields: [userId], references: [id])
 
   @@index([userId, startDate])
+  @@index([userId, archived])
 }
 
 model Conversation {
@@ -842,18 +855,68 @@ Interval time:  42 min · Long run: 2h 10min (Sunday)
 
 **Training Block planning:**
 
-Blocks are defined in a **Block Editor** accessible from the planner header:
-- Create block: name, type (Base / Build / Peak / Taper / Custom), date range, color, optional notes and target race link
-- Blocks appear as a colored banner row above the calendar weeks — like a Gantt-style header
-- Weeks inherit the block's label and color as a tag on the inline summary strip
-- Blocks can overlap or have gaps (recovery weeks with no block label)
-- Block types have default color suggestions: Base = blue, Build = orange, Peak = red, Taper = teal
-- AI coach sees the full block structure as context and can reference it: *"you're in week 3 of your build block with 5 weeks until taper"*
+**Block dropdown banner (top of planner page — always visible, collapsible):**
 
-**Race goal integration in blocks:**
-- When creating a block you can link it to an A/B/C race from the race calendar
-- This binds the block's purpose to the race — taper block auto-suggests its end date as race day
-- The plan-tab timeline renders all blocks in sequence toward the linked race, making the macro periodization visible at a glance
+A sticky header banner that collapses to a thin bar and expands on click. When expanded:
+
+```
+┌─ TRAINING BLOCKS ─────────────────────────────────────────────────────── [+ New block] [⌄ collapse] ┐
+│                                                                                                       │
+│  PAST (archived)                                                                                      │
+│  ████ Base 1    Jan 6 – Feb 9     6 wks   completed   258 km · 21h · TSS 890   [↗ view]             │
+│  ████ Build 1   Feb 10 – Mar 16   5 wks   completed   312 km · 25h · TSS 1180  [↗ view]             │
+│                                                                                                       │
+│  ── 🏁 Lidingöloppet  Mar 23  [C race] ──────────────────────────────────────────────────────────    │
+│                                                                                                       │
+│  CURRENT                                                                                              │
+│  ████ Build 2   Mar 24 – Apr 27   5 wks   week 2/5    187 km so far · on track                      │
+│                                                                                                       │
+│  UPCOMING                                                                                             │
+│  ████ Peak      Apr 28 – May 11   2 wks   planned     Target: 90 km / week                          │
+│  ████ Taper     May 12 – May 25   2 wks   planned     –30% volume, race-pace work                   │
+│                                                                                                       │
+│  ── 🏁 Stockholm Marathon  May 25  [A race] ────────────────────────────────────────────────────     │
+│                                                                                                       │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Chronological order** — past blocks, then races, then upcoming blocks, interspersed with race markers
+- Completed/archived blocks show aggregate actuals (km, hours, TSS achieved)
+- Current block shows live progress vs plan
+- Upcoming blocks show targets
+- Race entries appear inline at their correct chronological position with A/B/C badge
+- Clicking a block row opens the Block Detail (same as Block tab in Detail Panel)
+- Clicking a race entry opens the race goal editor
+
+**Calendar week overlay:**
+- Each calendar week has a **full-width colored hue** behind its row — the block's color at 15% opacity
+- The week number cell shows the block type abbreviation as a small label: `BASE`, `BUILD`, `PEAK`, `TAPER`
+- Weeks without a block have no overlay (transparent)
+- Block color bleeds across all 7 days of the week, making the block structure immediately readable at a glance in the calendar
+
+**Block creation / editing:**
+- "New block" button in banner → modal: name, type (Base / Build / Peak / Taper / Custom), date range (date picker), color, optional target race link, notes, target km/week and intensity profile
+- Block types have default colors: Base = `#3B82F6` blue, Build = `#F97316` orange, Peak = `#EF4444` red, Taper = `#14B8A6` teal, Custom = user-picked
+- Date ranges can overlap or have gaps (unlabeled recovery weeks are allowed)
+- Editing a block re-renders the calendar overlay and banner instantly
+
+**Automatic archiving:**
+- When a block's `endDate` passes, it is automatically marked `archived = true`
+- Archived blocks move to the "Past" section in the banner
+- Actuals (real Strava km/time/TSS) are computed and stored on the block at archive time
+- Archived blocks are read-only but always accessible via `[↗ view]`
+
+**Block statistics (Block tab in Detail Panel):**
+- Planned vs actual: total km, time, TSS, zone distribution for the full block
+- Week-by-week load bar chart within the block
+- Polarization trend across the block's weeks
+- Completion rate: sessions completed vs missed, with reasons breakdown
+- If linked to a race: shows what CTL/TSB was on race day and resulting performance
+
+**AI coach sees:**
+- Current block name, type, week number within block, and target race
+- Full block sequence from current date to next A race
+- Archived block performance for context: *"your last build block averaged 72 km/week with 18% threshold work"*
 
 **Polarization analysis:**
 - Compares zone distribution to target profile (configurable: polarized 80/20, threshold-heavy, pyramidal)
@@ -1164,7 +1227,8 @@ claudetrainer/
 │   │   ├── WeekSummaryStrip.tsx     # Inline km/time/zone bar per week row in month view
 │   │   ├── DetailPanel.tsx          # Slide-in panel with Week/Block/Plan tabs
 │   │   ├── BlockEditor.tsx          # Create/edit training blocks with date ranges
-│   │   ├── BlockTimeline.tsx        # Gantt-style block header above calendar
+│   │   ├── BlockBanner.tsx          # Collapsible dropdown banner (top of planner page)
+│   │   ├── BlockBannerRow.tsx       # Single block/race row inside the banner
 │   │   ├── SeasonTimeline.tsx       # Full season arc in Plan tab
 │   │   ├── WeeklySummary.tsx        # Volume + zone + polarization panel (week tab)
 │   │   └── IntensityAnalysis.tsx    # Polarization chart + recommendations
