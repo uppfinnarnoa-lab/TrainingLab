@@ -221,13 +221,31 @@ model PlannedWorkout {
   targetDuration  Int?
   targetIntensity String?
   color           String?
-  completed       Boolean   @default(false)
+
+  // Completion tracking — only settable on or after the workout date
+  status          String    @default("planned") // "planned" | "completed" | "missed" | "partial"
+  missedReason    String?   // see MissedReason enum below
+  missedNote      String?   // free-text elaboration (e.g. "left knee pain")
+  markedAt        DateTime? // when the user logged the outcome
+
   user            User      @relation(fields: [userId], references: [id])
   template        WorkoutTemplate? @relation(fields: [templateId], references: [id])
   matchedActivity Activity[]
 
   @@index([userId, date])
+  @@index([userId, status])
+  @@index([userId, missedReason])
 }
+
+// MissedReason values (enforced in app logic, not DB enum for flexibility):
+// "injury"       — physical injury prevented training
+// "illness"      — sick
+// "fatigue"      — excessive fatigue / overreaching
+// "travel"       — travel / logistics
+// "work"         — work or other obligations
+// "weather"      — weather conditions
+// "planned_rest" — intentionally swapped to rest
+// "other"        — free-text only
 
 model RaceRecord {
   id          String   @id @default(cuid())
@@ -377,6 +395,21 @@ Manual sync:    Button triggers same incremental sync immediately
 - **Month summary**:
   - Monthly volume plan
   - Week-by-week breakdown
+
+**Workout outcome logging:**
+- Past and today's workouts show a status indicator: `Completed`, `Missed`, `Partial`, or blank (planned)
+- **Locking rule:** Status can only be set on or after the workout's date — future workouts have no status UI at all. Enforced both client-side (button hidden) and server-side (API rejects `date > today`)
+- Clicking a past unresolved workout prompts: `Did you complete this session?`
+  - **Yes** → auto-matches to Strava activity if found, or marks completed without activity
+  - **Partial** → same as yes + optional note on what was shortened/modified
+  - **No** → reason picker (dropdown: Injury, Illness, Fatigue, Travel, Work, Weather, Planned rest, Other) + optional free-text note
+- Missed workouts shown in calendar with a muted red tint and reason tag
+- **Injury/illness streaks** detected automatically: if 2+ consecutive days missed with reason `injury` or `illness`, a banner appears in the planner and coach context flags it
+
+**Health & availability tracking:**
+- Settings page has an "Availability log" view: timeline of all missed workouts grouped by reason
+- Charts: missed sessions per month, breakdown by reason, injury frequency over time
+- This feeds directly into AI context (see below)
 
 **AI integration point:**
 - "Plan my training" button → opens coach chat pre-loaded with current plan context
@@ -542,11 +575,28 @@ Current fitness snapshot:
 
 | Query type | Context sent |
 |---|---|
-| "How was my training last month?" | Last 4 weeks summary, aggregated stats |
-| "Plan my next 8 weeks" | Current week plan, last 6 weeks history, goals |
-| "Why is my pace slow lately?" | Last 8 weeks with HR data, trend metrics |
+| "How was my training last month?" | Last 4 weeks summary, aggregated stats, missed workout log |
+| "Plan my next 8 weeks" | Current week plan, last 6 weeks history + missed log, goals |
+| "Why is my pace slow lately?" | Last 8 weeks with HR data, trend metrics, recent illness/fatigue misses |
 | "What's my VO2max?" | Race history, recent tempo efforts, HR data |
 | "Analyze this workout" | Single activity detail + recent comparable workouts |
+| "Am I injured / overtraining?" | Full missed log with reasons, TSB trend, recent HR anomalies |
+
+### Missed Workout Data in AI Context
+
+The context builder always includes a compact missed workout summary in the system prompt alongside the fitness snapshot:
+
+```
+Availability & health log (last 12 weeks):
+  Missed sessions: 4
+    - 2025-04-14: Illness (influensa, 3 days out)
+    - 2025-05-02: Injury (left knee pain)
+    - 2025-05-03: Injury (left knee pain, consecutive)
+  Current status: Active injury streak detected (knee, 2 days)
+  Injury history: 2 knee incidents in last 6 months
+```
+
+This lets the coach proactively flag injury risks, adjust load recommendations during illness recovery, and track patterns (e.g. recurring knee issues after high mileage weeks) without the user having to explain their history each time.
 
 ### VO2max Estimation Algorithm
 ```
