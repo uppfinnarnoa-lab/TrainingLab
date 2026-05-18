@@ -72,7 +72,15 @@ A personal web application hosted on an Ubuntu/Apache server that serves as a co
 ### Theme Philosophy
 > Organized, data-driven, precision-focused. Like a serious athlete's training log — clean, functional, and quietly beautiful.
 
+### Dark / Light Mode
+- Both modes are fully supported. Implementation uses **Tailwind CSS `dark:` variant** + `next-themes` for persistence and system-preference detection.
+- Toggle: sun/moon icon in the top-right of the nav bar. Preference stored in `localStorage` and respected on load.
+- Default: follows OS preference (`prefers-color-scheme`).
+- All colors defined as CSS custom properties on `:root` (light) and `.dark` (dark), consumed via Tailwind's `theme.extend.colors`. No hardcoded color classes in components — always use semantic tokens (`bg-surface`, `text-primary`, etc.).
+
 ### Color Palette
+
+**Dark mode (default shown first):**
 ```
 Background:   #0F1117  (deep charcoal)
 Surface:      #1A1D27  (soft dark blue-gray)
@@ -84,15 +92,33 @@ Text Primary: #F1F5F9  (warm white)
 Text Muted:   #94A3B8  (slate-400)
 Error:        #F87171  (soft red)
 Warning:      #FBBF24  (amber)
-
-Sport colors:
-  Run:        #6EE7B7  (emerald)
-  Orienteering: #34D399 (deeper green)
-  Cycling:    #818CF8  (indigo)
-  Skiing:     #BAE6FD  (light blue)
-  Roller ski: #7DD3FC  (sky)
-  Strength:   #FCA5A5  (soft red)
 ```
+
+**Light mode:**
+```
+Background:   #F8FAFC  (near-white, cool)
+Surface:      #FFFFFF  (pure white cards)
+Surface 2:    #F1F5F9  (subtle off-white)
+Border:       #E2E8F0  (slate-200)
+Accent:       #059669  (deeper emerald — readable on white)
+Accent 2:     #6366F1  (indigo-500)
+Text Primary: #0F172A  (near-black)
+Text Muted:   #64748B  (slate-500)
+Error:        #DC2626  (red-600)
+Warning:      #D97706  (amber-600)
+```
+
+**Sport colors** — same in both modes (saturated enough to work on light and dark backgrounds):
+```
+Run:          #10B981  (emerald-500)
+Orienteering: #059669  (emerald-600)
+Cycling:      #6366F1  (indigo-500)
+Skiing:       #38BDF8  (sky-400)
+Roller ski:   #0EA5E9  (sky-500)
+Strength:     #F87171  (red-400)
+```
+
+**Charts in light mode:** axis labels and grid lines use `#CBD5E1` (slate-300), chart backgrounds are transparent.
 
 ### Typography
 - Font: **Inter** (system fallback: -apple-system)
@@ -101,9 +127,9 @@ Sport colors:
 
 ### Components
 - Border radius: `rounded-xl` (12px) for cards, `rounded-full` for pills/badges
-- Shadows: `shadow-lg` with `shadow-black/30` — deep but soft
-- Transitions: 150ms ease-out on all interactive elements
-- Cards: `backdrop-blur-sm` for depth on darker backgrounds
+- Dark shadows: `shadow-lg shadow-black/30`; Light shadows: `shadow-lg shadow-slate-200/80`
+- Transitions: 150ms ease-out on all interactive elements, including theme switch (no flash)
+- Cards in dark: `backdrop-blur-sm` for depth; in light: `border border-border` for definition
 
 ---
 
