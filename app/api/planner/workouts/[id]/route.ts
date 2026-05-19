@@ -34,11 +34,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
-  // Enforce: cannot set status on future workout
+  // Enforce: cannot set status on future workout (compare date strings to avoid timezone issues)
   if (parsed.data.status && parsed.data.status !== "planned") {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (workout.date > today) {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const workoutDateStr = workout.date instanceof Date
+      ? workout.date.toISOString().split("T")[0]
+      : String(workout.date).slice(0, 10);
+    if (workoutDateStr > todayStr) {
       return NextResponse.json({ error: "cannot_mark_future" }, { status: 422 });
     }
   }

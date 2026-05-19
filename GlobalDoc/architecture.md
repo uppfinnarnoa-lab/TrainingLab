@@ -14,8 +14,11 @@ Browser ◄──► Next.js App Router (SSR + API routes) ◄──► PostgreS
                     PM2 (port 3000)
 ```
 
+## Build Status
+Phases 1–6 complete. All routes type-checked clean. Two bug audits passed.
+
 ## Key Schema Tables
-Full schema with all fields is in `prisma/schema.prisma`. Summary:
+Full schema with all fields is in `prisma/schema.prisma`. All user-owned models have `onDelete: Cascade`. Summary:
 
 | Table | Purpose |
 |---|---|
@@ -34,6 +37,18 @@ Full schema with all fields is in `prisma/schema.prisma`. Summary:
 | `Conversation` / `Message` | AI coach chat history with token cost tracking |
 | `AISettings` | Provider choice (claude/gemini), API keys, monthly budget |
 | `AthleteProfile` | Weight, height, DOB, sex, max HR, resting HR, primary goal — sent in AI system prompt |
+
+## Pages (all implemented)
+| Route | Description |
+|---|---|
+| `/login` | Email/password login |
+| `/` | Dashboard — overview cards, recent activity |
+| `/activities` | Activity list with sport filter + pagination |
+| `/stats` | 5-tab statistics: Overview, Volume, Load, Zones, Fitness |
+| `/planner` | Training calendar + template library + block banner |
+| `/coach` | AI chat (Claude or Gemini), streaming, cost tracking |
+| `/races` | PB tracker per distance, timeline chart, manual entry |
+| `/settings` | Strava/Garmin connect, AI keys, athlete profile |
 
 ## File Structure (key paths)
 ```

@@ -1,0 +1,243 @@
+"use client";
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Send, Loader2, Bot, User } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  cost?: number;
+  tokens?: number;
+  modelUsed?: string;
+}
+
+interface Props {
+  provider: "claude" | "gemini";
+  hasApiKey: boolean;
+  monthlyBudget: number;
+  currentSpend: number;
+  initialConversationId?: string;
+}
+
+export function ChatInterface({ provider, hasApiKey, monthlyBudget, currentSpend, initialConversationId }: Props) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [sessionCost, setSessionCost] = useState(0);
+  const [convId, setConvId] = useState<string | undefined>(initialConversationId);
+  const [totalSpend, setTotalSpend] = useState(currentSpend);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const spendPct = monthlyBudget > 0 ? Math.min((totalSpend / monthlyBudget) * 100, 100) : 0;
+
+  const send = useCallback(async () => {
+    const text = input.trim();
+    if (!text || streaming) return;
+
+    const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: text };
+    setMessages(prev => [...prev, userMsg]);
+    setInput("");
+    setStreaming(true);
+
+    const assistantId = crypto.randomUUID();
+    setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "" }]);
+
+    try {
+      const res = await fetch("/api/coach/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: convId, message: text }),
+      });
+
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({ error: "Request failed" }));
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId
+            ? { ...m, content: `Error: ${err.error ?? "Unknown error"}` }
+            : m
+        ));
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullContent = "";
+      let msgCost = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+
+          if (data.convId && !convId) setConvId(data.convId);
+          if (data.text) {
+            fullContent += data.text;
+            setMessages(prev => prev.map(m =>
+              m.id === assistantId ? { ...m, content: fullContent } : m
+            ));
+          }
+          if (data.done) {
+            msgCost = data.cost ?? 0;
+            setSessionCost(s => s + msgCost);
+            setTotalSpend(s => s + msgCost);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantId
+                ? { ...m, cost: msgCost, tokens: (data.inputTokens ?? 0) + (data.outputTokens ?? 0), modelUsed: provider }
+                : m
+            ));
+          }
+          if (data.error) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantId ? { ...m, content: `Error: ${data.error}` } : m
+            ));
+          }
+        }
+      }
+    } finally {
+      setStreaming(false);
+      textareaRef.current?.focus();
+    }
+  }, [input, streaming, convId, provider]);
+
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }
+
+  if (!hasApiKey) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="max-w-sm text-center space-y-3">
+          <Bot size={40} className="mx-auto text-muted" />
+          <p className="text-primary font-semibold">No API key configured</p>
+          <p className="text-sm text-muted">
+            Add a Claude or Gemini API key in{" "}
+            <a href="/settings" className="text-accent hover:underline">Settings</a>{" "}
+            to start chatting with your coach.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Cost header */}
+      <div className="shrink-0 flex items-center gap-4 px-4 py-2 border-b border-border bg-surface text-xs text-muted">
+        <span>
+          Provider: <span className="text-primary capitalize font-medium">{provider === "claude" ? "Claude Sonnet" : "Gemini Flash"}</span>
+        </span>
+        {sessionCost > 0 && (
+          <span>Session: <span className="font-mono text-primary">${sessionCost.toFixed(4)}</span></span>
+        )}
+        {monthlyBudget > 0 && (
+          <div className="flex items-center gap-2 ml-auto">
+            <span className={cn(
+              "font-mono",
+              spendPct >= 100 ? "text-error" : spendPct >= 80 ? "text-warning" : "text-muted"
+            )}>
+              ${totalSpend.toFixed(3)} / ${monthlyBudget} budget
+            </span>
+            <div className="w-20 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+              <div
+                className={cn("h-full rounded-full transition-all", spendPct >= 100 ? "bg-error" : spendPct >= 80 ? "bg-warning" : "bg-accent")}
+                style={{ width: `${spendPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center gap-3 text-muted">
+            <Bot size={36} className="opacity-40" />
+            <p className="text-sm">Ask your coach anything about your training.</p>
+            <div className="flex flex-wrap gap-2 justify-center mt-2">
+              {["What's my current fitness?", "Plan my next 4 weeks", "Why is my pace slow lately?", "What's my VO2max?"].map(q => (
+                <button
+                  key={q}
+                  onClick={() => { setInput(q); textareaRef.current?.focus(); }}
+                  className="px-3 py-1.5 rounded-lg border border-border text-xs hover:border-accent/40 hover:text-primary transition"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {messages.map(msg => (
+          <div key={msg.id} className={cn("flex gap-3", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
+            <div className={cn(
+              "w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5",
+              msg.role === "user" ? "bg-accent/20" : "bg-surface-2 border border-border"
+            )}>
+              {msg.role === "user" ? <User size={14} className="text-accent" /> : <Bot size={14} className="text-muted" />}
+            </div>
+
+            <div className={cn("max-w-[80%] space-y-1", msg.role === "user" ? "items-end" : "items-start")}>
+              <div className={cn(
+                "rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap",
+                msg.role === "user"
+                  ? "bg-accent/10 text-primary rounded-tr-none"
+                  : "bg-surface border border-border rounded-tl-none"
+              )}>
+                {msg.content || (streaming && msg.role === "assistant" ? (
+                  <Loader2 size={14} className="animate-spin text-muted" />
+                ) : "")}
+              </div>
+              {msg.cost !== undefined && (
+                <p className="text-[10px] text-muted px-1">
+                  ${msg.cost.toFixed(4)} · {msg.tokens?.toLocaleString()} tokens · {msg.modelUsed}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div className="shrink-0 px-4 py-3 border-t border-border bg-surface">
+        <div className="flex gap-2 items-end">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKey}
+            placeholder="Ask your coach... (Enter to send, Shift+Enter for newline)"
+            rows={2}
+            disabled={streaming}
+            className="flex-1 rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none disabled:opacity-50 transition"
+          />
+          <button
+            onClick={send}
+            disabled={!input.trim() || streaming}
+            className="shrink-0 w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-white dark:text-background hover:opacity-90 disabled:opacity-40 transition"
+          >
+            {streaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

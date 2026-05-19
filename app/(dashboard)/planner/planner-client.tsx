@@ -96,10 +96,14 @@ export function PlannerClient(props: Props) {
 
     if (data.date) {
       const sport = props.sports.find(s => s.id === data.sportId);
+      if (!sport) {
+        console.error("Sport not found for id:", data.sportId);
+        return;
+      }
       await createWorkout({
         date: data.date,
         name: data.name,
-        sportType: sport?.name ?? data.sportId,
+        sportType: sport.name,
         templateId,
         notes: data.description || null,
         color: data.color,

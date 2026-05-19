@@ -82,7 +82,8 @@ export async function syncActivities(
           },
         });
         synced++;
-      } catch {
+      } catch (e) {
+        console.error("Activity upsert failed for stravaId", raw.id, e);
         errors++;
       }
     }

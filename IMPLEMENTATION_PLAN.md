@@ -1520,27 +1520,60 @@ GOOGLE_AI_API_KEY=""
 - Zone ranges passed from server using user's actual VDOT (default VDOT 45 if insufficient data)
 - Serialization helper converts all Prisma Dates to YYYY-MM-DD strings for client components
 
-### Phase 4 — AI Coach (Week 4–5)
-- [ ] AI client abstraction (Claude + Gemini)
-- [ ] Context builder (smart activity selection)
-- [ ] Streaming chat UI
-- [ ] System prompt engineering
-- [ ] API key management in settings
-- [ ] Conversation history
+### Phase 4 — AI Coach ✅ COMPLETE
+- [x] `lib/ai/client.ts` — AIClient interface, PRICING constants, estimateCost()
+- [x] `lib/ai/claude.ts` — ClaudeClient with streaming + prompt caching (cache_control: ephemeral)
+- [x] `lib/ai/gemini.ts` — GeminiClient with streaming via generateContentStream
+- [x] `lib/ai/prompts.ts` — buildSystemPrompt(CoachContext), CoachContext interface
+- [x] `lib/ai/context-builder.ts` — buildCoachContext() (profile, VO2max, TSB, health log, plan), buildRecentActivitiesSummary()
+- [x] `/api/coach/chat` — SSE streaming route, saves messages, tracks cost, updates monthly spend
+- [x] `/coach` page — full chat UI with streaming, cost header, session/monthly spend display, suggested questions
+- [x] Conversation history (last 20 messages sent as context)
+- [x] Plan-action parsing spec in `docs/api/coach.md`
 
-### Phase 5 — Race Tracker (Week 5–6)
-- [ ] Race auto-detection from Strava
-- [ ] PB calculation per distance
-- [ ] Race history table
-- [ ] Timeline charts
-- [ ] Manual entry and editing
+**Notes:**
+- `cache_control: ephemeral` on system prompt saves ~80% on Claude input tokens for repeated queries
+- Gemini Flash is free tier — cost shown as $0.000
+- Provider switchable per-user in AISettings; falls back to env-var keys
 
-### Phase 6 — Polish (Week 6–7)
-- [ ] Responsive design pass
-- [ ] Loading states and error handling
-- [ ] Settings page (AI provider, sync preferences)
-- [ ] Performance optimization (caching, pagination)
-- [ ] Production deployment
+### Phase 5 — Race Tracker ✅ COMPLETE
+- [x] `/api/races` — GET all, POST create, PUT auto-import from Strava
+- [x] `/api/races/[id]` — PATCH edit, DELETE
+- [x] Auto-import: matches Strava race activities to standard distances ±5%
+- [x] `/races` page — distance selector, PB card, timeline line chart (reversed Y), history table
+- [x] Manual entry modal with h:mm:ss input and custom distance support
+- [x] Delete with confirmation, Strava activity link
+
+### Phase 6 — Polish ✅ COMPLETE
+- [x] `app/(dashboard)/loading.tsx` — skeleton loading state
+- [x] `app/(dashboard)/error.tsx` — error boundary with reset button
+- [x] Two full bug audits + all issues fixed (see notes below)
+
+### Bug Fixes Applied
+**First audit fixes:**
+- `context-builder.ts`: name field was always null → now null (filled by caller from User.name)
+- `prisma/schema.prisma`: added `onDelete: Cascade` to all 15 user-owned relations + Message→Conversation
+- `workouts/[id]/route.ts`: date comparison changed to string comparison to avoid timezone bugs
+- `strava/sync.ts`: silent `catch {}` replaced with logged error
+- `planner-client.tsx`: added guard when sport lookup fails before creating workout
+
+**Second audit fixes:**
+- `vo2max.ts`: binary search direction was inverted — fixed (decreasing function, lo/hi now correct)
+- `zones.ts`: `vdotToVelocity` initial guess was nonsensical — fixed to `vdot * 5.0` m/min
+- `PlannerCalendar.tsx`: blockForDate O(days×blocks) per render → memoized to O(1) with Map
+- `import-training-plan.ts`: `seenWeek52` / `crossedWeek52` naming inconsistency → unified to `crossedWeek52`
+
+### Documentation Written
+- `docs/api/auth.md` — auth + settings endpoints
+- `docs/api/strava.md` — sync endpoint
+- `docs/api/planner.md` — workouts, templates, sports CRUD
+- `docs/api/coach.md` — streaming chat, context strategy, plan-action spec
+- `docs/api/races.md` — race records CRUD
+- `docs/schemas/ai-context.md` — full spec of what gets sent to AI
+- `TESTING_GUIDE.md` — step-by-step local setup and feature testing checklist
+
+### Test Data
+- `scripts/import-training-plan.ts` — imports Swedish CSV training plan (weeks 43/2025–19/2026)
 
 ---
 

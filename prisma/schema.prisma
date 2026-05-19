@@ -42,7 +42,7 @@ model AthleteProfile {
   primaryGoal      String?
   yearsTraining    Int?
   updatedAt        DateTime  @updatedAt
-  user             User      @relation(fields: [userId], references: [id])
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // NextAuth session
@@ -64,7 +64,7 @@ model StravaAccount {
   scope        String
   lastSyncAt   DateTime?
   totalSynced  Int       @default(0)
-  user         User      @relation(fields: [userId], references: [id])
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model GarminAccount {
@@ -73,7 +73,7 @@ model GarminAccount {
   accessToken  String
   refreshToken String
   expiresAt    DateTime
-  user         User     @relation(fields: [userId], references: [id])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model GarminDailySummary {
@@ -91,7 +91,7 @@ model GarminDailySummary {
   sleepAwake      Int?     // seconds
   bodyBattery     Int?     // 0-100
   respirationRate Float?
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([userId, date])
@@ -140,7 +140,7 @@ model Activity {
   weatherPrecip Float?
   weatherCode   Int?
 
-  user             User            @relation(fields: [userId], references: [id])
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   matchedPlannedId String?
   matchedPlanned   PlannedWorkout? @relation(fields: [matchedPlannedId], references: [id])
 
@@ -157,7 +157,7 @@ model SportCategory {
   icon      String
   isDefault Boolean  @default(false)
   order     Int      @default(0)
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutTypes WorkoutType[]
   templates    WorkoutTemplate[]
 }
@@ -170,7 +170,7 @@ model WorkoutType {
   color   String?
   order   Int     @default(0)
   sport   SportCategory   @relation(fields: [sportId], references: [id])
-  user    User            @relation(fields: [userId], references: [id])
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   templates WorkoutTemplate[]
 }
 
@@ -189,7 +189,7 @@ model WorkoutTemplate {
   estimatedZoneDistribution Json?
 
   sections WorkoutSection[]
-  user     User             @relation(fields: [userId], references: [id])
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   sport    SportCategory    @relation(fields: [sportId], references: [id])
   type     WorkoutType?     @relation(fields: [typeId], references: [id])
   planned  PlannedWorkout[]
@@ -237,7 +237,7 @@ model PlannedWorkout {
   missedNote   String?
   markedAt     DateTime?
 
-  user            User             @relation(fields: [userId], references: [id])
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   template        WorkoutTemplate? @relation(fields: [templateId], references: [id])
   matchedActivity Activity[]
 
@@ -256,7 +256,7 @@ model RaceRecord {
   stravaActivityId String?
   notes            String?
   isManual         Boolean  @default(false)
-  user             User     @relation(fields: [userId], references: [id])
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, distance])
   @@index([userId, distanceM])
@@ -279,7 +279,7 @@ model TrainingBlock {
   actualTimeSec     Int?
   actualTSS         Float?
   actualCompletionRate Float?
-  user        User     @relation(fields: [userId], references: [id])
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, startDate])
   @@index([userId, archived])
@@ -292,7 +292,7 @@ model Conversation {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
-  user      User      @relation(fields: [userId], references: [id])
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Message {
@@ -304,7 +304,7 @@ model Message {
   tokensUsed     Int?
   estimatedCostUsd Float?
   modelUsed      String?
-  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 model AISettings {
@@ -317,5 +317,5 @@ model AISettings {
   monthlyBudgetUsd Float @default(5.0)
   currentMonthSpendUsd Float @default(0.0)
   spendResetAt DateTime @default(now())
-  user         User    @relation(fields: [userId], references: [id])
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

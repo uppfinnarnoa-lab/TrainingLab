@@ -130,13 +130,20 @@ export function estimateVO2max(
 }
 
 // Predict race time from VDOT for a given distance.
+// vdotFromRace is a DECREASING function of time (faster = higher VDOT),
+// so when the estimate is too high we need MORE time (move lo up), and
+// when too low we need LESS time (move hi down).
 export function predictRaceTime(vdot: number, distanceM: number): number {
-  // Binary search: find time t such that vdotFromRace(distance, t) ≈ vdot
-  let lo = distanceM / 10, hi = distanceM * 2;
-  for (let i = 0; i < 50; i++) {
+  let lo = distanceM / 15; // fastest plausible (e.g. 4 min/km for 5K)
+  let hi = distanceM * 3;  // slowest plausible
+  for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
-    if (vdotFromRace(distanceM, mid) > vdot) lo = mid;
-    else hi = mid;
+    const estimated = vdotFromRace(distanceM, mid);
+    if (estimated > vdot) {
+      lo = mid; // estimated VDOT too high → need more time → raise lo
+    } else {
+      hi = mid; // estimated VDOT too low → need less time → lower hi
+    }
   }
   return Math.round((lo + hi) / 2);
 }

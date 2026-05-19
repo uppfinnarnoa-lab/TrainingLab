@@ -39,10 +39,25 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick }
     return map;
   }, [workouts]);
 
-  // Find block for a given date
+  // Pre-build a date→block map so blockForDate is O(1) per render
+  const blockByDate = useMemo(() => {
+    const map = new Map<string, TrainingBlock>();
+    for (const b of blocks) {
+      if (b.archived) continue;
+      // Walk every day in the block range and map it
+      const start = new Date(b.startDate + "T00:00:00");
+      const end   = new Date(b.endDate   + "T00:00:00");
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        map.set(format(cursor, "yyyy-MM-dd"), b);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+    return map;
+  }, [blocks]);
+
   function blockForDate(date: Date): TrainingBlock | undefined {
-    const d = format(date, "yyyy-MM-dd");
-    return blocks.find(b => !b.archived && b.startDate <= d && b.endDate >= d);
+    return blockByDate.get(format(date, "yyyy-MM-dd"));
   }
 
   // Group days into weeks for the summary strip

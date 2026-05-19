@@ -86,14 +86,14 @@ export function buildPaceZones(vdot: number): PaceZones {
 // Approximation: VO2 = 0.000104v³ - 0.182258v² + 4.6v - 4.31 (Daniels)
 // Invert numerically.
 function vdotToVelocity(vdot: number): number {
-  // Good approximation: v = (vdot + 4.31 - 4.6v ...) — use linear approximation
-  // Simpler: VDOT≈VO2max, and VO2 at pace v (m/min) ≈ -4.60 + 0.182258v + 0.000104v²
-  // Solve numerically via Newton's method
-  let v = (vdot / 3.5) * 0.45; // initial guess in m/s -> convert to m/min
-  v = v * 60;
-  for (let i = 0; i < 20; i++) {
+  // Daniels: VO2 at pace v (m/min) ≈ -4.60 + 0.182258v + 0.000104v²
+  // Invert with Newton's method. Good initial guess: VDOT 50 → ~268 m/min.
+  // Linear approximation: v ≈ vdot * 5.0 m/min is a safe starting point.
+  let v = vdot * 5.0; // m/min — reasonable across VDOT 30-80
+  for (let i = 0; i < 30; i++) {
     const f = -4.60 + 0.182258 * v + 0.000104 * v * v - vdot;
     const df = 0.182258 + 2 * 0.000104 * v;
+    if (Math.abs(df) < 1e-10) break;
     v -= f / df;
   }
   return v / 60; // m/s
