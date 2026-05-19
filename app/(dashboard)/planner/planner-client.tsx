@@ -6,6 +6,7 @@ import { TemplateLibrary } from "@/components/planner/TemplateLibrary";
 import { PlannerCalendar } from "@/components/planner/PlannerCalendar";
 import { WorkoutBuilder, type BuilderData } from "@/components/planner/WorkoutBuilder";
 import { OutcomeModal } from "@/components/planner/OutcomeModal";
+import { WorkoutEditModal } from "@/components/planner/WorkoutEditModal";
 import { BlockBanner } from "@/components/planner/BlockBanner";
 import type {
   SportCategory, WorkoutTemplate, PlannedWorkout, TrainingBlock,
@@ -28,9 +29,20 @@ export function PlannerClient(props: Props) {
   const [workouts, setWorkouts] = useState(props.workouts);
 
   // Modals
-  const [builderDate, setBuilderDate] = useState<string | null>(null);
-  const [showBuilder, setShowBuilder] = useState(false);
-  const [selectedWorkout, setSelectedWorkout] = useState<PlannedWorkout | null>(null);
+  const [builderDate, setBuilderDate]   = useState<string | null>(null);
+  const [showBuilder, setShowBuilder]   = useState(false);
+  const [statusWorkout, setStatusWorkout] = useState<PlannedWorkout | null>(null);  // past → status
+  const [editWorkout, setEditWorkout]   = useState<PlannedWorkout | null>(null);    // future → edit
+
+  const today = new Date().toISOString().split("T")[0];
+
+  function handleWorkoutClick(w: PlannedWorkout) {
+    if (w.date > today) {
+      setEditWorkout(w);     // future → edit
+    } else {
+      setStatusWorkout(w);   // past/today → status
+    }
+  }
 
   // ── Open builder ────────────────────────────────────────────────────
   function openBuilder(date?: string) {
@@ -119,7 +131,7 @@ export function PlannerClient(props: Props) {
     if (res.ok) setTemplates(prev => prev.filter(t => t.id !== id));
   }
 
-  // ── Update workout outcome ─────────────────────────────────────────
+  // ── Status save (past workouts) ────────────────────────────────────
   async function handleOutcomeSave(
     id: string, status: string, missedReason?: string, missedNote?: string
   ) {
@@ -132,7 +144,27 @@ export function PlannerClient(props: Props) {
       const updated: PlannedWorkout = await res.json();
       setWorkouts(prev => prev.map(w => w.id === id ? { ...w, ...updated } : w));
     }
-    setSelectedWorkout(null);
+    setStatusWorkout(null);
+  }
+
+  // ── Edit save (future workouts) ────────────────────────────────────
+  async function handleEditSave(id: string, patch: Partial<PlannedWorkout>) {
+    const res = await fetch(`/api/planner/workouts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      const updated: PlannedWorkout = await res.json();
+      setWorkouts(prev => prev.map(w => w.id === id ? { ...w, ...updated } : w));
+    }
+    setEditWorkout(null);
+  }
+
+  // ── Delete workout ─────────────────────────────────────────────────
+  async function handleDeleteWorkout(id: string) {
+    await fetch(`/api/planner/workouts/${id}`, { method: "DELETE" });
+    setWorkouts(prev => prev.filter(w => w.id !== id));
   }
 
   return (
@@ -175,7 +207,7 @@ export function PlannerClient(props: Props) {
             workouts={workouts}
             blocks={props.blocks}
             onDayClick={date => openBuilder(date)}
-            onWorkoutClick={w => setSelectedWorkout(w)}
+            onWorkoutClick={handleWorkoutClick}
           />
         </div>
       </div>
@@ -192,12 +224,22 @@ export function PlannerClient(props: Props) {
         />
       )}
 
-      {/* Outcome logging modal */}
-      {selectedWorkout && (
+      {/* Status modal — past workouts only */}
+      {statusWorkout && (
         <OutcomeModal
-          workout={selectedWorkout}
-          onClose={() => setSelectedWorkout(null)}
+          workout={statusWorkout}
+          onClose={() => setStatusWorkout(null)}
           onSave={handleOutcomeSave}
+        />
+      )}
+
+      {/* Edit modal — future workouts only */}
+      {editWorkout && (
+        <WorkoutEditModal
+          workout={editWorkout}
+          onClose={() => setEditWorkout(null)}
+          onSave={handleEditSave}
+          onDelete={handleDeleteWorkout}
         />
       )}
     </div>
