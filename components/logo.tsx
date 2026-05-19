@@ -44,10 +44,10 @@ export function Logo({ size = 32, className }: Props) {
  */
 export function LogoWordmark({ size = 32, className }: Props) {
   const fontSize   = size * 0.52;
-  // Pull 'r' flush against where the T visually ends.
-  // SVG viewbox is 40px wide, T right edge at x=38 → 2/40=5% empty on right.
-  // Add font's natural letter-spacing (tracking-tight = -0.025em) offset.
-  const pullIn = -(size * 0.05) - (size * 0.52 * 0.025);
+  // SVG right empty margin = 2/40 = 5% of icon width.
+  // 'r' also has its own left side bearing (~0.05em at this font size).
+  // Together: pull 'r' inward by SVG margin + r's left bearing ≈ 10% of icon.
+  const pullIn = -(size * 0.10);
 
   return (
     <div className={`flex items-end ${className ?? ""}`} style={{ gap: 0 }}>
