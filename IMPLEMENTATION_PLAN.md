@@ -1455,23 +1455,36 @@ GOOGLE_AI_API_KEY=""
 - Next.js 15 `instrumentationHook` experimental flag removed — instrumentation is now automatic
 - Weather uses first GPS point from summary polyline (simple decoder, no external lib needed)
 
-### Phase 2 — Statistics (Week 2–4)
-- [ ] Activity aggregation queries (volume, frequency, elevation by sport + period)
-- [ ] Overview cards with sparklines and YoY comparison
-- [ ] Volume charts: weekly stacked bar, 4-week rolling average, lifetime totals
-- [ ] Training load engine: ATL, CTL, TSB (with shaded form zones)
-- [ ] Zone engine: HR zones + pace zones from VO2max/VDOT, TRIMP/TSS per activity
-- [ ] HR zone distribution + polarization charts
-- [ ] VO2max estimation: race-based (VDOT), HR-ratio, tempo-HR regression
-- [ ] Training paces table + race time predictions
-- [ ] HR efficiency, aerobic decoupling, running economy, cadence trend
+### Phase 2 — Statistics ✅ CORE COMPLETE (remaining items deferred)
+- [x] Fitness computation library: `lib/fitness/zones.ts`, `training-load.ts`, `vo2max.ts`, `paces.ts`
+- [x] Educational tooltips: `lib/fitness/tooltips.ts` — ATL, CTL, TSB, VO2max, VDOT, TSS, HR zones, polarization, Pa:HR, readiness, consistency
+- [x] Stats page (`/stats`) with 5-tab layout: Overview, Volume, Load, Zones, Fitness
+- [x] Overview cards with inline SVG sparklines, YoY % delta badges, form card
+- [x] Weekly volume chart — Recharts stacked bar by sport + 4-week rolling avg line
+- [x] Training load chart — ATL/CTL/TSB 16-week line chart with reference line
+- [x] HR zone distribution — donut chart + bar breakdown with % and duration
+- [x] VO2max: 3-method estimation (race VDOT, HR ratio, submaximal run), confidence indicator
+- [x] Training paces table: Easy / Marathon / Threshold / Interval / Repetition from VDOT
+- [x] Race time predictions: 800m–marathon, peak fitness + TSB-adjusted "today" columns
+- [x] Athlete profile form in settings (`/settings` → athlete profile section)
+- [x] `/api/settings/profile` route — saves name, weight, height, DOB, sex, max/rest HR, goal
+- [x] `/api/stats` route — full server-side aggregation endpoint
+
+**Deferred to future session (Phase 2b):**
+- [ ] HR efficiency trend, aerobic decoupling (Pa:HR), running economy, cadence trend charts
 - [ ] Split analysis + auto-detected interval analysis
 - [ ] Recovery time estimate + overtraining risk indicator
 - [ ] Annual/monthly goal tracker
 - [ ] Comparison view (period A vs B)
-- [ ] Season spider chart
-- [ ] Educational tooltips system (`lib/tooltips.ts`)
-- [ ] Daily cron sync
+- [ ] Season spider / radar chart
+- [ ] Daily cron sync (already built in Phase 1)
+
+**Notes from implementation:**
+- Stats page is a server component that computes everything — no client-side data fetching needed
+- Fitness lib functions are pure TypeScript with no DB dependency — easy to unit test
+- VO2max uses binary search to invert the Daniels VO2-pace formula
+- TSS uses TRIMP-exponential (Banister) normalized to threshold effort
+- Type safety: explicit `A` type alias required since Prisma client returns `any` before `db:generate`
 
 ### Phase 3 — Training Planner (Week 3–5)
 - [ ] Sport categories + workout types CRUD (Settings → Sports & Types)

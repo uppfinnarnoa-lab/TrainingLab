@@ -5,15 +5,18 @@ import { getGarminAuthUrl } from "@/lib/garmin/client";
 import { StravaConnectSection } from "./strava-connect";
 import { GarminConnectSection } from "./garmin-connect";
 import { AISettingsSection } from "./ai-settings";
+import { AthleteProfileForm } from "./athlete-profile";
 
 export default async function SettingsPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const [stravaAccount, garminAccount, aiSettings] = await Promise.all([
+  const [stravaAccount, garminAccount, aiSettings, user, athleteProfile] = await Promise.all([
     prisma.stravaAccount.findUnique({ where: { userId } }),
     prisma.garminAccount.findUnique({ where: { userId } }),
     prisma.aISettings.findUnique({ where: { userId } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+    prisma.athleteProfile.findUnique({ where: { userId } }),
   ]);
 
   return (
@@ -67,6 +70,25 @@ export default async function SettingsPage() {
           currentSpend={aiSettings?.currentMonthSpendUsd ?? 0}
         />
       </IntegrationCard>
+
+      {/* ── Athlete Profile ── */}
+      <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
+        <div>
+          <h2 className="font-semibold text-primary">Athlete Profile</h2>
+          <p className="text-xs text-muted mt-0.5">Physical data used by your AI coach for personalized advice and accurate predictions</p>
+        </div>
+        <AthleteProfileForm initial={{
+          name: user?.name,
+          weightKg: athleteProfile?.weightKg,
+          heightCm: athleteProfile?.heightCm,
+          dateOfBirth: athleteProfile?.dateOfBirth?.toISOString() ?? null,
+          sex: athleteProfile?.sex,
+          maxHeartRate: athleteProfile?.maxHeartRate,
+          restingHeartRate: athleteProfile?.restingHeartRate,
+          primaryGoal: athleteProfile?.primaryGoal,
+          yearsTraining: athleteProfile?.yearsTraining,
+        }} />
+      </section>
     </div>
   );
 }
