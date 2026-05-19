@@ -21,7 +21,8 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
     await Promise.all([
       prisma.athleteProfile.findUnique({ where: { userId } }),
       prisma.activity.findMany({
-        where: { userId, startDate: { gte: subDays(now, 730) } },
+        // 5-year cap: limits AI context window to save costs and processing time
+        where: { userId, startDate: { gte: subDays(now, 5 * 365) } },
         orderBy: { startDate: "asc" },
         select: {
           sportType: true, startDate: true, name: true, description: true,

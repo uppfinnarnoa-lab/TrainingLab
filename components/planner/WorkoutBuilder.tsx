@@ -64,7 +64,10 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, i
       ? editTemplate.sections.map(s => ({ ...s, _key: newKey() }))
       : [emptySection()]
   );
-  const [saveAsTemplate, setSaveAsTemplate] = useState(!isEditing);
+  // Only offer "save as template" when opened from the template library (no initialDate).
+  // When adding directly to a calendar date, it's a one-off workout — no template saved.
+  const showTemplateOption = !isEditing && !initialDate;
+  const [saveAsTemplate, setSaveAsTemplate] = useState(showTemplateOption);
   const [date, setDate]               = useState(initialDate ?? "");
 
   const selectedSport = sports.find(s => s.id === sportId);
@@ -227,11 +230,13 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, i
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-border flex items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
-            <input type="checkbox" checked={saveAsTemplate} onChange={e => setSaveAsTemplate(e.target.checked)}
-              className="rounded" />
-            Save as reusable template
-          </label>
+          {showTemplateOption && (
+            <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+              <input type="checkbox" checked={saveAsTemplate} onChange={e => setSaveAsTemplate(e.target.checked)}
+                className="rounded" />
+              Save as reusable template
+            </label>
+          )}
           <div className="flex-1" />
           <button onClick={onCancel} className="px-4 py-2 text-sm text-muted hover:text-primary transition">Cancel</button>
           <button
