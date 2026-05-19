@@ -30,6 +30,7 @@ interface Props {
   todayLoad: DailyLoad;
   zoneSeconds: Record<string, number>;
   hrZones: HRZones;
+  ltBounds: { lt1: number; lt2: number; ltTrainingRange: [number, number]; atTrainingRange: [number, number] };
   vo2max: VO2maxEstimate;
   paceZones: PaceZones;
   predictions: RacePred[];
@@ -45,7 +46,7 @@ type Section = (typeof SECTIONS)[number];
 
 export function StatsClient(props: Props) {
   const { overview: o, sparklines, weeklyVolumes, loadCurve, todayLoad,
-    zoneSeconds, vo2max, paceZones, predictions } = props;
+    zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -172,6 +173,9 @@ export function StatsClient(props: Props) {
             action={<ZoneCalibrationButton />}>
             <HRZonesChart zoneSeconds={zoneSeconds} />
           </SectionCard>
+
+          {/* HR zone table with LT/AT boundaries */}
+          <HRZoneTable hrZones={hrZones} ltBounds={ltBounds} />
         </div>
       )}
 
@@ -302,6 +306,78 @@ function ZoneCalibrationButton() {
         </div>
       )}
       {error && <p className="text-xs text-error">{error}</p>}
+    </div>
+  );
+}
+
+const ZONE_META = [
+  { key: "z1", label: "Z1", name: "Recovery",  color: "#94A3B8", purpose: "Easy recovery, warm-up, cool-down" },
+  { key: "z2", label: "Z2", name: "Aerobic",   color: "#6EE7B7", purpose: "Aerobic base — most of your volume should be here" },
+  { key: "z3", label: "Z3", name: "Tempo",     color: "#FBBF24", purpose: "Between LT1 and LT2 — use sparingly, not junk miles" },
+  { key: "z4", label: "Z4", name: "Threshold", color: "#F97316", purpose: "At/near LT2 — raises sustainable race pace ceiling" },
+  { key: "z5", label: "Z5", name: "VO2max",    color: "#EF4444", purpose: "Above LT2 — develops top-end aerobic power" },
+];
+
+function HRZoneTable({ hrZones, ltBounds }: {
+  hrZones: HRZones;
+  ltBounds: { lt1: number; lt2: number; ltTrainingRange: [number, number]; atTrainingRange: [number, number] };
+}) {
+  const zones: Record<string, [number, number]> = {
+    z1: hrZones.z1, z2: hrZones.z2, z3: hrZones.z3, z4: hrZones.z4, z5: hrZones.z5,
+  };
+
+  return (
+    <div className="rounded-xl border border-border overflow-hidden">
+      <div className="px-4 py-3 border-b border-border bg-surface-2 flex items-center justify-between">
+        <p className="text-sm font-semibold text-primary">HR zones — intervals & thresholds</p>
+        <p className="text-xs text-muted">Max HR: {hrZones.maxHR} bpm · Rest HR: {hrZones.restHR} bpm</p>
+      </div>
+
+      {/* Zone rows */}
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left px-4 py-2 text-xs text-muted font-medium w-8">Zone</th>
+            <th className="text-left px-4 py-2 text-xs text-muted font-medium">Name</th>
+            <th className="text-right px-4 py-2 text-xs text-muted font-medium font-mono">HR range</th>
+            <th className="text-left px-4 py-2 text-xs text-muted font-medium hidden md:table-cell">Purpose</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {ZONE_META.map(z => {
+            const [lo, hi] = zones[z.key];
+            return (
+              <tr key={z.key} className="hover:bg-surface-2 transition-colors">
+                <td className="px-4 py-2.5">
+                  <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: z.color }} />
+                  <span className="font-semibold text-primary">{z.label}</span>
+                </td>
+                <td className="px-4 py-2.5 text-primary">{z.name}</td>
+                <td className="px-4 py-2.5 text-right font-mono text-muted">
+                  {lo}–{hi} bpm
+                </td>
+                <td className="px-4 py-2.5 text-xs text-muted hidden md:table-cell">{z.purpose}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {/* LT / AT section */}
+      <div className="border-t border-border bg-surface-2 px-4 py-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Lactate Threshold (LT2)</p>
+          <p className="font-mono font-semibold text-primary">{ltBounds.lt2} bpm</p>
+          <p className="text-xs text-muted mt-0.5">Recommended LT training: <span className="font-mono text-warning">{ltBounds.ltTrainingRange[0]}–{ltBounds.ltTrainingRange[1]} bpm</span></p>
+          <p className="text-xs text-muted mt-0.5">Examples: threshold intervals (4×10 min), tempo runs</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Aerobic Threshold (LT1)</p>
+          <p className="font-mono font-semibold text-primary">{ltBounds.lt1} bpm</p>
+          <p className="text-xs text-muted mt-0.5">Recommended AT training: <span className="font-mono text-accent">{ltBounds.atTrainingRange[0]}–{ltBounds.atTrainingRange[1]} bpm</span></p>
+          <p className="text-xs text-muted mt-0.5">Examples: long runs, distans, marathon pace</p>
+        </div>
+      </div>
     </div>
   );
 }

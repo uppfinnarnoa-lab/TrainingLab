@@ -58,19 +58,47 @@ export function estimateMaxHRFromThreshold(thresholdHRs: number[]): number | nul
   return Math.round(thresholdHR / 0.88);
 }
 
-// Build HR zones from max HR. Using 5-zone model based on % of max HR.
+/**
+ * Physiologically-anchored HR zones — non-uniform, based on LT1 and LT2.
+ *
+ * Uses % of maxHR (not HRR) because the research is clearer and the
+ * zones are anchored at real metabolic thresholds, not math:
+ *
+ *   LT1 (aerobic threshold)       ≈ 75–80 % maxHR
+ *   LT2 (lactate threshold / AT)  ≈ 86–91 % maxHR  ← trained athletes higher
+ *
+ * Zone widths are intentionally unequal:
+ *   Z1  Recovery    < LT1 - 5 %
+ *   Z2  Aerobic     LT1 - 5 % → LT1
+ *   Z3  Tempo       LT1 → LT2
+ *   Z4  Threshold   LT2 → LT2 + 6 %
+ *   Z5  VO2max      > LT2 + 6 %
+ */
 export function buildHRZones(maxHR: number, restHR: number = 45): HRZones {
-  const hrr = maxHR - restHR; // heart rate reserve
-  // Karvonen method: target_hr = rest_hr + %HRR × hrr
-  const z = (pct: number) => Math.round(restHR + pct * hrr);
+  const pct = (p: number) => Math.round(maxHR * p);
+
+  // LT1 and LT2 as % of maxHR — higher values for well-trained athletes
+  const lt1 = pct(0.78);  // aerobic threshold ≈ 78 % maxHR
+  const lt2 = pct(0.88);  // lactate threshold ≈ 88 % maxHR
+
   return {
-    z1: [z(0.50), z(0.60)],
-    z2: [z(0.60), z(0.70)],
-    z3: [z(0.70), z(0.80)],
-    z4: [z(0.80), z(0.90)],
-    z5: [z(0.90), maxHR],
+    z1: [restHR,      lt1 - 4],     // Recovery (below aerobic threshold)
+    z2: [lt1 - 4,     lt1],         // Aerobic base
+    z3: [lt1,         lt2],         // Tempo (between LT1 and LT2)
+    z4: [lt2,         pct(0.94)],   // Threshold (at/above LT2)
+    z5: [pct(0.94),   maxHR],       // VO2max
     maxHR,
     restHR,
+  };
+}
+
+/** The LT1 and LT2 boundaries extracted from a zone set, for display. */
+export function ltBoundaries(zones: HRZones) {
+  return {
+    lt1: zones.z3[0],  // LT1 = bottom of Z3
+    lt2: zones.z4[0],  // LT2 = bottom of Z4
+    ltTrainingRange: [zones.z4[0], Math.round(zones.maxHR * 0.91)] as [number, number],
+    atTrainingRange: [zones.z3[0], zones.z4[0]] as [number, number],
   };
 }
 

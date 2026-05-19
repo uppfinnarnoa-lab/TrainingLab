@@ -89,14 +89,13 @@ export function estimateVO2max(
   const isRunning = (a: ActivitySample) =>
     a.sportType.toLowerCase().includes("run") || a.sportType.toLowerCase().includes("trail");
 
-  // 1a. Marked races + keyword races
+  // 1a. Marked races + keyword races (treated as maximal efforts)
   const raceEfforts = activities.filter(a =>
-    isRunning(a) &&
-    a.distanceM >= 1500 &&
+    isRunning(a) && a.distanceM >= 1500 &&
     (a.isRace || looksLikeRace(a.name ?? ""))
   );
 
-  // 1b. Extract per-distance best efforts from Strava's bestEfforts JSON
+  // 1b. Strava bestEfforts JSON — per-distance PRs across ALL activities
   const bestEffortVdots: number[] = [];
   for (const a of activities) {
     if (!a.bestEfforts || !isRunning(a)) continue;
@@ -111,15 +110,53 @@ export function estimateVO2max(
     } catch { /* malformed JSON */ }
   }
 
+  // 1c. Hard intervals / track sessions — use activity avg pace if HR was high
+  //     Catches Tisdagsbana, OLGY, 5x4, 4x10 etc. even without race flag.
+  //     If avg HR > 88% maxHR during a run ≥ 3 km, treat avg pace as a near-maximal
+  //     effort and compute VDOT. This is conservative — actual race pace > avg pace.
+  const hardRunVdots: number[] = [];
+  if (maxHR > 0) {
+    for (const a of activities) {
+      if (!isRunning(a)) continue;
+      if (!a.avgHR || a.avgHR < maxHR * 0.88) continue;
+      if (a.distanceM < 3000 || a.timeSec < 600) continue;
+      // At ≥ 88% maxHR over ≥ 3 km, this is at/near threshold intensity.
+      // The full activity distance at avg pace underestimates true race pace
+      // for an equivalent effort, so we use 95% of avg pace as proxy.
+      const adjustedTimeSec = a.timeSec * 0.95;
+      const v = vdotFromRace(a.distanceM, adjustedTimeSec);
+      if (v > 35 && v < 90) hardRunVdots.push(v);
+    }
+  }
+
+  // 1d. Top-20 fastest runs by avg pace (any distance 3–25 km, no HR filter).
+  //     Catches fast training sessions that are neither races nor have HR data.
+  //     Applied conservatively: avg pace < true race pace, factor applied by distance.
+  const recentRunVdots: number[] = [];
+  const fastRuns = [...activities]
+    .filter(a => isRunning(a) && a.distanceM >= 3000 && a.distanceM <= 25000 && a.timeSec > 0)
+    .sort((a, b) => (a.timeSec / a.distanceM) - (b.timeSec / b.distanceM))
+    .slice(0, 20);
+
+  for (const a of fastRuns) {
+    // Conservative factor: interval avg pace is ~97% of equivalent race pace,
+    // for longer efforts it's ~99%.
+    const factor = a.distanceM < 8000 ? 0.96 : 0.99;
+    const v = vdotFromRace(a.distanceM, a.timeSec / factor);
+    if (v > 35 && v < 90) recentRunVdots.push(v);
+  }
+
   const raceVdots = raceEfforts.map(r => vdotFromRace(r.distanceM, r.timeSec))
     .filter(v => v > 35 && v < 90);
-  const allVdots = [...raceVdots, ...bestEffortVdots];
+  const allVdots = [...raceVdots, ...bestEffortVdots, ...hardRunVdots, ...recentRunVdots];
 
   if (allVdots.length > 0) {
-    estimates.push(Math.max(...allVdots));
-    bestMethod = bestEffortVdots.length > raceVdots.length
-      ? "best effort data (VDOT)"
-      : "race performance (VDOT)";
+    const best = Math.max(...allVdots);
+    estimates.push(best);
+    bestMethod = raceVdots.includes(best)       ? "race performance (VDOT)" :
+                 bestEffortVdots.includes(best)  ? "best effort data (VDOT)" :
+                 hardRunVdots.includes(best)     ? "hard effort / high-HR run (VDOT)" :
+                                                   "fastest training run (VDOT)";
   }
 
   // Method 2: HR ratio

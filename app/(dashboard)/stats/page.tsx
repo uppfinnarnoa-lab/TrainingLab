@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { StatsClient } from "./stats-client";
-import { buildHRZones, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold } from "@/lib/fitness/zones";
+import { buildHRZones, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, ltBoundaries } from "@/lib/fitness/zones";
 import { computeTSS, buildLoadCurve } from "@/lib/fitness/training-load";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime } from "@/lib/fitness/vo2max";
 import { RACE_DISTANCES } from "@/lib/fitness/paces";
@@ -153,6 +153,7 @@ export default async function StatsPage() {
         todayLoad={todayLoad}
         zoneSeconds={zoneSeconds}
         hrZones={hrZones}
+        ltBounds={ltBoundaries(hrZones)}
         vo2max={vo2max}
         paceZones={paceZones}
         predictions={predictions}
