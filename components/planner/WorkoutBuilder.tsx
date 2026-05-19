@@ -64,10 +64,10 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, i
       ? editTemplate.sections.map(s => ({ ...s, _key: newKey() }))
       : [emptySection()]
   );
-  // Only offer "save as template" when opened from the template library (no initialDate).
-  // When adding directly to a calendar date, it's a one-off workout — no template saved.
-  const showTemplateOption = !isEditing && !initialDate;
-  const [saveAsTemplate, setSaveAsTemplate] = useState(showTemplateOption);
+  // Hide template option only when editing an existing template (saves = update, not new).
+  const showTemplateOption = !isEditing;
+  // Default: unchecked when adding from calendar (one-off), checked when opening from library.
+  const [saveAsTemplate, setSaveAsTemplate] = useState(!isEditing && !initialDate);
   const [date, setDate]               = useState(initialDate ?? "");
 
   const selectedSport = sports.find(s => s.id === sportId);
