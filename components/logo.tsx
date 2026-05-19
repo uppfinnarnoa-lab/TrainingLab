@@ -44,7 +44,7 @@ export function LogoWordmark({ size = 32, className }: Props) {
   const fontSize = size * 0.52;
 
   return (
-    <div className={`flex items-center ${className ?? ""}`} style={{ gap: size * 0.04 }}>
+    <div className={`flex items-end ${className ?? ""}`} style={{ gap: size * 0.04 }}>
       <Logo size={size} />
       <span
         className="font-semibold tracking-tight text-primary leading-none"
