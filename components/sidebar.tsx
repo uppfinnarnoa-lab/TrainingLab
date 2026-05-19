@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Trophy,
   Settings,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
@@ -18,6 +19,7 @@ import { LogoWordmark } from "./logo";
 const nav = [
   { href: "/dashboard",  icon: LayoutDashboard, label: "Dashboard" },
   { href: "/activities", icon: Activity,        label: "Activities" },
+  { href: "/history",    icon: History,         label: "Activity History" },
   { href: "/stats",      icon: BarChart3,       label: "Statistics" },
   { href: "/planner",    icon: Calendar,        label: "Planner" },
   { href: "/coach",      icon: MessageSquare,   label: "Coach" },
@@ -30,7 +32,7 @@ export function Sidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface">
       {/* Logo */}
-      <div className="flex h-16 items-center px-4 border-b border-border">
+      <div className="flex h-16 items-end px-4 pb-3 border-b border-border">
         <LogoWordmark size={28} />
       </div>
 

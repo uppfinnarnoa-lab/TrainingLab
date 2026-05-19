@@ -15,29 +15,28 @@ export function Logo({ size = 32, className }: Props) {
       aria-label="TrainingLab"
     >
       <defs>
-        {/*
-          Activity icon (Lucide) rotated 90° CW, scaled to the T stem area.
-          Creates a transparent cutout in the exact shape of the ECG waveform.
-        */}
         <mask id="act-cut">
           <rect width="40" height="40" fill="white" />
+          {/* Activity waveform — sharp corners (miter + butt) */}
           <polyline
-            points="20,21 20,23 21.5,24.5 28,27 12,32 19.5,34 20,37"
+            points="14,27.5 16,27.5 17.5,27 19.5,23 19.8,23 21.5,27 23.5,32 25,27.5 29,27.5"
             stroke="black"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            strokeWidth="2.8"
+            strokeLinecap="butt"
+            strokeLinejoin="miter"
             fill="none"
           />
         </mask>
       </defs>
-      {/* Bold T — no background rect, transparent, accent color */}
-      <g mask="url(#act-cut)" fill="#6EE7B7">
-        {/* Crossbar: bold, minimal rounding */}
-        <rect x="3" y="8" width="34" height="9" rx="0.5" />
-        {/* Stem: wider and bolder */}
-        <rect x="14.5" y="17" width="11" height="21" rx="0.5" />
-      </g>
+      {/*
+        T drawn as one combined path so crossbar+stem are seamless.
+        Crossbar: y=7–17. Stem: y=16–38 (1px overlap eliminates the gap).
+      */}
+      <path
+        d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z"
+        fill="#6EE7B7"
+        mask="url(#act-cut)"
+      />
     </svg>
   );
 }

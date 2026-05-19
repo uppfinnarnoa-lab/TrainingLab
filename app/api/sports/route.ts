@@ -61,3 +61,26 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ error: "unknown_kind" }, { status: 400 });
 }
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const id   = req.nextUrl.searchParams.get("id");
+  const kind = req.nextUrl.searchParams.get("kind");
+  if (!id) return NextResponse.json({ error: "missing_id" }, { status: 400 });
+
+  if (kind === "sport") {
+    const sport = await prisma.sportCategory.findUnique({ where: { id } });
+    if (!sport || sport.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    await prisma.sportCategory.delete({ where: { id } });
+  } else {
+    const type = await prisma.workoutType.findUnique({ where: { id } });
+    if (!type || type.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    await prisma.workoutType.delete({ where: { id } });
+  }
+
+  return NextResponse.json({ ok: true });
+}

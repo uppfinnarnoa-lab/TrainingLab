@@ -1,31 +1,17 @@
 <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" fill="none">
   <defs>
-    <!--
-      Activity icon path rotated 90° CW and scaled to fit the T stem.
-      Original Lucide path (24x24): M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36
-        a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36
-        A2 2 0 0 1 4.49 12H2
-      Key waypoints rotated 90° CW and scaled to stem area (x=14.5–25.5, y=21–37):
-        top-center → slight-right → spike-right → spike-left → recover → bottom-center
-    -->
     <mask id="act-cut">
       <rect width="40" height="40" fill="white"/>
       <polyline
-        points="20,21 20,23 21.5,24.5 28,27 12,32 19.5,34 20,37"
+        points="14,27.5 16,27.5 17.5,27 19.5,23 19.8,23 21.5,27 23.5,32 25,27.5 29,27.5"
         stroke="black"
-        stroke-width="3"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+        stroke-width="2.8"
+        stroke-linecap="butt"
+        stroke-linejoin="miter"
         fill="none"
       />
     </mask>
   </defs>
-
-  <!-- Bold T — no background, transparent, accent color -->
-  <g mask="url(#act-cut)" fill="#6EE7B7">
-    <!-- Crossbar: bold, sharp corners -->
-    <rect x="3" y="8" width="34" height="9" rx="0.5"/>
-    <!-- Stem: wider and bolder -->
-    <rect x="14.5" y="17" width="11" height="21" rx="0.5"/>
-  </g>
+  <!-- T as single compound path — no seam between crossbar and stem -->
+  <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#6EE7B7" mask="url(#act-cut)"/>
 </svg>
