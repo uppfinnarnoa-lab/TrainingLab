@@ -17,7 +17,7 @@ type Act = {
 export async function buildCoachContext(userId: string): Promise<CoachContext> {
   const now = new Date();
 
-  const [profile, activities, garminRecent, plannedWorkouts, missedWorkouts] =
+  const [profile, activities, garminRecent, plannedWorkouts, missedWorkouts, upcomingRaceWorkouts] =
     await Promise.all([
       prisma.athleteProfile.findUnique({ where: { userId } }),
       prisma.activity.findMany({
@@ -41,6 +41,26 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
         where: { userId, status: "missed", date: { gte: subDays(now, 28) } },
         orderBy: { date: "desc" },
         take: 10,
+      }),
+      // Upcoming races: planned workouts that look like races (intensity "Race" or race keywords)
+      prisma.plannedWorkout.findMany({
+        where: {
+          userId,
+          date: { gte: now, lte: addDays(now, 120) },
+          status: "planned",
+          OR: [
+            { targetIntensity: "Race" },
+            { name: { contains: "lopp" } },
+            { name: { contains: "tävling" } },
+            { name: { contains: "race" } },
+            { name: { contains: "mila" } },
+            { name: { contains: "sprint" } },
+            { name: { contains: "SIC" } },
+            { name: { contains: "SM " } },
+          ],
+        },
+        orderBy: { date: "asc" },
+        take: 5,
       }),
     ]);
 
@@ -139,7 +159,12 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
     paces,
     hrZones: hrZoneRanges,
     healthLog: healthLines.join("\n"),
-    upcomingRaces: [],  // TODO: from TrainingBlock linked races
+    upcomingRaces: (upcomingRaceWorkouts as { date: Date; name: string; sportType: string; targetIntensity: string | null }[]).map(w => ({
+      date: format(w.date, "d MMM yyyy"),
+      name: w.name,
+      distance: w.sportType,
+      priority: w.targetIntensity === "Race" ? "A" : "B",
+    })),
     upcomingPlan,
   };
 }
