@@ -1,0 +1,201 @@
+"use client";
+
+import { useRouter, useSearchParams } from "next/navigation";
+import { format } from "date-fns";
+import { Heart, Mountain, Thermometer, Trophy } from "lucide-react";
+import { cn, formatDistance, formatDuration, formatPace, sportColor } from "@/lib/utils";
+
+interface Activity {
+  id: string;
+  name: string;
+  description: string | null;
+  sportType: string;
+  startDate: string;
+  distance: number;
+  movingTime: number;
+  totalElevationGain: number;
+  averageHeartrate: number | null;
+  averageSpeed: number | null;
+  isRace: boolean;
+  weatherTemp: number | null;
+}
+
+interface Props {
+  activities: Activity[];
+  total: number;
+  page: number;
+  perPage: number;
+  sports: string[];
+  selectedSport?: string;
+}
+
+export function ActivityList({ activities, total, page, perPage, sports, selectedSport }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  function setFilter(sport?: string) {
+    const p = new URLSearchParams(searchParams.toString());
+    if (sport) p.set("sport", sport);
+    else p.delete("sport");
+    p.delete("page");
+    router.push(`/activities?${p}`);
+  }
+
+  function setPage(p: number) {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set("page", String(p));
+    router.push(`/activities?${sp}`);
+  }
+
+  const totalPages = Math.ceil(total / perPage);
+
+  return (
+    <div className="space-y-4">
+      {/* Sport filter chips */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setFilter()}
+          className={cn(
+            "px-3 py-1.5 rounded-full text-xs font-medium transition",
+            !selectedSport
+              ? "bg-accent text-white dark:text-background"
+              : "bg-surface-2 text-muted hover:text-primary"
+          )}
+        >
+          All
+        </button>
+        {sports.map((s) => (
+          <button
+            key={s}
+            onClick={() => setFilter(s)}
+            className={cn(
+              "px-3 py-1.5 rounded-full text-xs font-medium transition",
+              selectedSport === s
+                ? "text-white dark:text-background"
+                : "bg-surface-2 text-muted hover:text-primary"
+            )}
+            style={selectedSport === s ? { backgroundColor: sportColor(s) } : {}}
+          >
+            {s.replace(/([A-Z])/g, " $1").trim()}
+          </button>
+        ))}
+      </div>
+
+      {/* Activity cards */}
+      <div className="space-y-2">
+        {activities.length === 0 ? (
+          <div className="rounded-2xl bg-surface border border-border p-12 text-center">
+            <p className="text-muted">No activities found. Sync your Strava account in Settings.</p>
+          </div>
+        ) : (
+          activities.map((activity) => (
+            <div
+              key={activity.id}
+              className="rounded-xl bg-surface border border-border p-4 hover:border-accent/40 transition-colors cursor-pointer group"
+              style={{ borderLeftWidth: 3, borderLeftColor: sportColor(activity.sportType) }}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-primary truncate">
+                      {activity.name}
+                    </span>
+                    {activity.isRace && (
+                      <Trophy size={13} className="text-warning shrink-0" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span
+                      className="text-xs font-medium px-2 py-0.5 rounded-full"
+                      style={{
+                        backgroundColor: `${sportColor(activity.sportType)}20`,
+                        color: sportColor(activity.sportType),
+                      }}
+                    >
+                      {activity.sportType.replace(/([A-Z])/g, " $1").trim()}
+                    </span>
+                    <span className="text-xs text-muted">
+                      {format(new Date(activity.startDate), "EEE d MMM yyyy")}
+                    </span>
+                  </div>
+                  {activity.description && (
+                    <p className="mt-1.5 text-xs text-muted line-clamp-2">{activity.description}</p>
+                  )}
+                </div>
+
+                {/* Stats */}
+                <div className="shrink-0 flex items-center gap-5 text-right">
+                  <div>
+                    <p className="text-sm font-semibold font-mono text-primary">
+                      {formatDistance(activity.distance)}
+                    </p>
+                    <p className="text-xs text-muted">distance</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold font-mono text-primary">
+                      {formatDuration(activity.movingTime)}
+                    </p>
+                    <p className="text-xs text-muted">time</p>
+                  </div>
+                  {activity.averageSpeed && (
+                    <div className="hidden sm:block">
+                      <p className="text-sm font-semibold font-mono text-primary">
+                        {formatPace(activity.averageSpeed)}
+                      </p>
+                      <p className="text-xs text-muted">pace</p>
+                    </div>
+                  )}
+                  <div className="hidden md:flex flex-col items-end gap-1">
+                    {activity.totalElevationGain > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-muted">
+                        <Mountain size={11} />
+                        {Math.round(activity.totalElevationGain)}m
+                      </span>
+                    )}
+                    {activity.averageHeartrate && (
+                      <span className="flex items-center gap-1 text-xs text-muted">
+                        <Heart size={11} />
+                        {Math.round(activity.averageHeartrate)} bpm
+                      </span>
+                    )}
+                    {activity.weatherTemp !== null && (
+                      <span className="flex items-center gap-1 text-xs text-muted">
+                        <Thermometer size={11} />
+                        {Math.round(activity.weatherTemp)}°C
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-xs text-muted">
+            Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total.toLocaleString()}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage(page - 1)}
+              disabled={page <= 1}
+              className="px-3 py-1.5 rounded-lg text-xs border border-border text-muted hover:text-primary disabled:opacity-30 transition"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={page >= totalPages}
+              className="px-3 py-1.5 rounded-lg text-xs border border-border text-muted hover:text-primary disabled:opacity-30 transition"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+
+  stravaAccount      StravaAccount?
+  garminAccount      GarminAccount?
+  garminDailies      GarminDailySummary[]
+  activities         Activity[]
+  plannedWorkouts    PlannedWorkout[]
+  workoutTemplates   WorkoutTemplate[]
+  sportCategories    SportCategory[]
+  workoutTypes       WorkoutType[]
+  raceRecords        RaceRecord[]
+  trainingBlocks     TrainingBlock[]
+  conversations      Conversation[]
+  aiSettings         AISettings?
+  sessions           Session[]
+}
+
+// NextAuth session
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StravaAccount {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  athleteId    BigInt    @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scope        String
+  lastSyncAt   DateTime?
+  totalSynced  Int       @default(0)
+  user         User      @relation(fields: [userId], references: [id])
+}
+
+model GarminAccount {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  user         User     @relation(fields: [userId], references: [id])
+}
+
+model GarminDailySummary {
+  id              String   @id @default(cuid())
+  userId          String
+  date            DateTime @db.Date
+  restingHR       Int?
+  hrvNightly      Float?
+  hrvBalance      String?  // "Balanced" | "Low" | "Unbalanced"
+  sleepScore      Int?
+  sleepDuration   Int?     // seconds
+  sleepDeep       Int?     // seconds
+  sleepLight      Int?     // seconds
+  sleepRem        Int?     // seconds
+  sleepAwake      Int?     // seconds
+  bodyBattery     Int?     // 0-100
+  respirationRate Float?
+  user            User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model Activity {
+  id           String   @id
+  userId       String
+  stravaId     BigInt   @unique
+  name         String
+  description  String?
+  sportType    String
+  startDate    DateTime
+  startDateLocal DateTime
+  timezone     String
+
+  distance           Float
+  movingTime         Int
+  elapsedTime        Int
+  totalElevationGain Float
+
+  averageSpeed  Float?
+  maxSpeed      Float?
+  averageCadence Float?
+  averageWatts  Float?
+  weightedAverageWatts Float?
+
+  averageHeartrate Float?
+  maxHeartrate     Float?
+
+  sufferScore      Int?
+  perceivedExertion Int?
+  workoutType      Int?
+  isRace           Boolean @default(false)
+  mapPolyline      String?
+
+  splitsMetric Json?
+  laps         Json?
+  bestEfforts  Json?
+
+  trainingLoad    Float?
+  intensityFactor Float?
+
+  weatherTemp   Float?
+  weatherWind   Float?
+  weatherPrecip Float?
+  weatherCode   Int?
+
+  user             User            @relation(fields: [userId], references: [id])
+  matchedPlannedId String?
+  matchedPlanned   PlannedWorkout? @relation(fields: [matchedPlannedId], references: [id])
+
+  @@index([userId, startDate])
+  @@index([userId, sportType])
+  @@index([userId, isRace])
+}
+
+model SportCategory {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String
+  icon      String
+  isDefault Boolean  @default(false)
+  order     Int      @default(0)
+  user      User     @relation(fields: [userId], references: [id])
+  workoutTypes WorkoutType[]
+  templates    WorkoutTemplate[]
+}
+
+model WorkoutType {
+  id      String  @id @default(cuid())
+  userId  String
+  sportId String
+  name    String
+  color   String?
+  order   Int     @default(0)
+  sport   SportCategory   @relation(fields: [sportId], references: [id])
+  user    User            @relation(fields: [userId], references: [id])
+  templates WorkoutTemplate[]
+}
+
+model WorkoutTemplate {
+  id          String  @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  sportId     String
+  typeId      String?
+  color       String?
+
+  estimatedDistance         Float?
+  estimatedDuration         Int?
+  estimatedTSS              Float?
+  estimatedZoneDistribution Json?
+
+  sections WorkoutSection[]
+  user     User             @relation(fields: [userId], references: [id])
+  sport    SportCategory    @relation(fields: [sportId], references: [id])
+  type     WorkoutType?     @relation(fields: [typeId], references: [id])
+  planned  PlannedWorkout[]
+
+  @@index([userId, sportId])
+}
+
+model WorkoutSection {
+  id         String  @id @default(cuid())
+  templateId String
+  order      Int
+  name       String
+  durationType  String  // "time" | "distance" | "open"
+  duration      Int?
+  distance      Float?
+  repetitions   Int?
+  zoneType      String? // "hr_zone" | "pace_zone" | "power_zone" | "rpe"
+  targetZone    Int?
+  targetPaceLow  Float?
+  targetPaceHigh Float?
+  targetHRLow   Int?
+  targetHRHigh  Int?
+  targetRPE     Int?
+  notes         String?
+  template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, order])
+}
+
+model PlannedWorkout {
+  id         String   @id @default(cuid())
+  userId     String
+  templateId String?
+  date       DateTime @db.Date
+  name       String
+  sportType  String
+  notes      String?
+  targetDistance  Float?
+  targetDuration  Int?
+  targetIntensity String?
+  color           String?
+
+  status       String    @default("planned") // "planned"|"completed"|"missed"|"partial"
+  missedReason String?
+  missedNote   String?
+  markedAt     DateTime?
+
+  user            User             @relation(fields: [userId], references: [id])
+  template        WorkoutTemplate? @relation(fields: [templateId], references: [id])
+  matchedActivity Activity[]
+
+  @@index([userId, date])
+  @@index([userId, status])
+}
+
+model RaceRecord {
+  id               String   @id @default(cuid())
+  userId           String
+  distance         String
+  distanceM        Float
+  time             Int      // seconds
+  date             DateTime @db.Date
+  eventName        String?
+  stravaActivityId String?
+  notes            String?
+  isManual         Boolean  @default(false)
+  user             User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, distance])
+  @@index([userId, distanceM])
+}
+
+model TrainingBlock {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  blockType   String   // "base"|"build"|"peak"|"taper"|"custom"
+  color       String
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  targetRaceId String?
+  notes       String?
+  targetKmPerWeek   Float?
+  targetIntensity   String? // "polarized"|"pyramidal"|"threshold"
+  archived          Boolean @default(false)
+  actualKm          Float?
+  actualTimeSec     Int?
+  actualTSS         Float?
+  actualCompletionRate Float?
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, startDate])
+  @@index([userId, archived])
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           String      // "user"|"assistant"|"system"
+  content        String
+  createdAt      DateTime    @default(now())
+  tokensUsed     Int?
+  estimatedCostUsd Float?
+  modelUsed      String?
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+}
+
+model AISettings {
+  id           String  @id @default(cuid())
+  userId       String  @unique
+  provider     String  @default("gemini") // "claude"|"gemini"
+  claudeApiKey String?
+  geminiApiKey String?
+  systemPrompt String?
+  monthlyBudgetUsd Float @default(5.0)
+  currentMonthSpendUsd Float @default(0.0)
+  spendResetAt DateTime @default(now())
+  user         User    @relation(fields: [userId], references: [id])
+}

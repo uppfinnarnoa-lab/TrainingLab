@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+/* ── Light mode (default) ── */
+:root {
+  --background:    #F8FAFC;
+  --surface:       #FFFFFF;
+  --surface-2:     #F1F5F9;
+  --border:        #E2E8F0;
+  --accent:        #059669;
+  --accent-2:      #6366F1;
+  --text-primary:  #0F172A;
+  --text-muted:    #64748B;
+  --error:         #DC2626;
+  --warning:       #D97706;
+
+  --sport-run:     #10B981;
+  --sport-ol:      #059669;
+  --sport-bike:    #6366F1;
+  --sport-ski:     #38BDF8;
+  --sport-rski:    #0EA5E9;
+  --sport-strength:#F87171;
+}
+
+/* ── Dark mode ── */
+.dark {
+  --background:    #0F1117;
+  --surface:       #1A1D27;
+  --surface-2:     #222534;
+  --border:        #2D3148;
+  --accent:        #6EE7B7;
+  --accent-2:      #818CF8;
+  --text-primary:  #F1F5F9;
+  --text-muted:    #94A3B8;
+  --error:         #F87171;
+  --warning:       #FBBF24;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface:    var(--surface);
+  --color-surface-2:  var(--surface-2);
+  --color-border:     var(--border);
+  --color-accent:     var(--accent);
+  --color-accent-2:   var(--accent-2);
+  --color-primary:    var(--text-primary);
+  --color-muted:      var(--text-muted);
+  --color-error:      var(--error);
+  --color-warning:    var(--warning);
+  --font-sans:        "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono:        "JetBrains Mono", "Fira Code", monospace;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}

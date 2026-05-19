@@ -1,0 +1,38 @@
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+export function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+export function formatPace(metersPerSec: number): string {
+  if (!metersPerSec || metersPerSec <= 0) return "–";
+  const secPerKm = 1000 / metersPerSec;
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}:${s.toString().padStart(2, "0")}/km`;
+}
+
+export function formatDistance(meters: number): string {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  return `${Math.round(meters)} m`;
+}
+
+export function sportColor(sportType: string): string {
+  const t = sportType.toLowerCase();
+  if (t.includes("orienteer") || t === "trailrun") return "var(--sport-ol)";
+  if (t.includes("run")) return "var(--sport-run)";
+  if (t.includes("ride") || t.includes("cycl")) return "var(--sport-bike)";
+  if (t.includes("nordicski") || t.includes("backcountryski")) return "var(--sport-ski)";
+  if (t.includes("rollerski") || t.includes("inlineskate")) return "var(--sport-rski)";
+  if (t.includes("weight") || t.includes("strength") || t.includes("crossfit")) return "var(--sport-strength)";
+  return "var(--accent)";
+}

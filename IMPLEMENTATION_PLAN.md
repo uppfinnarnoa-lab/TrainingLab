@@ -1380,15 +1380,30 @@ GOOGLE_AI_API_KEY=""
 
 ## 10. Development Phases
 
-### Phase 1 — Foundation (Week 1–2)
-- [ ] Initialize Next.js project, Prisma, PostgreSQL
-- [ ] NextAuth with email/password
-- [ ] Strava OAuth flow + token management
-- [ ] Initial sync (fetch all historical activities, including descriptions)
-- [ ] Activity storage and basic list view
-- [ ] Garmin Connect OAuth + daily HRV/sleep sync
-- [ ] Weather backfill job (Open-Meteo, batch after Strava sync)
-- [ ] Basic app shell (sidebar, navigation)
+### Phase 1 — Foundation ✅ COMPLETE
+- [x] Next.js 15 + TypeScript + Tailwind CSS + pnpm initialized
+- [x] Full Prisma schema written (`prisma/schema.prisma`) — all models from plan
+- [x] NextAuth v5 with email/password (`auth.ts`, `middleware.ts`, `/api/auth/[...nextauth]`)
+- [x] Seed script for first user + default sport categories (`scripts/seed-user.ts`)
+- [x] Dark/light mode with `next-themes`, CSS custom properties, theme toggle
+- [x] App shell: sidebar navigation, dashboard layout, route groups `(auth)` / `(dashboard)`
+- [x] Login page (`/login`)
+- [x] Dashboard placeholder (`/`)
+- [x] Strava OAuth flow + token refresh (`lib/strava/client.ts`, `/api/strava/callback`)
+- [x] Strava sync engine — full + incremental (`lib/strava/sync.ts`, `/api/strava/sync`)
+- [x] Activity list view with sport filter chips + pagination (`/activities`)
+- [x] Settings page with Strava connect UI + sync controls (`/settings`)
+- [x] Garmin Connect OAuth + daily HRV/sleep sync (`lib/garmin/`, `/api/garmin/`)
+- [x] Weather backfill job — Open-Meteo, polyline decode, throttled (`lib/weather/`)
+- [x] Daily cron jobs: Strava 06:00, weather 07:00, Garmin 08:00 (`lib/cron.ts`)
+- [x] Cron wired via Next.js instrumentation hook (`instrumentation.ts`)
+- [x] `.env.example` with all required variables documented
+
+**Notes from implementation:**
+- Prisma types are `any` until user runs `pnpm db:generate` after connecting a real DB
+- `pnpm.onlyBuiltDependencies` must be set in `pnpm-workspace.yaml` (not `package.json`) in pnpm v11+
+- Next.js 15 `instrumentationHook` experimental flag removed — instrumentation is now automatic
+- Weather uses first GPS point from summary polyline (simple decoder, no external lib needed)
 
 ### Phase 2 — Statistics (Week 2–4)
 - [ ] Activity aggregation queries (volume, frequency, elevation by sport + period)
