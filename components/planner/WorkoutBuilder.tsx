@@ -7,6 +7,7 @@ import { formatDuration, formatDistance } from "@/lib/utils";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
 import type { SportCategory, WorkoutSection } from "@/lib/planner/types";
 import { ZONE_COLORS } from "@/lib/planner/types";
+import { workoutColor } from "@/lib/planner/colors";
 import { cn } from "@/lib/utils";
 
 interface NewSection extends Omit<WorkoutSection, "id"> {
@@ -58,6 +59,10 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, i
   const [date, setDate] = useState(initialDate ?? "");
 
   const selectedSport = sports.find(s => s.id === sportId);
+  const selectedType  = selectedSport?.workoutTypes.find(t => t.id === typeId);
+
+  // Auto-computed color from sport + type — used when saving
+  const autoColor = workoutColor(selectedSport?.name ?? "", selectedType?.name ?? null);
 
   // ── Section helpers ────────────────────────────────────────────────
   function addSection() {
@@ -104,7 +109,7 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, i
   function handleSave() {
     if (!name.trim()) return;
     onSave({
-      name: name.trim(), sportId, typeId, description, color: selectedSport?.color ?? null,
+      name: name.trim(), sportId, typeId, description, color: autoColor,
       sections: sections.map(({ _key, ...s }, i) => ({ ...s, order: i })),
       saveAsTemplate, date: date || undefined,
     });
@@ -141,9 +146,17 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, i
               </select>
             </div>
 
-            {/* Type */}
+            {/* Type + color preview */}
             <div>
-              <label className="text-xs font-medium text-muted mb-1 block">Type</label>
+              <label className="text-xs font-medium text-muted mb-1 flex items-center gap-2">
+                Type
+                {/* Live colour swatch */}
+                <span
+                  className="inline-block w-3 h-3 rounded-full border border-border/60"
+                  style={{ backgroundColor: autoColor }}
+                  title={`Colour: ${autoColor}`}
+                />
+              </label>
               <select value={typeId ?? ""} onChange={e => setTypeId(e.target.value || null)} className={inputCls}>
                 <option value="">No type</option>
                 {selectedSport?.workoutTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}

@@ -1,3 +1,4 @@
+export {};
 /**
  * 1. Imports standard workout templates from the Nyckelpass section of the training plan CSV.
  * 2. Updates existing planned workout colors based on intensity/race status.
