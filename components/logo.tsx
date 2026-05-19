@@ -14,20 +14,24 @@ export function Logo({ size = 32, className }: Props) {
       className={className}
       aria-label="TrainingLab"
     >
+      {/* Background */}
       <rect width="40" height="40" rx="9" fill="#1A1D27" />
+      {/* Bold crossbar */}
+      <rect x="4" y="9" width="32" height="7" rx="1.5" fill="#6EE7B7" />
+      {/* Stem upper */}
+      <rect x="17" y="16" width="6" height="7" fill="#6EE7B7" />
+      {/* Stem lower */}
+      <rect x="17" y="29" width="6" height="7" rx="1.5" fill="#6EE7B7" />
+      {/* Cutout window */}
+      <rect x="17" y="23" width="6" height="6" fill="#1A1D27" />
+      {/* Pulse line through cutout */}
       <polyline
-        points="4,16 9,16 13,5 17,25 21,16 36,16"
+        points="17,26 18.5,24 20,29 21.5,24 23,26"
         stroke="#6EE7B7"
-        strokeWidth="2.5"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-      <line
-        x1="20.5" y1="16"
-        x2="20.5" y2="36"
-        stroke="#6EE7B7"
-        strokeWidth="2.5"
-        strokeLinecap="round"
+        fill="none"
       />
     </svg>
   );
