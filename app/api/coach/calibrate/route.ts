@@ -1,29 +1,34 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
-import { computeAndCacheFitness } from "@/lib/fitness/cache";
+import { updateHRZones } from "@/lib/fitness/cache";
 import { safeDecrypt } from "@/lib/encrypt";
 import { subDays } from "date-fns";
 
 /**
- * POST /api/coach/calibrate
- * Recomputes HR zones, VO2max, and paces from broad training data.
- * Returns the new estimates for the user to review before saving.
+ * POST /api/coach/calibrate?mode=algorithmic|ai
+ * Recomputes HR zones from broad training data.
+ * mode=algorithmic: pure math, no AI call
+ * mode=ai: math + AI review of estimates
  */
-export async function POST() {
+export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const userId = session.user.id;
+  const { searchParams } = new URL(req.url);
+  const mode = searchParams.get("mode") ?? "algorithmic";
 
-  // Recompute fitness cache from scratch
-  const result = await computeAndCacheFitness(userId);
+  // Recompute HR zones + VO2max (manual path — updates zones)
+  const result = await updateHRZones(userId);
   const cache = await prisma.fitnessCache.findUnique({ where: { userId } });
 
   if (!cache) return NextResponse.json({ error: "calibration_failed" }, { status: 500 });
 
-  // Optionally ask AI for a second opinion on zones (if API key configured)
-  const aiSettings = await prisma.aISettings.findUnique({ where: { userId } });
+  // AI review only when mode=ai
+  const aiSettings = mode === "ai"
+    ? await prisma.aISettings.findUnique({ where: { userId } })
+    : null;
   let aiInsights: string | null = null;
 
   if (aiSettings) {

@@ -250,36 +250,58 @@ function LoadCard({ label, value, tip, color, sub }: { label: string; value: str
 }
 
 function ZoneCalibrationButton() {
-  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [insights, setInsights] = useState<string | null>(null);
+  const [loading, setLoading] = useState<"algo" | "ai" | null>(null);
+  const [result, setResult] = useState<{ insights?: string; maxHR?: number; vo2max?: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const calibrate = useCallback(async () => {
-    setState("loading");
+  const calibrate = useCallback(async (mode: "algorithmic" | "ai") => {
+    setLoading(mode === "algorithmic" ? "algo" : "ai");
+    setResult(null); setError(null);
     try {
-      const res = await fetch("/api/coach/calibrate", { method: "POST" });
+      const res = await fetch(`/api/coach/calibrate?mode=${mode}`, { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setInsights(data.aiInsights ?? `Recomputed: VO2max ${data.vo2max?.toFixed(1)}, max HR ${data.maxHR} bpm. Reload to see updated zones.`);
-      setState("done");
-    } catch {
-      setState("error");
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setResult({
+        insights: data.aiInsights,
+        maxHR: data.maxHR,
+        vo2max: data.vo2max,
+      });
+    } catch (e) {
+      setError(mode === "ai" ? "AI calibration failed — check API key in Settings." : "Calibration failed.");
+      console.error(e);
+    } finally {
+      setLoading(null);
     }
   }, []);
 
   return (
     <div className="space-y-2">
-      <button onClick={calibrate} disabled={state === "loading"}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-border hover:border-accent/40 hover:text-primary text-muted transition disabled:opacity-50">
-        {state === "loading"
-          ? <><Loader2 size={13} className="animate-spin" />Recalibrating…</>
-          : <><RefreshCw size={13} />Recalibrate zones</>}
-      </button>
-      {state === "done" && insights && (
-        <p className="text-xs text-muted bg-surface-2 rounded-xl px-3 py-2 max-w-sm">{insights}</p>
+      <div className="flex gap-2">
+        <button onClick={() => calibrate("algorithmic")} disabled={!!loading}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-border hover:border-accent/40 hover:text-primary text-muted transition disabled:opacity-50"
+          title="Estimate HR zones from your training data (no AI)">
+          {loading === "algo"
+            ? <><Loader2 size={13} className="animate-spin" />Computing…</>
+            : <><RefreshCw size={13} />Estimate zones</>}
+        </button>
+        <button onClick={() => calibrate("ai")} disabled={!!loading}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-accent/30 bg-accent/5 hover:bg-accent/10 text-accent transition disabled:opacity-50"
+          title="Estimate HR zones using AI analysis of your training data">
+          {loading === "ai"
+            ? <><Loader2 size={13} className="animate-spin" />AI analysing…</>
+            : "✨ AI estimate"}
+        </button>
+      </div>
+      {result && (
+        <div className="text-xs text-muted bg-surface-2 rounded-xl px-3 py-2 space-y-1 max-w-sm">
+          <p className="font-medium text-primary">
+            Zones updated — max HR {result.maxHR} bpm · VO2max {result.vo2max?.toFixed(1)}
+            <span className="text-muted font-normal"> · reload page to see updated charts</span>
+          </p>
+          {result.insights && <p className="italic">{result.insights}</p>}
+        </div>
       )}
-      {state === "error" && (
-        <p className="text-xs text-error">Calibration failed — check that AI coach is configured.</p>
-      )}
+      {error && <p className="text-xs text-error">{error}</p>}
     </div>
   );
 }

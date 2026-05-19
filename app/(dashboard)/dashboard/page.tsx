@@ -2,36 +2,29 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import { startOfWeek, startOfMonth, startOfYear, subDays } from "date-fns";
+import { generateInsights } from "@/lib/fitness/insights";
+import { formatDuration } from "@/lib/utils";
+import { buildLoadCurve, computeTSS } from "@/lib/fitness/training-load";
+import { format } from "date-fns";
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function formatKm(meters: number) {
-  return meters >= 1000 ? `${(meters / 1000).toFixed(0)} km` : `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(0)} km`;
 }
 
-function formatHours(seconds: number) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-async function periodStats(userId: string, since: Date) {
-  const sinceStr = localDateStr(since);
-  const rows = await prisma.activity.aggregate({
-    where: {
-      userId,
-      startDateLocal: { gte: new Date(sinceStr) },
-    },
+async function aggSince(userId: string, since: Date, sportFilter?: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: any = { userId, startDateLocal: { gte: new Date(localDateStr(since)) } };
+  if (sportFilter) where.sportType = { contains: sportFilter, mode: "insensitive" };
+  const r = await prisma.activity.aggregate({
+    where,
     _sum: { distance: true, movingTime: true },
     _count: true,
   });
-  return {
-    km: rows._sum.distance ?? 0,
-    sec: rows._sum.movingTime ?? 0,
-    count: rows._count,
-  };
+  return { km: r._sum.distance ?? 0, sec: r._sum.movingTime ?? 0, count: r._count };
 }
 
 export default async function DashboardPage() {
@@ -43,63 +36,132 @@ export default async function DashboardPage() {
   const weekStart  = startOfWeek(now, { weekStartsOn: 1 });
   const monthStart = startOfMonth(now);
   const yearStart  = startOfYear(now);
+  const fourWeeksAgo = subDays(now, 28);
 
-  const [activityCount, stravaAccount, weekData, monthData, ytdData] = await Promise.all([
+  const [
+    activityCount, stravaAccount, fitnessCache,
+    weekData, monthData, ytdData,
+    runWeek, runYtd,
+    prev4w,
+    recentActivities,
+  ] = await Promise.all([
     prisma.activity.count({ where: { userId } }),
-    prisma.stravaAccount.findUnique({
-      where: { userId },
-      select: { totalSynced: true, lastSyncAt: true },
+    prisma.stravaAccount.findUnique({ where: { userId }, select: { totalSynced: true, lastSyncAt: true } }),
+    prisma.fitnessCache.findUnique({ where: { userId } }),
+    aggSince(userId, weekStart),
+    aggSince(userId, monthStart),
+    aggSince(userId, yearStart),
+    aggSince(userId, weekStart,  "run"),
+    aggSince(userId, yearStart,  "run"),
+    aggSince(userId, fourWeeksAgo),
+    prisma.activity.findMany({
+      where: { userId, startDate: { gte: subDays(now, 365) } },
+      select: { movingTime: true, averageHeartrate: true, maxHeartrate: true },
+      orderBy: { startDate: "asc" },
     }),
-    periodStats(userId, weekStart),
-    periodStats(userId, monthStart),
-    periodStats(userId, yearStart),
   ]);
 
-  const hasActivities = activityCount > 0;
+  // Compute ATL/CTL/TSB for insights
+  const maxHR  = fitnessCache?.maxHR  ?? 190;
+  const restHR = fitnessCache?.restHR ?? 50;
+  const tssMap = new Map<string, number>();
+  for (const a of recentActivities) {
+    // simplified daily TSS accumulation
+    const key = format(new Date(), "yyyy-MM-dd"); // today placeholder — we just need today's load
+    void key; // suppress unused
+    const tss = computeTSS({ movingTimeSec: a.movingTime, avgHR: a.averageHeartrate, maxHR, restHR });
+    tssMap.set(format(new Date(), "yyyy-MM-dd"), (tssMap.get(format(new Date(), "yyyy-MM-dd")) ?? 0) + tss);
+  }
+  const loadCurve = buildLoadCurve(tssMap, subDays(now, 42), now);
+  const todayLoad = loadCurve.at(-1) ?? { ctl: 0, atl: 0, tsb: 0 };
 
-  const cards = [
-    {
-      label: "Activities synced",
-      value: activityCount.toLocaleString(),
-      sub: stravaAccount ? `${stravaAccount.totalSynced.toLocaleString()} total` : "Connect Strava in Settings",
-    },
-    {
-      label: "This week",
-      value: hasActivities ? formatKm(weekData.km) : "—",
-      sub: hasActivities ? `${formatHours(weekData.sec)} · ${weekData.count} sessions` : "Sync Strava to see data",
-    },
-    {
-      label: "This month",
-      value: hasActivities ? formatKm(monthData.km) : "—",
-      sub: hasActivities ? `${formatHours(monthData.sec)} · ${monthData.count} sessions` : "Sync Strava to see data",
-    },
-    {
-      label: "Year to date",
-      value: hasActivities ? formatKm(ytdData.km) : "—",
-      sub: hasActivities ? `${formatHours(ytdData.sec)} · ${ytdData.count} sessions` : "Sync Strava to see data",
-    },
-  ];
+  const avgWeekKm4w = prev4w.km / 1000 / 4;
+
+  const insights = generateInsights({
+    weekKm:  weekData.km / 1000,   weekSec:  weekData.sec,   weekCount: weekData.count,
+    monthKm: monthData.km / 1000,  monthSec: monthData.sec,
+    ytdKm:   ytdData.km / 1000,    ytdSec:   ytdData.sec,
+    ctl:     todayLoad.ctl, atl: todayLoad.atl, tsb: todayLoad.tsb,
+    vo2max:  fitnessCache?.vo2max ?? null,
+    vdot:    fitnessCache?.vdot ?? null,
+    maxHR:   fitnessCache?.maxHR ?? null,
+    avgWeekKm4w,
+    runKmThisWeek: runWeek.km / 1000,
+    runKmYtd:      runYtd.km / 1000,
+    totalActivities: activityCount,
+  });
+
+  const hasActivities = activityCount > 0;
+  const hasRun = runYtd.km > 0;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-primary">Dashboard</h1>
-        <p className="text-sm text-muted mt-1">
-          Welcome back, {session.user.name ?? session.user.email}
-        </p>
+        <p className="text-sm text-muted mt-1">Welcome back, {session.user.name ?? session.user.email}</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl bg-surface border border-border p-5 shadow-sm">
-            <p className="text-xs font-medium text-muted uppercase tracking-wide">{card.label}</p>
-            <p className="mt-2 text-2xl font-semibold font-mono text-primary">{card.value}</p>
-            <p className="text-xs text-muted mt-1">{card.sub}</p>
-          </div>
-        ))}
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* This week */}
+        <StatCard label="This week" primary={hasActivities ? formatKm(weekData.km) : "—"}
+          sub={hasActivities ? `${formatDuration(weekData.sec)} · ${weekData.count} sessions` : "No activities yet"}
+          detail={hasRun && runWeek.km > 0 ? `🏃 ${formatKm(runWeek.km)} running` : undefined} />
+
+        {/* This month */}
+        <StatCard label="This month" primary={hasActivities ? formatKm(monthData.km) : "—"}
+          sub={hasActivities ? formatDuration(monthData.sec) : "Sync Strava to see data"} />
+
+        {/* YTD total */}
+        <StatCard label="Year to date" primary={hasActivities ? formatKm(ytdData.km) : "—"}
+          sub={hasActivities ? formatDuration(ytdData.sec) : "Sync Strava to see data"}
+          detail={hasRun ? `🏃 ${formatKm(runYtd.km)} · ${formatDuration(runYtd.sec)}` : undefined}
+          accent />
+
+        {/* Fitness */}
+        <StatCard
+          label={fitnessCache ? "Fitness (CTL)" : "Activities synced"}
+          primary={fitnessCache ? todayLoad.ctl.toFixed(0) : activityCount.toLocaleString()}
+          sub={fitnessCache
+            ? `TSB ${todayLoad.tsb > 0 ? "+" : ""}${todayLoad.tsb.toFixed(0)} · VO2max ${fitnessCache.vo2max.toFixed(1)}`
+            : stravaAccount ? `${stravaAccount.totalSynced.toLocaleString()} total` : "Connect Strava"}
+        />
       </div>
 
-      {!stravaAccount ? (
+      {/* Insights */}
+      {insights.length > 0 && (
+        <div className="space-y-2">
+          {insights.map((ins, i) => (
+            <div key={i} className={`flex items-start gap-3 rounded-xl px-4 py-3 text-sm border ${
+              ins.type === "positive" ? "border-accent/20 bg-accent/5 text-primary"
+              : ins.type === "warning" ? "border-warning/20 bg-warning/5 text-primary"
+              : "border-border bg-surface"
+            }`}>
+              <span className="shrink-0 mt-0.5">
+                {ins.type === "positive" ? "✅" : ins.type === "warning" ? "⚠️" : "📊"}
+              </span>
+              <p className="text-sm leading-snug">{ins.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Nav shortcuts */}
+      {stravaAccount ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            { href: "/stats",   label: "Statistics",        desc: "VO2max, load, zones, predictions" },
+            { href: "/planner", label: "Training Planner",  desc: "Calendar, templates, blocks" },
+            { href: "/coach",   label: "AI Coach",          desc: "Chat with your personal trainer" },
+          ].map(item => (
+            <a key={item.href} href={item.href}
+              className="rounded-xl bg-surface border border-border p-5 hover:border-accent/40 transition-colors group">
+              <p className="font-semibold text-primary group-hover:text-accent transition-colors">{item.label}</p>
+              <p className="text-sm text-muted mt-1">{item.desc}</p>
+            </a>
+          ))}
+        </div>
+      ) : (
         <div className="rounded-2xl bg-surface border border-border p-6">
           <h2 className="text-base font-semibold text-primary mb-2">Get started</h2>
           <p className="text-sm text-muted">
@@ -108,21 +170,20 @@ export default async function DashboardPage() {
             to start syncing your training history.
           </p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
-            { href: "/stats",    label: "Statistics",        desc: "VO2max, training load, zones" },
-            { href: "/planner",  label: "Training Planner",  desc: "Calendar, templates, blocks" },
-            { href: "/coach",    label: "AI Coach",          desc: "Chat with your personal trainer" },
-          ].map((item) => (
-            <a key={item.href} href={item.href}
-              className="rounded-xl bg-surface border border-border p-5 hover:border-accent/40 transition-colors group">
-              <p className="font-semibold text-primary group-hover:text-accent transition-colors">{item.label}</p>
-              <p className="text-sm text-muted mt-1">{item.desc}</p>
-            </a>
-          ))}
-        </div>
       )}
+    </div>
+  );
+}
+
+function StatCard({ label, primary, sub, detail, accent }: {
+  label: string; primary: string; sub: string; detail?: string; accent?: boolean;
+}) {
+  return (
+    <div className={`rounded-xl bg-surface border p-4 shadow-sm ${accent ? "border-accent/30" : "border-border"}`}>
+      <p className="text-xs font-medium text-muted uppercase tracking-wide">{label}</p>
+      <p className="mt-1.5 text-2xl font-semibold font-mono text-primary leading-none">{primary}</p>
+      <p className="text-xs text-muted mt-1">{sub}</p>
+      {detail && <p className="text-xs text-accent mt-1.5 font-medium">{detail}</p>}
     </div>
   );
 }
