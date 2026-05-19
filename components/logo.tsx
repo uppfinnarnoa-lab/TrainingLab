@@ -44,8 +44,8 @@ export function Logo({ size = 32, className }: Props) {
  */
 export function LogoWordmark({ size = 32, className }: Props) {
   const fontSize   = size * 0.52;
-  // Pull text left so 'r' starts right where the T's right edge ends visually
-  const pullIn     = -(size * 0.06);
+  // Pull text closer — compensate for empty space on right side of SVG viewbox
+  const pullIn     = -(size * 0.12);
 
   return (
     <div className={`flex items-end ${className ?? ""}`} style={{ gap: 0 }}>

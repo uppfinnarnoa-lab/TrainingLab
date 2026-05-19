@@ -8,6 +8,7 @@ import { WorkoutBuilder, type BuilderData } from "@/components/planner/WorkoutBu
 import { OutcomeModal } from "@/components/planner/OutcomeModal";
 import { WorkoutEditModal } from "@/components/planner/WorkoutEditModal";
 import { BlockBanner } from "@/components/planner/BlockBanner";
+import { BlockEditorModal } from "@/components/planner/BlockEditorModal";
 import type {
   SportCategory, WorkoutTemplate, PlannedWorkout, TrainingBlock,
 } from "@/lib/planner/types";
@@ -26,14 +27,17 @@ export function PlannerClient(props: Props) {
   const [, startTransition] = useTransition();
 
   const [templates, setTemplates] = useState(props.templates);
-  const [workouts, setWorkouts] = useState(props.workouts);
+  const [workouts, setWorkouts]   = useState(props.workouts);
+  const [blocks, setBlocks]       = useState(props.blocks);
 
   // Modals
-  const [builderDate, setBuilderDate]       = useState<string | null>(null);
-  const [showBuilder, setShowBuilder]       = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<WorkoutTemplate | null>(null);
-  const [statusWorkout, setStatusWorkout]   = useState<PlannedWorkout | null>(null);
-  const [editWorkout, setEditWorkout]       = useState<PlannedWorkout | null>(null);
+  const [builderDate, setBuilderDate]           = useState<string | null>(null);
+  const [showBuilder, setShowBuilder]           = useState(false);
+  const [editingTemplate, setEditingTemplate]   = useState<WorkoutTemplate | null>(null);
+  const [statusWorkout, setStatusWorkout]       = useState<PlannedWorkout | null>(null);
+  const [editWorkout, setEditWorkout]           = useState<PlannedWorkout | null>(null);
+  const [editingBlock, setEditingBlock]         = useState<TrainingBlock | null>(null);
+  const [showNewBlock, setShowNewBlock]         = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -187,13 +191,51 @@ export function PlannerClient(props: Props) {
     setWorkouts(prev => prev.filter(w => w.id !== id));
   }
 
+  // ── Block CRUD ─────────────────────────────────────────────────────
+  async function handleBlockSave(data: Partial<TrainingBlock>) {
+    if (editingBlock) {
+      const res = await fetch(`/api/planner/blocks/${editingBlock.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const updated: TrainingBlock = await res.json();
+        setBlocks(prev => prev.map(b => b.id === updated.id ? updated : b));
+      }
+    } else {
+      const res = await fetch("/api/planner/blocks", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const created: TrainingBlock = await res.json();
+        setBlocks(prev => [...prev, created].sort((a, b) => a.startDate.localeCompare(b.startDate)));
+      }
+    }
+    setEditingBlock(null); setShowNewBlock(false);
+    startTransition(() => router.refresh());
+  }
+
+  async function handleBlockDelete() {
+    if (!editingBlock) return;
+    await fetch(`/api/planner/blocks/${editingBlock.id}`, { method: "DELETE" });
+    setBlocks(prev => prev.filter(b => b.id !== editingBlock.id));
+    setEditingBlock(null);
+  }
+
+  // Races for the block banner: planned workouts that are races
+  const upcomingRaces = workouts.filter(w =>
+    w.color === "#FBBF24" || /tävl|race|lopp|mila|stafett|sic\b/i.test(w.name)
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Block banner */}
       <BlockBanner
-        blocks={props.blocks}
-        onNewBlock={() => openBuilder()}
-        onBlockClick={() => {}}
+        blocks={blocks}
+        races={upcomingRaces}
+        onNewBlock={() => setShowNewBlock(true)}
+        onEditBlock={b => setEditingBlock(b)}
       />
 
       {/* Main two-panel layout */}
@@ -273,6 +315,16 @@ export function PlannerClient(props: Props) {
           onClose={() => setEditWorkout(null)}
           onSave={handleEditSave}
           onDelete={handleDeleteWorkout}
+        />
+      )}
+
+      {/* Block editor — new or edit */}
+      {(showNewBlock || editingBlock) && (
+        <BlockEditorModal
+          initial={editingBlock ?? undefined}
+          onSave={handleBlockSave}
+          onDelete={editingBlock ? handleBlockDelete : undefined}
+          onClose={() => { setShowNewBlock(false); setEditingBlock(null); }}
         />
       )}
     </div>

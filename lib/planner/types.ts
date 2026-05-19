@@ -76,6 +76,9 @@ export interface TrainingBlock {
   startDate: string;
   endDate: string;
   targetRaceId: string | null;
+  notes: string | null;
+  targetKmPerWeek: number | null;
+  targetIntensity: string | null;
   archived: boolean;
   actualKm: number | null;
   actualTimeSec: number | null;
