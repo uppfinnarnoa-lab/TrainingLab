@@ -223,17 +223,11 @@ export function PlannerClient(props: Props) {
     setEditingBlock(null);
   }
 
-  // Races for the block banner: planned workouts that are races
-  const upcomingRaces = workouts.filter(w =>
-    w.color === "#FBBF24" || /tävl|race|lopp|mila|stafett|sic\b/i.test(w.name)
-  );
-
   return (
     <div className="flex flex-col h-full">
-      {/* Block banner */}
+      {/* Block banner — race markers added manually as blockType="race" */}
       <BlockBanner
         blocks={blocks}
-        races={upcomingRaces}
         onNewBlock={() => setShowNewBlock(true)}
         onEditBlock={b => setEditingBlock(b)}
       />

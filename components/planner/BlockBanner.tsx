@@ -2,13 +2,12 @@
 
 import { useState } from "react";
 import { Plus, ChevronDown, ChevronUp, Flag, Pencil } from "lucide-react";
-import { format, parseISO, differenceInWeeks, eachWeekOfInterval, startOfWeek } from "date-fns";
-import type { TrainingBlock, PlannedWorkout } from "@/lib/planner/types";
+import { format, parseISO, differenceInWeeks } from "date-fns";
+import type { TrainingBlock } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
 interface Props {
   blocks: TrainingBlock[];
-  races: PlannedWorkout[];           // planned workouts marked as race
   onNewBlock: () => void;
   onEditBlock: (block: TrainingBlock) => void;
 }
@@ -17,11 +16,14 @@ const BLOCK_TYPE_LABELS: Record<string, string> = {
   base: "Base", build: "Build", peak: "Peak", taper: "Taper", custom: "Custom",
 };
 
-export function BlockBanner({ blocks, races, onNewBlock, onEditBlock }: Props) {
+export function BlockBanner({ blocks, onNewBlock, onEditBlock }: Props) {
   const [open, setOpen] = useState(true);
-  const safeRaces = races ?? [];
 
-  if (blocks.length === 0 && safeRaces.length === 0) {
+  // Separate training blocks from race markers
+  const trainingBlocks = blocks.filter(b => b.blockType !== "race");
+  const raceMarkers    = blocks.filter(b => b.blockType === "race");
+
+  if (blocks.length === 0) {
     return (
       <div className="border-b border-border bg-surface px-4 py-2.5 flex items-center justify-between">
         <button onClick={onNewBlock}
@@ -33,19 +35,15 @@ export function BlockBanner({ blocks, races, onNewBlock, onEditBlock }: Props) {
     );
   }
 
-  // Build unified timeline sorted by date
+  // Unified timeline: training blocks + race markers (blockType="race"), sorted by date
   type TimelineItem =
     | { kind: "block"; block: TrainingBlock }
-    | { kind: "race"; workout: PlannedWorkout };
+    | { kind: "race"; block: TrainingBlock };
 
   const items: TimelineItem[] = [
-    ...blocks.map(b => ({ kind: "block" as const, block: b })),
-    ...safeRaces.map(w => ({ kind: "race" as const, workout: w })),
-  ].sort((a, b) => {
-    const dateA = a.kind === "block" ? a.block.startDate : a.workout.date;
-    const dateB = b.kind === "block" ? b.block.startDate : b.workout.date;
-    return dateA.localeCompare(dateB);
-  });
+    ...trainingBlocks.map(b => ({ kind: "block" as const, block: b })),
+    ...raceMarkers.map(b => ({ kind: "race" as const, block: b })),
+  ].sort((a, b) => a.block.startDate.localeCompare(b.block.startDate));
 
   return (
     <div className="border-b border-border bg-surface">
@@ -142,21 +140,23 @@ export function BlockBanner({ blocks, races, onNewBlock, onEditBlock }: Props) {
                   </button>
                 );
               } else {
-                // Race marker
-                const w = item.workout;
+                // Race marker (blockType="race", single day)
+                const r = item.block;
                 return (
-                  <div
-                    key={w.id}
-                    className="flex flex-col items-center gap-1 shrink-0 px-2 py-2.5"
+                  <button
+                    key={r.id}
+                    onClick={() => onEditBlock(r)}
+                    className="group flex flex-col items-center gap-1 shrink-0 px-2 py-2.5 rounded-xl hover:bg-surface-2 transition"
                   >
                     <Flag size={16} className="text-warning" />
-                    <span className="text-[10px] font-semibold text-primary max-w-[72px] text-center leading-tight">
-                      {w.name}
+                    <span className="text-[10px] font-semibold text-primary max-w-[80px] text-center leading-tight">
+                      {r.name}
                     </span>
                     <span className="text-[10px] text-muted">
-                      {format(parseISO(w.date), "d MMM")}
+                      {format(parseISO(r.startDate), "d MMM yyyy")}
                     </span>
-                  </div>
+                    <Pencil size={10} className="text-muted opacity-0 group-hover:opacity-100 transition" />
+                  </button>
                 );
               }
             })}

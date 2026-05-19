@@ -12,6 +12,7 @@ const BLOCK_TYPES = [
   { value: "peak",   label: "Peak",   desc: "Race-specific quality sessions" },
   { value: "taper",  label: "Taper",  desc: "Volume reduction, maintain intensity" },
   { value: "custom", label: "Custom", desc: "Define your own focus" },
+  { value: "race",   label: "Race 🏁", desc: "Competition — shown as a marker in the timeline" },
 ] as const;
 
 const PRESET_COLORS = [
@@ -56,9 +57,9 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
       blockType,
       color,
       startDate,
-      endDate,
+      endDate: effectiveEndDate, // race = single day
       notes: notes || null,
-      targetKmPerWeek: kmPerWeek ? parseFloat(kmPerWeek) : null,
+      targetKmPerWeek: !isRaceType && kmPerWeek ? parseFloat(kmPerWeek) : null,
     });
     setSaving(false);
     onClose();
@@ -72,7 +73,9 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
     onClose();
   }
 
-  const weeks = startDate && endDate
+  const isRaceType = blockType === "race";
+  const effectiveEndDate = isRaceType ? startDate : endDate;
+  const weeks = !isRaceType && startDate && endDate
     ? Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (7 * 86400000)) + 1)
     : null;
 
@@ -117,28 +120,32 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
             </p>
           </div>
 
-          {/* Date range */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Date range — race only shows start date */}
+          <div className={isRaceType ? "" : "grid grid-cols-2 gap-3"}>
             <div>
-              <label className="text-xs text-muted mb-1 block">Start date *</label>
+              <label className="text-xs text-muted mb-1 block">{isRaceType ? "Race date *" : "Start date *"}</label>
               <input type="date" value={startDate} onChange={e => setStart(e.target.value)} className={inp} />
             </div>
-            <div>
-              <label className="text-xs text-muted mb-1 block">End date *</label>
-              <input type="date" value={endDate} onChange={e => setEnd(e.target.value)} className={inp} />
-            </div>
+            {!isRaceType && (
+              <div>
+                <label className="text-xs text-muted mb-1 block">End date *</label>
+                <input type="date" value={endDate} onChange={e => setEnd(e.target.value)} className={inp} />
+              </div>
+            )}
           </div>
           {weeks && (
             <p className="text-xs text-muted -mt-2">{weeks} week{weeks !== 1 ? "s" : ""}</p>
           )}
 
-          {/* Target km/week */}
-          <div>
-            <label className="text-xs text-muted mb-1 block">Target km/week (optional)</label>
-            <input type="number" min={0} step={5} value={kmPerWeek}
-              onChange={e => setKm(e.target.value)}
-              placeholder="e.g. 80" className={inp} />
-          </div>
+          {/* Target km/week — hidden for races */}
+          {!isRaceType && (
+            <div>
+              <label className="text-xs text-muted mb-1 block">Target km/week (optional)</label>
+              <input type="number" min={0} step={5} value={kmPerWeek}
+                onChange={e => setKm(e.target.value)}
+                placeholder="e.g. 80" className={inp} />
+            </div>
+          )}
 
           {/* Focus notes */}
           <div>
