@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ClaudeTrainer
 
-## Getting Started
+Personal AI-powered training platform — Strava + Garmin + AI coach.
 
-First, run the development server:
+## Local Development
+
+### Prerequisites
+- [Node.js 20+](https://nodejs.org)
+- [pnpm](https://pnpm.io) — `npm install -g pnpm`
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) — for the local database
+
+### 1. Start the database
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker-compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This starts PostgreSQL on `localhost:5432`. Data persists in a Docker volume between restarts.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Configure environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cp .env.local.example .env.local
+```
 
-## Learn More
+Open `.env.local` and fill in at minimum:
+- `AUTH_SECRET` — generate one: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- `STRAVA_CLIENT_ID` + `STRAVA_CLIENT_SECRET` — from [strava.com/settings/api](https://www.strava.com/settings/api)
 
-To learn more about Next.js, take a look at the following resources:
+The `DATABASE_URL` already matches the Docker Compose setup — no change needed.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 3. Set up the database
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pnpm db:migrate       # run migrations
+pnpm db:generate      # generate Prisma client types
+```
 
-## Deploy on Vercel
+### 4. Create your user account
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npx tsx scripts/seed-user.ts
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Default credentials: `admin@claudetrainer.local` / `changeme123`
+
+Override with env vars:
+```bash
+SEED_EMAIL=you@example.com SEED_PASSWORD=yourpassword SEED_NAME="Your Name" npx tsx scripts/seed-user.ts
+```
+
+### 5. Start the app
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) and sign in.
+
+### 6. Connect Strava
+
+Go to Settings → Strava → follow the setup guide → click Connect.
+After connecting, click **Sync new activities** to import your history.
+
+---
+
+## Setting up Strava API credentials
+
+1. Go to [strava.com/settings/api](https://www.strava.com/settings/api)
+2. Create an application (any name, website = `localhost`)
+3. Set **Authorization Callback Domain** = `localhost`
+4. Copy Client ID and Client Secret into `.env.local`
+5. Make sure `STRAVA_REDIRECT_URI=http://localhost:3000/api/strava/callback`
+
+---
+
+## Stop / clean up
+
+```bash
+docker-compose down        # stop DB (data preserved)
+docker-compose down -v     # stop DB + delete all data
+```
+
+---
+
+## Production deploy
+
+See `IMPLEMENTATION_PLAN.md §9` for Apache + PM2 deployment instructions.

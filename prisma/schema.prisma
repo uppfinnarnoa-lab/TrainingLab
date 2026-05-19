@@ -26,7 +26,23 @@ model User {
   trainingBlocks     TrainingBlock[]
   conversations      Conversation[]
   aiSettings         AISettings?
+  athleteProfile     AthleteProfile?
   sessions           Session[]
+}
+
+model AthleteProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  weightKg         Float?
+  heightCm         Float?
+  dateOfBirth      DateTime? @db.Date
+  sex              String?   // "male" | "female" | "other"
+  maxHeartRate     Int?
+  restingHeartRate Int?
+  primaryGoal      String?
+  yearsTraining    Int?
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id])
 }
 
 // NextAuth session

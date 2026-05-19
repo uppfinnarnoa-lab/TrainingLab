@@ -145,13 +145,30 @@ model User {
   name          String?
   createdAt     DateTime @default(now())
 
-  stravaAccount   StravaAccount?
-  activities      Activity[]
-  plannedWorkouts PlannedWorkout[]
+  stravaAccount    StravaAccount?
+  activities       Activity[]
+  plannedWorkouts  PlannedWorkout[]
   workoutTemplates WorkoutTemplate[]
-  raceRecords     RaceRecord[]
-  conversations   Conversation[]
-  aiSettings      AISettings?
+  raceRecords      RaceRecord[]
+  conversations    Conversation[]
+  aiSettings       AISettings?
+  athleteProfile   AthleteProfile?
+}
+
+// Physical profile used by AI coach for VO2max, TSS, race predictions, nutrition context
+model AthleteProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  weightKg        Float?   // body weight in kg
+  heightCm        Float?   // height in cm
+  dateOfBirth     DateTime? @db.Date
+  sex             String?  // "male" | "female" | "other" — affects VO2max norms and HR zones
+  maxHeartRate    Int?     // if known from testing; otherwise estimated from data
+  restingHeartRate Int?    // morning resting HR baseline (Garmin auto-fills this)
+  primaryGoal     String?  // "marathon", "5K", "orienteering", "general fitness", etc.
+  yearsTraining   Int?     // years of structured training (context for AI)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id])
 }
 
 model StravaAccount {
@@ -428,6 +445,39 @@ model AISettings {
 - Session stored in database
 - **Future multi-user:** just allow registration — schema already supports it
 - No public registration by default (single user mode: registration disabled after first account)
+
+### 6.1b Settings Page
+
+The settings page (`/settings`) is divided into sections:
+
+**Integrations** — Strava, Garmin, AI coach. Each section has a collapsible **Setup Guide** with numbered steps, links to the relevant developer portals, and copy-pasteable env var snippets. Guides auto-open when the integration is not yet connected.
+
+**Athlete Profile** — Physical data that the AI coach uses for VO2max estimation, TSS normalization, race predictions, and nutrition context:
+
+| Field | Description |
+|---|---|
+| Name | Display name |
+| Date of birth | Age context for age-graded performance tables |
+| Sex | Affects VO2max reference norms and HR zone thresholds |
+| Weight (kg) | Used in running power estimation and w/kg cycling metrics |
+| Height (cm) | Supplementary context |
+| Max heart rate | If known from testing; otherwise auto-estimated from activity data |
+| Resting heart rate | Baseline; auto-filled from Garmin if connected |
+| Primary goal | e.g. "marathon", "5K", "orienteering elite", "general fitness" — shapes coach personality |
+| Years of structured training | Coach context: how experienced an athlete to treat you as |
+
+The AI coach receives the full athlete profile in its cached system prompt. Example:
+```
+Athlete profile:
+  Name: Noa · Age: 28 · Male · Weight: 72 kg · Height: 180 cm
+  Max HR: 194 bpm · Resting HR: 42 bpm
+  Primary goal: Orienteering performance (middle + long distance)
+  Training experience: 8 years structured training
+```
+
+This enables personalized pacing advice (weight-adjusted), realistic VO2max benchmarks, and goal-relevant training plans without the user repeating their background each session.
+
+**AI Coach** — Provider selector (Claude / Gemini), API key fields with show/hide toggle, monthly budget with spend progress bar and warning thresholds (80% = yellow, 100% = red).
 
 ### 6.2 Strava Integration
 

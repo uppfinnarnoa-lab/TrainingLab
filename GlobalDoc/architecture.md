@@ -33,6 +33,7 @@ Full schema with all fields is in `prisma/schema.prisma`. Summary:
 | `RaceRecord` | PBs per distance with full history |
 | `Conversation` / `Message` | AI coach chat history with token cost tracking |
 | `AISettings` | Provider choice (claude/gemini), API keys, monthly budget |
+| `AthleteProfile` | Weight, height, DOB, sex, max HR, resting HR, primary goal — sent in AI system prompt |
 
 ## File Structure (key paths)
 ```
