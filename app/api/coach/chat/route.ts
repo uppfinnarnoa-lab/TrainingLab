@@ -75,9 +75,11 @@ export async function POST(req: NextRequest) {
   ];
 
   // ── Build context ────────────────────────────────────────────────────
+  // Gemini free tier has strict token limits — use smaller context window
+  const recentDays = provider === "gemini" ? 14 : 28;
   const [coachCtx, recentActivities] = await Promise.all([
     buildCoachContext(userId),
-    buildRecentActivitiesSummary(userId, 28),
+    buildRecentActivitiesSummary(userId, recentDays),
   ]);
   coachCtx.name = user?.name ?? null;
   const systemPrompt = buildSystemPrompt(coachCtx);

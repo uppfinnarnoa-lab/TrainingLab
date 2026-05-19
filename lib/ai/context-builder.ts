@@ -127,7 +127,8 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
   if (healthLines.length === 0) healthLines.push("No Garmin data connected");
 
   // ── Upcoming plan ──────────────────────────────────────────────────
-  const upcomingPlan = plannedWorkouts.map((w: { date: Date; name: string; sportType: string; targetDistance: number | null; targetDuration: number | null }) => {
+  // Limit plan to 7 days to keep system prompt short
+  const upcomingPlan = plannedWorkouts.slice(0, 7).map((w: { date: Date; name: string; sportType: string; targetDistance: number | null; targetDuration: number | null }) => {
     const dateStr = format(w.date, "EEE d MMM");
     const dist = w.targetDistance ? ` ${formatDistance(w.targetDistance)}` : "";
     const dur = w.targetDuration ? ` ${formatDuration(w.targetDuration)}` : "";
@@ -172,10 +173,12 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
 
 // Summarise last N activities for per-message context (not cached)
 export async function buildRecentActivitiesSummary(userId: string, days = 28): Promise<string> {
+  // Cap at 20 activities max to keep token usage reasonable (especially for Gemini free tier)
+  const limit = Math.min(20, Math.ceil(days * 0.7));
   const activities = await prisma.activity.findMany({
     where: { userId, startDate: { gte: subDays(new Date(), days) } },
     orderBy: { startDate: "desc" },
-    take: 30,
+    take: limit,
     select: {
       name: true, description: true, sportType: true, startDate: true,
       distance: true, movingTime: true, averageHeartrate: true,
@@ -197,7 +200,8 @@ export async function buildRecentActivitiesSummary(userId: string, days = 28): P
       : "";
     const weather = a.weatherTemp != null ? ` · ${Math.round(a.weatherTemp)}°C` : "";
     const race = a.isRace ? " [RACE]" : "";
-    const desc = a.description ? `\n  Notes: "${a.description.slice(0, 200)}"` : "";
+    // Keep descriptions short — long descriptions blow up Gemini's free-tier token limit
+    const desc = a.description ? `\n  Notes: "${a.description.slice(0, 80)}"` : "";
     return `${date}: ${a.name}${race} — ${a.sportType} ${dist} ${time}${hr}${pace}${weather}${desc}`;
   }).join("\n");
 }
