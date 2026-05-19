@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
+import { LogoWordmark } from "./logo";
 
 const nav = [
   { href: "/dashboard",  icon: LayoutDashboard, label: "Dashboard" },
@@ -29,10 +30,8 @@ export function Sidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface">
       {/* Logo */}
-      <div className="flex h-16 items-center px-5 border-b border-border">
-        <span className="text-lg font-semibold tracking-tight text-primary">
-          Training<span className="text-accent">Lab</span>
-        </span>
+      <div className="flex h-16 items-center px-4 border-b border-border">
+        <LogoWordmark size={28} />
       </div>
 
       {/* Nav */}
