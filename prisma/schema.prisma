@@ -29,6 +29,7 @@ model User {
   aiSettings         AISettings?
   athleteProfile     AthleteProfile?
   appConfig          AppConfig?
+  fitnessCache       FitnessCache?
   sessions           Session[]
 }
 
@@ -324,6 +325,23 @@ model AISettings {
   geminiCurrentMonthSpendUsd Float @default(0.0)
   spendResetAt DateTime @default(now())
   user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Cached fitness metrics — recomputed after each sync, read by stats + coach
+model FitnessCache {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  vo2max       Float
+  vdot         Float
+  confidence   String
+  method       String
+  maxHR        Int
+  restHR       Int
+  thresholdHR  Int?
+  zones        Json     // { z1: [lo,hi], z2: [lo,hi], z3, z4, z5 }
+  paces        Json     // { easy, marathon, threshold, interval, repetition }
+  computedAt   DateTime @default(now()) @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Integration credentials stored in DB — lets users configure everything via the UI

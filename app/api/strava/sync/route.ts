@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { syncActivities } from "@/lib/strava/sync";
+import { computeAndCacheFitness } from "@/lib/fitness/cache";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -18,6 +19,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await syncActivities(userId, { full, since });
+    // Recompute fitness metrics in background after sync (non-blocking)
+    computeAndCacheFitness(userId).catch(e => console.error("Fitness cache error:", e));
     return NextResponse.json({ ...result, lastSyncAt: new Date() });
   } catch (e) {
     console.error("Sync error:", e);

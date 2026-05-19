@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { RefreshCw, Loader2 } from "lucide-react";
 import { OverviewCard } from "@/components/stats/overview-card";
 import { FitnessMetrics } from "@/components/stats/fitness-metrics";
 import { WeeklyVolumeChart } from "@/components/charts/WeeklyVolumeChart";
@@ -167,7 +168,8 @@ export function StatsClient(props: Props) {
       {/* ── Zones ── */}
       {section === "Zones" && (
         <div className="space-y-6">
-          <SectionCard title="HR zone distribution (last 12 weeks)" tips={[tooltips.hrZone, tooltips.polarization]}>
+          <SectionCard title="HR zone distribution (last 12 weeks)" tips={[tooltips.hrZone, tooltips.polarization]}
+            action={<ZoneCalibrationButton />}>
             <HRZonesChart zoneSeconds={zoneSeconds} />
           </SectionCard>
         </div>
@@ -243,6 +245,41 @@ function LoadCard({ label, value, tip, color, sub }: { label: string; value: str
       </div>
       <p className="text-2xl font-semibold font-mono" style={{ color }}>{value}</p>
       {sub && <p className="text-xs font-medium" style={{ color }}>{sub}</p>}
+    </div>
+  );
+}
+
+function ZoneCalibrationButton() {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [insights, setInsights] = useState<string | null>(null);
+
+  const calibrate = useCallback(async () => {
+    setState("loading");
+    try {
+      const res = await fetch("/api/coach/calibrate", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setInsights(data.aiInsights ?? `Recomputed: VO2max ${data.vo2max?.toFixed(1)}, max HR ${data.maxHR} bpm. Reload to see updated zones.`);
+      setState("done");
+    } catch {
+      setState("error");
+    }
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <button onClick={calibrate} disabled={state === "loading"}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-border hover:border-accent/40 hover:text-primary text-muted transition disabled:opacity-50">
+        {state === "loading"
+          ? <><Loader2 size={13} className="animate-spin" />Recalibrating…</>
+          : <><RefreshCw size={13} />Recalibrate zones</>}
+      </button>
+      {state === "done" && insights && (
+        <p className="text-xs text-muted bg-surface-2 rounded-xl px-3 py-2 max-w-sm">{insights}</p>
+      )}
+      {state === "error" && (
+        <p className="text-xs text-error">Calibration failed — check that AI coach is configured.</p>
+      )}
     </div>
   );
 }
