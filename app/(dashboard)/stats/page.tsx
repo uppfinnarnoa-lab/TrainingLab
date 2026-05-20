@@ -248,6 +248,46 @@ export default async function StatsPage() {
   } : null;
   const acwr = computeACWR(dailyTSSMap, now);
 
+  // ── ANALYTICS PLAN 1A ────────────────────────────────────────────────
+
+  // AEI (Aerobic Efficiency Index): avgSpeed (m/min) ÷ avgHR on easy runs (HR < LT1)
+  // Track as weekly averages over last 16 weeks
+  const lt1HR = computedHrZones.z3[0]; // bottom of Z3 = LT1
+  const aeiByWeek: { week: string; aei: number }[] = [];
+  {
+    const weekMap = new Map<string, { sum: number; count: number }>();
+    for (const a of activities as A[]) {
+      if (!a.averageHeartrate || !a.averageSpeed) continue;
+      if (!a.sportType.toLowerCase().includes("run")) continue;
+      if (a.averageHeartrate >= lt1HR) continue; // only easy runs below LT1
+      if (a.distance < 4000 || a.movingTime < 900) continue;
+      const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const aei = (a.averageSpeed * 60) / a.averageHeartrate; // m/min per bpm
+      if (!weekMap.has(wk)) weekMap.set(wk, { sum: 0, count: 0 });
+      const entry = weekMap.get(wk)!;
+      entry.sum += aei; entry.count++;
+    }
+    for (const [week, { sum, count }] of [...weekMap.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-16)) {
+      aeiByWeek.push({ week, aei: Math.round(sum / count * 100) / 100 });
+    }
+  }
+
+  // Ramp rate: % change in 7-day TSS vs prior 7 days
+  const last7dTSS  = [...dailyTSSMap.entries()].filter(([d]) => d >= format(subDays(now, 7), "yyyy-MM-dd")).reduce((s, [, v]) => s + v, 0);
+  const prev7dTSS  = [...dailyTSSMap.entries()].filter(([d]) => d >= format(subDays(now, 14), "yyyy-MM-dd") && d < format(subDays(now, 7), "yyyy-MM-dd")).reduce((s, [, v]) => s + v, 0);
+  const rampRate   = prev7dTSS > 0 ? Math.round(((last7dTSS - prev7dTSS) / prev7dTSS) * 100) : null;
+
+  // Active streak: consecutive days with at least one activity up to today
+  let activeStreak = 0;
+  {
+    const activityDates = new Set((activities as A[]).map(a => format(a.startDate, "yyyy-MM-dd")));
+    for (let i = 0; i < 365; i++) {
+      const d = format(subDays(now, i), "yyyy-MM-dd");
+      if (activityDates.has(d)) activeStreak++;
+      else break;
+    }
+  }
+
   // Statistical zone estimation from all running data
   const statZones = estimateZonesFromStatisticalAnalysis(
     activities.filter((a: A) => /run|trail/i.test(a.sportType) && a.averageHeartrate).map((a: A) => ({
@@ -261,11 +301,18 @@ export default async function StatsPage() {
   );
 
   return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
-    zoneSeconds, computedHrZones, vo2max, paceZones, predictions, polarisation, acwr, statZones, overviewRun);
+    zoneSeconds, computedHrZones, vo2max, paceZones, predictions, polarisation, acwr, statZones, overviewRun,
+    { aeiByWeek, rampRate, activeStreak });
 }
 
 // Shared render — used by both fast and slow paths
 type OverviewData = { thisWeek: { km: number; timeSec: number; count: number }; thisMonth: { km: number; timeSec: number; count: number }; ytd: { km: number; timeSec: number; count: number }; lyWeek: { km: number; timeSec: number; count: number }; lyMonth: { km: number; timeSec: number; count: number }; lyYtd: { km: number; timeSec: number; count: number } };
+
+type Analytics1A = {
+  aeiByWeek: { week: string; aei: number }[];
+  rampRate: number | null;
+  activeStreak: number;
+};
 
 function renderStats(
   totalCount: number,
@@ -283,6 +330,7 @@ function renderStats(
   acwr: number | null,
   statZones?: import("@/lib/fitness/zones").StatisticalZoneResult | null,
   overviewRun?: OverviewData,
+  analytics?: Analytics1A | null,
 ) {
   return (
     <div className="space-y-2">
@@ -306,6 +354,7 @@ function renderStats(
         acwr={acwr}
         statZones={statZones ?? null}
         overviewRun={overviewRun ?? overview}
+        analytics={analytics ?? null}
       />
     </div>
   );

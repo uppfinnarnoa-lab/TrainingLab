@@ -43,6 +43,11 @@ interface Props {
     thisWeek: SumData; thisMonth: SumData; ytd: SumData;
     lyWeek: SumData; lyMonth: SumData; lyYtd: SumData;
   };
+  analytics: {
+    aeiByWeek: { week: string; aei: number }[];
+    rampRate: number | null;
+    activeStreak: number;
+  } | null;
 }
 
 function pct(curr: number, prev: number) {
@@ -57,7 +62,7 @@ export function StatsClient(props: Props) {
   const [sportMode, setSportMode] = useState<"all" | "run">("all");
   const o = sportMode === "run" ? props.overviewRun : props.overview;
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
-    zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZones } = props;
+    zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZones, analytics } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -210,7 +215,75 @@ export function StatsClient(props: Props) {
 
       {/* ── Fitness ── */}
       {section === "Fitness" && (
-        <FitnessMetrics vo2max={vo2max} paceZones={paceZones} todayLoad={todayLoad} predictions={predictions} acwr={acwr} />
+        <div className="space-y-6">
+          <FitnessMetrics vo2max={vo2max} paceZones={paceZones} todayLoad={todayLoad} predictions={predictions} acwr={acwr} />
+
+          {/* Analytics 1A: AEI trend + ramp rate + active streak */}
+          {analytics && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+              {/* AEI trend */}
+              <div className="sm:col-span-2 rounded-xl border border-border p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Aerob Effektivitetsindex (AEI)</p>
+                  <p className="text-[10px] text-muted mt-0.5">Fart (m/min) ÷ avgHR · endast lätta löppass (under LT1)</p>
+                </div>
+                {analytics.aeiByWeek.length >= 2 ? (
+                  <div className="flex items-end gap-px h-12">
+                    {analytics.aeiByWeek.map((d, i) => {
+                      const min = Math.min(...analytics.aeiByWeek.map(x => x.aei));
+                      const max = Math.max(...analytics.aeiByWeek.map(x => x.aei));
+                      const range = max - min || 0.01;
+                      const h = Math.max(10, Math.round(((d.aei - min) / range) * 100));
+                      const isLast = i === analytics.aeiByWeek.length - 1;
+                      return (
+                        <div key={d.week} title={`v${d.week.slice(5,7)}: AEI ${d.aei.toFixed(2)}`}
+                          className="flex-1 rounded-sm transition-all"
+                          style={{ height: `${h}%`, backgroundColor: isLast ? "var(--accent)" : "var(--surface-2)", minHeight: 4 }} />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted">Behöver fler lätta löppass med pulsdata</p>
+                )}
+                {analytics.aeiByWeek.length >= 2 && (() => {
+                  const first = analytics.aeiByWeek[0].aei;
+                  const last  = analytics.aeiByWeek.at(-1)!.aei;
+                  const delta = ((last - first) / first * 100).toFixed(1);
+                  const up = last > first;
+                  return (
+                    <p className="text-xs" style={{ color: up ? "var(--accent)" : "var(--text-muted)" }}>
+                      {up ? "↑" : "↓"} {up ? "+" : ""}{delta}% jämfört med {analytics.aeiByWeek.length} veckor sedan
+                    </p>
+                  );
+                })()}
+              </div>
+
+              {/* Ramp rate + Streak */}
+              <div className="space-y-3">
+                <div className="rounded-xl border border-border p-4 space-y-1">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Veckans ramphöjning</p>
+                  {analytics.rampRate !== null ? (
+                    <>
+                      <p className="text-2xl font-semibold font-mono"
+                        style={{ color: Math.abs(analytics.rampRate) > 10 ? "#F87171" : analytics.rampRate > 0 ? "#6EE7B7" : "#94A3B8" }}>
+                        {analytics.rampRate > 0 ? "+" : ""}{analytics.rampRate}%
+                      </p>
+                      {Math.abs(analytics.rampRate) > 10 && (
+                        <p className="text-[10px] text-error">⚠ Ökar snabbt — skaderisk</p>
+                      )}
+                    </>
+                  ) : <p className="text-sm text-muted">—</p>}
+                </div>
+                <div className="rounded-xl border border-border p-4 space-y-1">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Aktiv streak</p>
+                  <p className="text-2xl font-semibold font-mono text-primary">{analytics.activeStreak}</p>
+                  <p className="text-[10px] text-muted">konsekutiva dagar</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
