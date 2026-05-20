@@ -298,6 +298,64 @@ for (const act of missing) {
 
 ---
 
+## 12b. AI-verktyg: Hämta alla aktiviteter under intervall
+
+### Syfte
+Ibland räcker inte aggregerad data. Vid djup analys av en specifik period (t.ex.
+"analysera varje pass jag körde förra sommaren") behöver AI:n rådata — alla aktiviteter
+med namn, tempo, puls, distans, beskrivning — inte bara summor.
+
+### Implementering: `get_activities_in_range`
+
+```typescript
+{
+  name: "get_activities_in_range",
+  description: `Fetch ALL individual activities in a date range for deep analysis.
+WARNING: This returns large amounts of data and costs significantly more tokens.
+IMPORTANT: Before calling this tool, you MUST explicitly warn the user:
+  "Att hämta alla aktiviteter under [period] kräver många tokens och kostar uppskattningsvis
+   $X. Vill du fortsätta?"
+Only proceed after explicit confirmation. Do NOT use for short questions — use
+search_activities or analyze_full_history for routine queries.`,
+  input_schema: {
+    type: "object",
+    properties: {
+      date_from:    { type: "string",  description: "Start date YYYY-MM-DD (required)" },
+      date_to:      { type: "string",  description: "End date YYYY-MM-DD (required)" },
+      sport:        { type: "string",  description: "Filter by sport (optional)" },
+      confirmed:    { type: "boolean", description: "Set to true ONLY after user has confirmed the cost warning" },
+    },
+    required: ["date_from", "date_to", "confirmed"],
+  }
+}
+```
+
+### Kostnadsskydd
+- Om `confirmed !== true`: returnera en kostnadsuppskattning UTAN att hämta data
+  - Räkna antal aktiviteter i perioden: `SELECT COUNT(*) FROM Activity WHERE date BETWEEN ...`
+  - Estimera tokens: ~150 tokens per aktivitet (namn, tempo, puls, beskrivning)
+  - Visa: "Denna period innehåller X aktiviteter ≈ Y tokens ≈ $Z. Bekräfta?"
+- Om `confirmed === true`: hämta och returnera full data
+
+### Maxgränser
+- Max 500 aktiviteter per anrop (>500 → begär snävare intervall)
+- Max 2 anrop per konversation (förhindrar oavsiktliga stora kostnader)
+- Format: komprimerad text, en aktivitet per rad
+
+```
+2025-06-15 Lätt löpning 10.2km 52:30 avgHR:138 "Bra känsla i benen, lite trött"
+2025-06-17 Tisdagsbana 5x4min 8.1km 42:00 avgHR:162 maxHR:171 ""
+...
+```
+
+### Exempel på korrekt AI-beteende
+**Användare:** "Analysera alla mina pass från maj 2025"  
+**AI (utan `confirmed`):** "Maj 2025 innehåller 28 aktiviteter ≈ 4 200 tokens ≈ $0.013 (Claude) / gratis (Gemini). Vill du fortsätta med full analys?"  
+**Användare:** "Ja"  
+**AI:** anropar verktyget med `confirmed: true`
+
+---
+
 ## 13. Kända buggnoteringar
 
 ### Webpack "Cannot find module vendor-chunks/date-fns@4.1.0.js"
