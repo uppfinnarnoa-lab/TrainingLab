@@ -79,6 +79,19 @@ export const COACH_TOOLS = [
     },
   },
   {
+    name: "analyze_full_history",
+    description:
+      "Fetch aggregated training statistics across the athlete's full multi-year history for deep analysis. Use ONLY when the athlete explicitly asks to analyze their full training history, career trends, or multi-year patterns (e.g. 'analyze my training over the last 3 years', 'what are my long-term trends'). This fetches large amounts of data — do not use for routine questions.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        years:  { type: "number",  description: "How many years of history to fetch (default 3, max 5)" },
+        sport:  { type: "string",  description: "Filter by sport (optional, e.g. 'Run')" },
+        focus:  { type: "string",  description: "What to focus on: 'volume' | 'intensity' | 'performance' | 'all' (default 'all')" },
+      },
+    },
+  },
+  {
     name: "get_fitness_summary",
     description:
       "Get the athlete's current fitness metrics: VO2max, VDOT, CTL (fitness), ATL (fatigue), TSB (form), ACWR, HR zones, and race time predictions. Use this at the start of a coaching conversation or when the athlete asks about their fitness level.",
@@ -310,6 +323,66 @@ export async function executeCoachTool(
           return `[${status}] ${b.name} (${b.blockType}) ${format(b.startDate, "d MMM")}–${format(b.endDate, "d MMM")}${kmTarget}${actual}`;
         });
         return { success: true, message: "Träningsblock", data: lines.join("\n") };
+      }
+
+      case "analyze_full_history": {
+        const years   = Math.min(5, Math.max(1, (input.years as number) ?? 3));
+        const sport   = input.sport as string | undefined;
+        const focus   = (input.focus as string) ?? "all";
+        const since   = subDays(new Date(), years * 365);
+
+        const acts = await prisma.activity.findMany({
+          where: {
+            userId, startDate: { gte: since },
+            ...(sport ? { sportType: { contains: sport, mode: "insensitive" } } : {}),
+          },
+          select: {
+            sportType: true, startDate: true, distance: true, movingTime: true,
+            averageHeartrate: true, maxHeartrate: true, isRace: true, name: true,
+            totalElevationGain: true,
+          },
+          orderBy: { startDate: "asc" },
+        });
+
+        if (acts.length === 0) return { success: true, message: "Ingen data", data: "No activities found in this period." };
+
+        // Monthly aggregates
+        const byMonth = new Map<string, { km: number; timeSec: number; count: number; maxHR: number }>();
+        for (const a of acts) {
+          const key = `${a.startDate.getFullYear()}-${String(a.startDate.getMonth()+1).padStart(2,"0")}`;
+          if (!byMonth.has(key)) byMonth.set(key, { km: 0, timeSec: 0, count: 0, maxHR: 0 });
+          const m = byMonth.get(key)!;
+          m.km += (a.distance as number) / 1000;
+          m.timeSec += (a.movingTime as number);
+          m.count++;
+          if (a.maxHeartrate && (a.maxHeartrate as number) > m.maxHR) m.maxHR = a.maxHeartrate as number;
+        }
+
+        // Yearly summary
+        const byYear = new Map<number, { km: number; count: number; races: number }>();
+        for (const a of acts) {
+          const yr = a.startDate.getFullYear();
+          if (!byYear.has(yr)) byYear.set(yr, { km: 0, count: 0, races: 0 });
+          const y = byYear.get(yr)!;
+          y.km += a.distance / 1000; y.count++;
+          if (a.isRace) y.races++;
+        }
+
+        const lines: string[] = [
+          `Full history analysis: ${acts.length} activities over ${years} years`,
+          "",
+          "=== Yearly summary ===",
+          ...[...byYear.entries()].sort(([a],[b])=>(a as number)-(b as number)).map(([yr, d]) =>
+            `${yr}: ${Math.round(d.km)}km · ${d.count} sessions · ${d.races} races`),
+          "",
+          "=== Monthly volume (recent 18 months) ===",
+          ...[...byMonth.entries()].sort(([a],[b])=>(a as string).localeCompare(b as string)).slice(-18).map(([mo, d]) =>
+            `${mo}: ${Math.round(d.km)}km · ${d.count} sessions · ${Math.round(d.timeSec/3600)}h`),
+          "",
+          `Total: ${Math.round(acts.reduce((s: number, act: { distance: number }) => s + act.distance/1000, 0))}km · ${acts.length} sessions`,
+        ];
+
+        return { success: true, message: `${years}år historikanalys — ${acts.length} aktiviteter`, data: lines.join("\n") };
       }
 
       case "search_activities": {

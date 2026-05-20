@@ -246,4 +246,89 @@ PMC Marathon cardiac drift, NCBI Critical Power, Intervals.icu review.
 
 ---
 
+---
+
+## 12. Beskrivningsresynk — alla gamla aktiviteter saknar text
+
+### Problem
+Aktiviteter synkade via `/athlete/activities` (paginerad bulk-sync) returnerar INTE
+`description`-fältet. Bara `/activities/{id}` (individuell fetch) returnerar det.
+2800+ aktiviteter saknar därmed dina egna anteckningar — kritisk AI-kontext.
+
+### Lösning A: Bakgrundsjobb (rekommenderad)
+Nytt script/route: `POST /api/strava/backfill-descriptions`
+1. Hämtar alla aktiviteter i DB där `description IS NULL` (pagineringsbatch, t.ex. 500 åt gången)
+2. För varje: hämtar `/activities/{id}` från Strava
+3. Uppdaterar `description` (och `splitsMetric`, `bestEfforts`, `laps` som bonus)
+4. Körs i bakgrunden, respekterar 1000/dag-ratelimit (~30 batch/dag = ~500 per dag)
+5. Progress visas i Settings → Strava som "X/Y beskrivningar synkade"
+
+**Tidsuppskattning:** 2800 aktiviteter ÷ 500/dag = ~6 dagar. Kan köras nattetid.
+
+### Lösning B: On-demand i aktivitetsdetaljvy
+Redan delvis implementerat — individuell fetch sker när aktivitetsdetaljsidan öppnas.
+Utöka: om description saknas, auto-trigga individuell fetch och uppdatera.
+
+### Lösning C: Smart resync-knapp (implementerat)
+"Sync Strava"-knappen fetchar nu de senaste 3 dagarna individuellt. 
+För historik: lägg till "Backfill descriptions"-knapp i Settings → Strava.
+
+### Implementation
+```typescript
+// Nytt API-endpoint
+POST /api/strava/backfill-descriptions?batch=500&offset=0
+
+// Logic:
+const missing = await prisma.activity.findMany({
+  where: { userId, description: null, stravaId: { not: null } },
+  take: 500,
+  orderBy: { startDate: 'desc' }
+});
+for (const act of missing) {
+  const full = await stravaFetch(userId, `/activities/${act.stravaId}`);
+  await prisma.activity.update({
+    where: { id: act.id },
+    data: { description: full.description ?? null, splitsMetric: full.splits_metric ?? undefined }
+  });
+  await sleep(200); // rate limit
+}
+```
+
+**Prioritet:** HÖG — saknade beskrivningar gör AI-coachen blind för träningsanteckningar.
+
+---
+
+## 13. Kända buggnoteringar
+
+### Webpack "Cannot find module vendor-chunks/date-fns@4.1.0.js"
+**Symptom:** Runtime-fel vid sidladdning  
+**Orsak:** Stale webpack-cache i `.next/` — gamla chunk-refs pekar på ej existerande filer  
+**Fix:** Ta bort `.next/` och starta om servern: `rm -rf .next && pnpm dev`  
+**Permanent fix:** Lägg till hook i CLAUDE.md: alltid `rm -rf .next` vid omstart  
+**Status:** Ej implementerad automatisering
+
+---
+
+## 14. Implementeringsstatus
+
+### ✅ Klart
+- Polarisation 5-zonbar (Z1-Z5 med matchande färger)
+- Seiler 3-zon omdöpt till Low/Moderate/High
+- Fast-path analytics (AEI, RE, streak, ramp rate, injury risk)
+- Strava: daglig auto-sync (var 06:00), smart 3-dagars manuell resync
+- MaxHR: statistisk bucket-metod från alla hårda pass (>78% av observedMax)
+- MAXHR_ARTIFACT_CAP=205 (eliminerar sensorpikar >205 bpm)
+- Kalibrerings-knapp skriver INTE till AthleteProfile → estimering alltid fresh
+- AI: `analyze_full_history`-verktyg för djup historikanalys
+
+### ❌ Ej implementerat (se avsnitt ovan)
+- Beskrivningsresynk för gamla aktiviteter (§12)
+- Backfill-endpoint + UI i Settings
+- YoY volymheatmap (§3A)
+- Prestandautveckling per distans (§1B)
+- AI deep history → full integration med system prompt
+- Terrängfaktor OL-analys (§7A)
+
+---
+
 *Last updated: 2026-05-21*
