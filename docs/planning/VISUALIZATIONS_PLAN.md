@@ -340,13 +340,36 @@ search_activities or analyze_full_history for routine queries.`,
 ### Maxgränser
 - Max 500 aktiviteter per anrop (>500 → begär snävare intervall)
 - Max 2 anrop per konversation (förhindrar oavsiktliga stora kostnader)
-- Format: komprimerad text, en aktivitet per rad
+
+### Dataformat — fullständigt men strukturerat
+Returnerar alla fält som är relevanta för coaching-analys:
 
 ```
-2025-06-15 Lätt löpning 10.2km 52:30 avgHR:138 "Bra känsla i benen, lite trött"
-2025-06-17 Tisdagsbana 5x4min 8.1km 42:00 avgHR:162 maxHR:171 ""
+[2025-06-15 Mon] Lätt löpning — Run
+  Distans: 10.2 km · Tid: 52:30 · Tempo: 5:09/km
+  HR: avg 138 bpm / max 151 bpm
+  Höjd: 85 m · Väder: 18°C
+  Beskrivning: "Bra känsla i benen, lite trött men positiv. Sov dåligt natten innan."
+
+[2025-06-17 Wed] Tisdagsbana 5×4min — Run
+  Distans: 8.1 km · Tid: 42:00 · Tempo: 5:11/km (snittad inkl uppv)
+  HR: avg 162 bpm / max 171 bpm
+  Höjd: 42 m · Väder: 21°C
+  Beskrivning: "Intervallerna gick bra, höll 3:30 på de fyra sista. Lite kramp i vaden."
+
 ...
 ```
+
+**Inkluderade fält per aktivitet:**
+- Datum + veckodag + namn + sporttyp
+- Distans, tid, snittempo
+- Genomsnittlig och maximal puls
+- Höjdmeter, vädertemperatur
+- Fullständig beskrivning (obegränsad längd — detta är nyckelvärdet)
+- isRace-flagga om tävling
+
+**Exkluderade fält** (sparar tokens utan coaching-värde):
+- GPS-polyline, splits-JSON, Strava-ID, tekniska metadata
 
 ### Exempel på korrekt AI-beteende
 **Användare:** "Analysera alla mina pass från maj 2025"  
