@@ -103,3 +103,70 @@ export async function syncActivities(
 
   return { synced, errors };
 }
+
+/**
+ * Smart resync: fetch activities from last N days via paginated list,
+ * then re-fetch each one individually to get updated description/notes/splits.
+ * Used when user clicks the manual Sync button.
+ */
+export async function resyncRecentActivities(
+  userId: string,
+  days = 3,
+): Promise<{ synced: number; updated: number; errors: number }> {
+  const since = new Date(Date.now() - days * 86_400_000);
+  const after = Math.floor(since.getTime() / 1000);
+
+  // Step 1: get list of recent activities from Strava
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const listRaw: any[] = await stravaFetch(userId, `/athlete/activities?after=${after}&per_page=30`);
+  if (!Array.isArray(listRaw)) return { synced: 0, updated: 0, errors: 0 };
+
+  let synced = 0, updated = 0, errors = 0;
+
+  for (const summary of listRaw) {
+    try {
+      // Step 2: fetch full individual activity (includes description, splits, best efforts)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const full: any = await stravaFetch(userId, `/activities/${summary.id}`);
+      const data = mapActivity(full, userId);
+
+      const existing = await prisma.activity.findUnique({
+        where: { stravaId: data.stravaId },
+        select: { description: true },
+      });
+
+      if (!existing) {
+        // New activity — create it
+        await prisma.activity.create({ data });
+        synced++;
+      } else if (existing.description !== data.description) {
+        // Description has been updated — sync the new text and other fields
+        await prisma.activity.update({
+          where: { stravaId: data.stravaId },
+          data: {
+            name: data.name,
+            description: data.description,
+            splitsMetric: data.splitsMetric,
+            bestEfforts: data.bestEfforts,
+            sufferScore: data.sufferScore,
+            perceivedExertion: data.perceivedExertion,
+          },
+        });
+        updated++;
+      }
+
+      // Small delay to stay within Strava rate limits
+      await new Promise(r => setTimeout(r, 200));
+    } catch (e) {
+      console.error(`[resync] Failed for activity ${summary.id}:`, e);
+      errors++;
+    }
+  }
+
+  await prisma.stravaAccount.update({
+    where: { userId },
+    data: { lastSyncAt: new Date(), totalSynced: { increment: synced } },
+  });
+
+  return { synced, updated, errors };
+}

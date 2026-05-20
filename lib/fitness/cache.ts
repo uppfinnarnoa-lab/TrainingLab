@@ -215,27 +215,28 @@ export async function updateHRZones(userId: string) {
     .filter(a => a.isRace || /tävl|race|lopp|mila|stafett|sic\b|parkrun/i.test(a.name ?? ""))
     .flatMap(a => a.maxHeartrate ? [a.maxHeartrate] : []);
 
-  // Hard interval sessions: use maxHR (not avgHR) as they push closest to true max
-  // avgHR from intervals is diluted by recovery — maxHR during efforts is more reliable
-  const intervalMaxHRs = (activities as Act[])
-    .filter(a => /intervall|interval|fartlek|tisdagsbana|4x|5x|3x|\dx\d/i.test(a.name ?? "")
-      && /run|trail/i.test(a.sportType) && a.maxHeartrate)
-    .flatMap(a => a.maxHeartrate ? [a.maxHeartrate] : []);
-
   const thresholdHRs = (activities as Act[])
     .filter(a => a.averageHeartrate && a.averageHeartrate > observedMax * 0.82
       && a.sportType.toLowerCase().includes("run"))
     .map(a => a.averageHeartrate!);
 
-  // Interval session maxHR as additional source (most reliable for near-true max)
-  const intervalMaxHRClean = intervalMaxHRs.filter(h => h >= 150 && h <= MAXHR_ARTIFACT_CAP).sort((a,b)=>a-b);
-  const intervalBasedMax = intervalMaxHRClean.length >= 3
-    ? intervalMaxHRClean[Math.floor(intervalMaxHRClean.length * 0.85)]
+  // Statistical maxHR from ALL hard runs (bucket approach):
+  // Collect clean maxHR values from all runs where effort was hard (avgHR > 80% of clean observedMax).
+  // Use 85th percentile — much more data-rich than single-session interval source.
+  const hardRunMaxHRs = (activities as Act[])
+    .filter(a => a.maxHeartrate && a.averageHeartrate
+      && a.averageHeartrate > observedMax * 0.78   // hard effort (near LT1+)
+      && /run|trail/i.test(a.sportType)
+      && a.maxHeartrate <= MAXHR_ARTIFACT_CAP)
+    .map(a => a.maxHeartrate!);
+  const hardRunClean = [...hardRunMaxHRs].sort((a,b)=>a-b);
+  const statisticalMax = hardRunClean.length >= 5
+    ? hardRunClean[Math.floor(hardRunClean.length * 0.85)]  // 85th pct of clean hard-run maxHRs
     : null;
 
   const maxHR = profile?.maxHeartRate
     ?? estimateMaxHRFromRaces(raceMaxHRs)
-    ?? intervalBasedMax
+    ?? statisticalMax
     ?? estimateMaxHRFromThreshold(thresholdHRs)
     ?? estimateMaxHR(maxHRs);
   const restHR = profile?.restingHeartRate ?? garminRecent.at(-1)?.restingHR ?? 50;

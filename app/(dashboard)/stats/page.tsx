@@ -188,9 +188,56 @@ export default async function StatsPage() {
       ])
     );
 
+    // Compute analytics from recentForCurve (24-week data already fetched)
+    const fpLt1HR = hrZones.z3[0];
+    const fpAeiWeekMap = new Map<string, { sum: number; n: number }>();
+    const fpReWeekMap  = new Map<string, { sum: number; n: number }>();
+    const fpPct75HR    = Math.round(maxHR * 0.75);
+    let fpStreak = 0;
+    type CurveAct = { movingTime: number; averageHeartrate: number | null; startDate: Date; sportType: string | null; averageSpeed: number | null };
+    const fpDays = new Set((recentForCurve as CurveAct[]).map(a => format(a.startDate, "yyyy-MM-dd")));
+    for (let i = 0; i < 365; i++) {
+      if (fpDays.has(format(subDays(now, i), "yyyy-MM-dd"))) fpStreak++;
+      else break;
+    }
+    for (const a of recentForCurve as CurveAct[]) {
+      if (!a.averageHeartrate || !a.averageSpeed || !/run|trail/i.test(a.sportType ?? "")) continue;
+      const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      if (a.averageHeartrate < fpLt1HR && a.movingTime >= 900) {
+        const aei = (a.averageSpeed * 60) / a.averageHeartrate;
+        if (!fpAeiWeekMap.has(wk)) fpAeiWeekMap.set(wk, { sum: 0, n: 0 });
+        const e = fpAeiWeekMap.get(wk)!; e.sum += aei; e.n++;
+      }
+      if (Math.abs(a.averageHeartrate - fpPct75HR) < 5 && a.movingTime >= 900) {
+        const pace = 1000 / a.averageSpeed;
+        if (!fpReWeekMap.has(wk)) fpReWeekMap.set(wk, { sum: 0, n: 0 });
+        const e = fpReWeekMap.get(wk)!; e.sum += pace; e.n++;
+      }
+    }
+    const fpAeiByWeek = [...fpAeiWeekMap.entries()].sort(([a],[b])=>a.localeCompare(b)).slice(-16)
+      .map(([week,{sum,n}])=>({ week, aei: Math.round(sum/n*100)/100 }));
+    const fpReByWeek  = [...fpReWeekMap.entries()].sort(([a],[b])=>a.localeCompare(b)).slice(-12)
+      .map(([week,{sum,n}])=>({ week, paceSecPerKm: Math.round(sum/n) }));
+
+    const last7d   = format(subDays(now,7), "yyyy-MM-dd");
+    const prev14d  = format(subDays(now,14), "yyyy-MM-dd");
+    const fp7tss   = [...curveTSSMap.entries()].filter(([d])=>d>=last7d).reduce((s,[,v])=>s+v,0);
+    const fpPrev7  = [...curveTSSMap.entries()].filter(([d])=>d>=prev14d&&d<last7d).reduce((s,[,v])=>s+v,0);
+    const fpRamp   = fpPrev7 > 0 ? Math.round(((fp7tss-fpPrev7)/fpPrev7)*100) : null;
+    const fpInjury = acwr !== null ? Math.min(100, (acwr>1.5?50:acwr>1.3?30:0) + (fpRamp!==null&&fpRamp>20?50:fpRamp!==null&&fpRamp>10?30:0)) : null;
+
+    const fastAnalytics = {
+      aeiByWeek: fpAeiByWeek,
+      reByWeek: fpReByWeek,
+      rampRate: fpRamp,
+      injuryRisk: fpInjury,
+      activeStreak: fpStreak,
+      tempSensitivity: null,
+    };
+
     return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
       fastZoneSeconds, hrZones, vo2max, paceZones, predictions, fastPolarisation, acwr,
-      null, overviewRun, null, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots);
+      null, overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────

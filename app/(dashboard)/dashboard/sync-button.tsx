@@ -18,10 +18,16 @@ export function SyncButton({ lastSyncAt }: Props) {
     setLoading(true);
     setSynced(null);
     try {
-      const res = await fetch("/api/strava/sync", { method: "POST" });
+      // Smart resync: fetches last 3 days individually, picks up updated descriptions
+      const res = await fetch("/api/strava/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resync: true }),
+      });
       if (res.ok) {
         const data = await res.json();
-        setSynced(data.synced ?? 0);
+        const total = (data.synced ?? 0) + (data.updated ?? 0);
+        setSynced(total);
         router.refresh();
       }
     } finally {
@@ -37,11 +43,12 @@ export function SyncButton({ lastSyncAt }: Props) {
         </p>
       )}
       {synced !== null && (
-        <p className="text-xs text-accent">+{synced} aktiviteter</p>
+        <p className="text-xs text-accent">{synced > 0 ? `+${synced} aktiviteter` : "Uppdaterat"}</p>
       )}
       <button
         onClick={handleSync}
         disabled={loading}
+        title="Hämtar senaste 3 dagarna och uppdaterar beskrivningar"
         className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-medium text-muted hover:text-primary hover:border-accent/40 transition disabled:opacity-50"
       >
         {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}

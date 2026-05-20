@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
-import { syncActivities } from "@/lib/strava/sync";
+import { syncActivities, resyncRecentActivities } from "@/lib/strava/sync";
 import { updateVO2maxAndPaces } from "@/lib/fitness/cache";
 
 export async function POST(req: NextRequest) {
@@ -10,17 +10,23 @@ export async function POST(req: NextRequest) {
 
   const userId = session.user.id;
   const body = await req.json().catch(() => ({}));
-  const full = body.full === true;
+  const full   = body.full   === true;
+  const resync = body.resync === true; // manual button: smart 3-day resync
 
   const account = await prisma.stravaAccount.findUnique({ where: { userId } });
   if (!account) return NextResponse.json({ error: "strava_not_connected" }, { status: 400 });
 
-  const since = full ? undefined : (account.lastSyncAt ?? undefined);
-
   try {
-    const result = await syncActivities(userId, { full, since });
-    // Auto-update VO2max + paces after sync — HR zones are NOT updated here,
-    // only when user explicitly presses the calibration button.
+    let result;
+    if (resync) {
+      // Smart resync: fetch last 3 days, re-fetch individual activities if description changed
+      result = await resyncRecentActivities(userId, 3);
+    } else {
+      const since = full ? undefined : (account.lastSyncAt ?? undefined);
+      result = await syncActivities(userId, { full, since });
+    }
+
+    // Auto-update VO2max + paces after sync (not HR zones — only on button press)
     updateVO2maxAndPaces(userId).catch(e => console.error("Fitness cache error:", e));
     return NextResponse.json({ ...result, lastSyncAt: new Date() });
   } catch (e) {

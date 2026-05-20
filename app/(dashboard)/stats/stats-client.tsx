@@ -217,8 +217,8 @@ export function StatsClient(props: Props) {
           {/* Statistical zone analysis from bucketed HR-pace data */}
           {statZones && <StatisticalZonesCard sz={statZones} />}
 
-          {/* Polarisation score (Seiler 80/20) */}
-          {polarisation && <PolarisationCard pol={polarisation} />}
+          {/* Polarisation + 5-zone distribution */}
+          {polarisation && <PolarisationCard pol={polarisation} zoneSeconds={zoneSeconds} />}
 
           {/* HR zone table with LT/AT boundaries */}
           <HRZoneTable hrZones={hrZones} ltBounds={ltBounds} />
@@ -594,32 +594,76 @@ function HRZoneTable({ hrZones, ltBounds }: {
   );
 }
 
-function PolarisationCard({ pol }: { pol: { z1Pct: number; z2Pct: number; z3Pct: number } }) {
+// Colors matching the ZONE_META in HRZoneTable
+const HR5_ZONES = [
+  { key: "z1", label: "Z1 Recovery",  color: "#94A3B8" },
+  { key: "z2", label: "Z2 Aerobic",   color: "#6EE7B7" },
+  { key: "z3", label: "Z3 Tempo",     color: "#FBBF24" },
+  { key: "z4", label: "Z4 Threshold", color: "#F97316" },
+  { key: "z5", label: "Z5 VO2max",    color: "#EF4444" },
+];
+
+function PolarisationCard({ pol, zoneSeconds }: {
+  pol: { z1Pct: number; z2Pct: number; z3Pct: number };
+  zoneSeconds?: Record<string, number>;
+}) {
   const { z1Pct, z2Pct, z3Pct } = pol;
   const score = Math.max(0, Math.round(100 - Math.abs(z1Pct - 80) * 0.8 - z2Pct * 1.5));
   const scoreColor = score >= 75 ? "#6EE7B7" : score >= 50 ? "#FBBF24" : "#F87171";
   const msg = z2Pct > 25
     ? "Too much time in the tempo zone — risk of 'junk miles'. Replace with easy runs."
     : z1Pct >= 75 ? "Good polarisation — maintain this structure." : "Increase easy volume for better polarisation.";
+
+  // 5-zone distribution from zoneSeconds
+  const totalZ = zoneSeconds ? Object.values(zoneSeconds).reduce((s, v) => s + v, 0) : 0;
+
   return (
     <div className="rounded-xl border border-border overflow-hidden">
       <div className="px-4 py-3 border-b border-border bg-surface-2 flex items-center justify-between">
-        <p className="text-sm font-semibold text-primary">Polarisation — Seiler 80/20 (last 12 weeks)</p>
-        <span className="text-xs font-semibold font-mono" style={{ color: scoreColor }}>Score {score}/100</span>
+        <p className="text-sm font-semibold text-primary">HR zone distribution (last 12 weeks)</p>
+        <span className="text-xs font-semibold font-mono" style={{ color: scoreColor }}>Seiler score {score}/100</span>
       </div>
-      <div className="p-4 space-y-3">
-        <div className="flex rounded-full overflow-hidden h-4 bg-surface-2">
-          <div style={{ width: `${z1Pct}%`, backgroundColor: "#6EE7B7" }} />
-          <div style={{ width: `${z2Pct}%`, backgroundColor: "#FBBF24" }} />
-          <div style={{ width: `${z3Pct}%`, backgroundColor: "#EF4444" }} />
+      <div className="p-4 space-y-4">
+        {/* 5-zone distribution — matching HR table colors */}
+        {totalZ > 0 && (
+          <div className="space-y-2">
+            <div className="flex rounded-full overflow-hidden h-4 bg-surface-2">
+              {HR5_ZONES.map(z => {
+                const w = totalZ > 0 ? ((zoneSeconds![z.key] ?? 0) / totalZ) * 100 : 0;
+                return w > 0 ? <div key={z.key} style={{ width: `${w}%`, backgroundColor: z.color }} title={`${z.label}: ${w.toFixed(0)}%`} /> : null;
+              })}
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              {HR5_ZONES.map(z => {
+                const p = totalZ > 0 ? Math.round(((zoneSeconds![z.key] ?? 0) / totalZ) * 100) : 0;
+                return p > 0 ? (
+                  <span key={z.key} className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: z.color }} />
+                    <span className="text-muted">{z.label}</span>
+                    <span className="font-semibold text-primary">{p}%</span>
+                  </span>
+                ) : null;
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Seiler 3-zone — training structure (Low/Moderate/High, separate from 5-zone) */}
+        <div className="pt-2 border-t border-border space-y-2">
+          <p className="text-xs font-medium text-muted">Seiler 80/20 structure (Low / Moderate / High intensity)</p>
+          <div className="flex rounded-full overflow-hidden h-3 bg-surface-2">
+            <div style={{ width: `${z1Pct}%`, backgroundColor: "#6EE7B7" }} />
+            <div style={{ width: `${z2Pct}%`, backgroundColor: "#FBBF24" }} />
+            <div style={{ width: `${z3Pct}%`, backgroundColor: "#EF4444" }} />
+          </div>
+          <div className="flex flex-wrap gap-4 text-xs">
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-accent/80" style={{ backgroundColor: "#6EE7B7" }} />Low {z1Pct}%</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#FBBF24" }} />Moderate {z2Pct}%</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#EF4444" }} />High {z3Pct}%</span>
+            <span className="ml-auto text-muted">Target: 80 · 5–10 · 15</span>
+          </div>
+          <p className="text-xs text-muted">{msg}</p>
         </div>
-        <div className="flex flex-wrap gap-5 text-xs">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#6EE7B7", display: "inline-block" }} />Z1 easy {z1Pct}%</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#FBBF24", display: "inline-block" }} />Z2 tempo {z2Pct}%</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#EF4444", display: "inline-block" }} />Z3 hard {z3Pct}%</span>
-          <span className="ml-auto text-muted">Target: 80 · 5–10 · 15</span>
-        </div>
-        <p className="text-xs text-muted">{msg}</p>
       </div>
     </div>
   );
