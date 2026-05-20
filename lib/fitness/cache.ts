@@ -13,7 +13,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromStatisticalAnalysis } from "./zones";
+import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromStatisticalAnalysis, MAXHR_ARTIFACT_CAP } from "./zones";
 import { estimateVO2max, buildHRPaceRegressionParams, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, gradeAdjustedPace, type RacePB } from "./vo2max";
 import { computeTSS, buildLoadCurve, computeACWR } from "./training-load";
 import { RACE_DISTANCES } from "./paces";
@@ -203,17 +203,39 @@ export async function updateHRZones(userId: string) {
   ]);
 
   const maxHRs = (activities as Act[]).flatMap(a => a.maxHeartrate ? [a.maxHeartrate] : []);
-  const observedMax = maxHRs.length > 0 ? Math.max(...maxHRs) : 200;
+  // Clean observed max: remove artifact spikes before using as filter threshold
+  // Raw max(maxHRs) can be 220-230 bpm from optical sensor glitches — totally wrong
+  const cleanMaxHRs = maxHRs.filter(h => h <= MAXHR_ARTIFACT_CAP);
+  const sortedCleanMaxHRs = [...cleanMaxHRs].sort((a, b) => a - b);
+  const observedMax = sortedCleanMaxHRs.length > 0
+    ? sortedCleanMaxHRs[Math.floor(sortedCleanMaxHRs.length * 0.90)] // 90th percentile of clean values
+    : 185;
+
   const raceMaxHRs = (activities as Act[])
     .filter(a => a.isRace || /tävl|race|lopp|mila|stafett|sic\b|parkrun/i.test(a.name ?? ""))
     .flatMap(a => a.maxHeartrate ? [a.maxHeartrate] : []);
+
+  // Hard interval sessions: use maxHR (not avgHR) as they push closest to true max
+  // avgHR from intervals is diluted by recovery — maxHR during efforts is more reliable
+  const intervalMaxHRs = (activities as Act[])
+    .filter(a => /intervall|interval|fartlek|tisdagsbana|4x|5x|3x|\dx\d/i.test(a.name ?? "")
+      && /run|trail/i.test(a.sportType) && a.maxHeartrate)
+    .flatMap(a => a.maxHeartrate ? [a.maxHeartrate] : []);
+
   const thresholdHRs = (activities as Act[])
     .filter(a => a.averageHeartrate && a.averageHeartrate > observedMax * 0.82
       && a.sportType.toLowerCase().includes("run"))
     .map(a => a.averageHeartrate!);
 
+  // Interval session maxHR as additional source (most reliable for near-true max)
+  const intervalMaxHRClean = intervalMaxHRs.filter(h => h >= 150 && h <= MAXHR_ARTIFACT_CAP).sort((a,b)=>a-b);
+  const intervalBasedMax = intervalMaxHRClean.length >= 3
+    ? intervalMaxHRClean[Math.floor(intervalMaxHRClean.length * 0.85)]
+    : null;
+
   const maxHR = profile?.maxHeartRate
     ?? estimateMaxHRFromRaces(raceMaxHRs)
+    ?? intervalBasedMax
     ?? estimateMaxHRFromThreshold(thresholdHRs)
     ?? estimateMaxHR(maxHRs);
   const restHR = profile?.restingHeartRate ?? garminRecent.at(-1)?.restingHR ?? 50;

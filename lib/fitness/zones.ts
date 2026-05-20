@@ -30,33 +30,36 @@ export interface PaceZones {
  * The absolute max is used only as a floor (we won't estimate BELOW what was
  * actually observed).
  */
+// Artifact cap: optical HR sensors and chest straps occasionally spike to 220-230 bpm.
+// No recreational/amateur athlete has a true maxHR above this threshold.
+export const MAXHR_ARTIFACT_CAP = 205;
+
 /**
  * Estimate max HR from per-activity max HR values.
- * Uses 95th percentile to filter sensor spikes, +2 bpm margin since
- * true max is rarely reached in ordinary training.
+ * Hard-caps at 205 bpm to remove optical HR sensor artifacts.
+ * Uses 85th percentile of clean data (more conservative than 95th).
+ * No +2 bpm buffer — we want to avoid overestimation.
  */
 export function estimateMaxHR(activityMaxHRs: number[]): number {
-  if (activityMaxHRs.length === 0) return 185;
-  const clean = activityMaxHRs.filter(h => h >= 130 && h <= 215);
-  if (clean.length === 0) return 185;
+  if (activityMaxHRs.length === 0) return 180;
+  const clean = activityMaxHRs.filter(h => h >= 130 && h <= MAXHR_ARTIFACT_CAP);
+  if (clean.length === 0) return 180;
   const sorted = [...clean].sort((a, b) => a - b);
-  const p95 = sorted[Math.min(Math.floor(sorted.length * 0.95), sorted.length - 1)];
-  return Math.round(p95 + 2);
+  const p85 = sorted[Math.min(Math.floor(sorted.length * 0.85), sorted.length - 1)];
+  return Math.round(p85);
 }
 
 /**
- * Estimate max HR using ONLY race/hard-effort activities.
- * More reliable than global peak because races reach near-true max.
- * raceMaxHRs: maxHeartrate values from activities marked as race or keyword-race.
+ * Estimate max HR from race/hard-effort activities.
+ * Uses 80th percentile — even in races you rarely hit absolute true max.
  */
 export function estimateMaxHRFromRaces(raceMaxHRs: number[]): number | null {
   if (raceMaxHRs.length < 2) return null;
-  const clean = raceMaxHRs.filter(h => h >= 140 && h <= 215);
+  const clean = raceMaxHRs.filter(h => h >= 140 && h <= MAXHR_ARTIFACT_CAP);
   if (clean.length === 0) return null;
   const sorted = [...clean].sort((a, b) => a - b);
-  // Take the 90th percentile of race max HRs (not absolute max — avoids mid-race spikes)
-  const p90 = sorted[Math.min(Math.floor(sorted.length * 0.90), sorted.length - 1)];
-  return Math.round(p90);
+  const p80 = sorted[Math.min(Math.floor(sorted.length * 0.80), sorted.length - 1)];
+  return Math.round(p80);
 }
 
 /**
