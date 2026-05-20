@@ -30,10 +30,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside
-      className="fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface"
-      style={{ position: "fixed", top: 0, left: 0, bottom: 0, width: "14rem", zIndex: 40 }}
-    >
+    <aside className="sticky top-0 h-screen shrink-0 w-56 flex flex-col border-r border-border bg-surface overflow-y-auto">
       {/* Logo */}
       <div className="flex h-16 items-end px-4 pb-3 border-b border-border">
         <LogoWordmark size={28} />

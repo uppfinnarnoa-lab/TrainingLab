@@ -77,32 +77,32 @@ export function estimateMaxHRFromThreshold(thresholdHRs: number[]): number | nul
 /**
  * Physiologically-anchored HR zones — non-uniform, based on LT1 and LT2.
  *
- * Uses % of maxHR (not HRR) because the research is clearer and the
- * zones are anchored at real metabolic thresholds, not math:
+ * Research values for well-trained endurance athletes:
+ *   LT1 (aerobic threshold)  ≈ 80 % maxHR  (Seiler, Esteve-Lanao)
+ *   LT2 (lactate threshold)  ≈ 89 % maxHR  (higher for trained runners)
  *
- *   LT1 (aerobic threshold)       ≈ 75–80 % maxHR
- *   LT2 (lactate threshold / AT)  ≈ 86–91 % maxHR  ← trained athletes higher
- *
- * Zone widths are intentionally unequal:
- *   Z1  Recovery    < LT1 - 5 %
- *   Z2  Aerobic     LT1 - 5 % → LT1
- *   Z3  Tempo       LT1 → LT2
- *   Z4  Threshold   LT2 → LT2 + 6 %
- *   Z5  VO2max      > LT2 + 6 %
+ * Zone structure (non-uniform widths):
+ *   Z1  Recovery    restHR  → LT1 - Z2width
+ *   Z2  Aerobic     LT1-Z2w → LT1           (meaningful width: ~10-12 bpm)
+ *   Z3  Tempo       LT1     → LT2           (natural physiological range)
+ *   Z4  Threshold   LT2     → LT2 + 8 bpm  (at/just above LT2)
+ *   Z5  VO2max      LT2+8   → maxHR
  */
 export function buildHRZones(maxHR: number, restHR: number = 45): HRZones {
   const pct = (p: number) => Math.round(maxHR * p);
 
-  // LT1 and LT2 as % of maxHR — higher values for well-trained athletes
-  const lt1 = pct(0.78);  // aerobic threshold ≈ 78 % maxHR
-  const lt2 = pct(0.88);  // lactate threshold ≈ 88 % maxHR
+  const lt1 = pct(0.80);  // LT1 ≈ 80% for trained runners (was 78%)
+  const lt2 = pct(0.89);  // LT2 ≈ 89% for trained runners (was 88%)
+
+  // Z2 width: ~7% of LT1 value → gives meaningful aerobic zone (~10-12 bpm)
+  const z2width = Math.max(8, Math.round(lt1 * 0.07));
 
   return {
-    z1: [restHR,      lt1 - 4],     // Recovery (below aerobic threshold)
-    z2: [lt1 - 4,     lt1],         // Aerobic base
-    z3: [lt1,         lt2],         // Tempo (between LT1 and LT2)
-    z4: [lt2,         pct(0.94)],   // Threshold (at/above LT2)
-    z5: [pct(0.94),   maxHR],       // VO2max
+    z1: [restHR,          lt1 - z2width],
+    z2: [lt1 - z2width,   lt1],
+    z3: [lt1,             lt2],
+    z4: [lt2,             Math.min(lt2 + 8, maxHR - 2)],
+    z5: [Math.min(lt2 + 8, maxHR - 2), maxHR],
     maxHR,
     restHR,
   };
@@ -240,11 +240,13 @@ export function buildHRZonesFromLT(
 ): HRZones {
   const lt1 = lt.lt1HR;
   const lt2 = lt.lt2HR;
+  // Z2 width: ~7% of LT1 value → meaningful aerobic zone (~10-12 bpm)
+  const z2width = Math.max(8, Math.round(lt1 * 0.07));
   return {
-    z1: [restHR,    lt1 - 4],
-    z2: [lt1 - 4,  lt1],
-    z3: [lt1,      lt2],
-    z4: [lt2,      Math.min(lt2 + 8, maxHR - 2)],
+    z1: [restHR,          lt1 - z2width],
+    z2: [lt1 - z2width,   lt1],
+    z3: [lt1,             lt2],
+    z4: [lt2,             Math.min(lt2 + 8, maxHR - 2)],
     z5: [Math.min(lt2 + 8, maxHR - 2), maxHR],
     maxHR,
     restHR,

@@ -591,13 +591,15 @@ export function estimateVO2max(
 
   // ── WEIGHTED MEAN — race PBs dominate when present ───────────────────────
   const hasRacePBs = racePBCandidates.length > 0 || model6Vdot !== null;
-  const vdotWeight = hasRacePBs ? 0.50 : 0.00;
-  const csWeight   = model6Vdot !== null ? 0.08 : 0.00;
-  const regrWeight = hasRacePBs ? Math.min(model4Weight, 0.10) : model4Weight;
-  // TSB model gets weight when available — it reflects current form, not just historical PBs
-  const tsbWeight  = model7Vdot !== null ? 0.15 : 0.00;
-  // HR form signal gets moderate weight — it detects recent fitness changes from training data
-  const hrFormWeight = model8Vdot !== null ? 0.10 : 0.00;
+  // TSB and HR-form signal reflect CURRENT fitness (not just historical PBs).
+  // They get higher weight so predictions adapt to training state, not just race history.
+  const tsbWeight    = model7Vdot !== null ? 0.25 : 0.00; // form matters a lot
+  const hrFormWeight = model8Vdot !== null ? 0.20 : 0.00; // training quality signal
+  // Reduce PB and regression weight when we have good current-fitness signals
+  const hasCurrent   = tsbWeight + hrFormWeight > 0;
+  const vdotWeight   = hasRacePBs ? (hasCurrent ? 0.30 : 0.50) : 0.00;
+  const csWeight     = model6Vdot !== null ? (hasCurrent ? 0.06 : 0.08) : 0.00;
+  const regrWeight   = hasRacePBs ? Math.min(model4Weight, hasCurrent ? 0.08 : 0.10) : model4Weight;
   type ModelEntry = [number | null, number, string];
   const models: ModelEntry[] = [
     [model1Vdot,  vdotWeight,  "VDOT (race PBs)"],

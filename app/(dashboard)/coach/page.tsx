@@ -58,7 +58,7 @@ export default async function CoachPage({
 
   return (
     // Escape the dashboard's p-6 padding and max-w-7xl to fill the full content area
-    <div className="-mx-6 -my-6" style={{ height: "100vh" }}>
+    <div className="-mx-6 -my-6 h-full flex flex-col">
       <ChatInterface
         provider={provider}
         hasApiKey={hasApiKey}
