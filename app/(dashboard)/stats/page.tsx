@@ -128,11 +128,10 @@ export default async function StatsPage() {
       return Object.values(weeklyVolumes[key] ?? {}).reduce((s, v) => s + v.km, 0);
     });
 
-    // Build load curve: fetch last 24 weeks of activities (small query, no JSON blobs)
-    // 24w = 8w CTL warm-up + 16w display window
+    // Fetch last 24 weeks with HR + speed for load curve, zone seconds and pace zones
     const recentForCurve = await prisma.activity.findMany({
       where: { userId, startDate: { gte: subDays(now, 168) } },
-      select: { movingTime: true, averageHeartrate: true, startDate: true },
+      select: { movingTime: true, averageHeartrate: true, startDate: true, sportType: true, averageSpeed: true },
       orderBy: { startDate: "asc" },
     });
     const curveTSSMap = new Map<string, number>();
@@ -142,10 +141,56 @@ export default async function StatsPage() {
       curveTSSMap.set(key, (curveTSSMap.get(key) ?? 0) + tss);
     }
     const fullCurve = buildLoadCurve(curveTSSMap, subDays(now, 168), now);
-    const loadCurve = fullCurve.slice(-112); // last 16 weeks for display
+    const loadCurve = fullCurve.slice(-112);
+
+    // Recompute zone seconds from calibrated zones (don't trust cached value — may use old zones)
+    const fastZoneSeconds: Record<string, number> = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
+    const fastLt1 = hrZones.z3[0], fastLt2 = hrZones.z4[0];
+    let fpZ1 = 0, fpZ2 = 0, fpZ3 = 0;
+    const twelveWeeksAgoFast = subDays(now, 84);
+    for (const a of recentForCurve) {
+      if (!a.averageHeartrate || a.startDate < twelveWeeksAgoFast) continue;
+      const hr = a.averageHeartrate;
+      const z = hr < hrZones.z1[1] ? 1 : hr < hrZones.z2[1] ? 2 : hr < hrZones.z3[1] ? 3 : hr < hrZones.z4[1] ? 4 : 5;
+      fastZoneSeconds[`z${z}`] += a.movingTime;
+      if (hr < fastLt1) fpZ1 += a.movingTime; else if (hr < fastLt2) fpZ2 += a.movingTime; else fpZ3 += a.movingTime;
+    }
+    const fpTotal = fpZ1 + fpZ2 + fpZ3;
+    const fastPolarisation = fpTotal > 0
+      ? { z1Pct: Math.round(fpZ1/fpTotal*100), z2Pct: Math.round(fpZ2/fpTotal*100), z3Pct: Math.round(fpZ3/fpTotal*100) }
+      : null;
+
+    // Pace zone seconds from calibrated pace zones
+    const fastPaceZoneSeconds: Record<string, number> = { easy: 0, marathon: 0, threshold: 0, interval: 0, repetition: 0 };
+    for (const a of recentForCurve) {
+      if (!a.averageSpeed || a.startDate < twelveWeeksAgoFast || !/run|trail/i.test(a.sportType ?? "")) continue;
+      const pace = 1000 / a.averageSpeed;
+      if (pace >= paceZones.easy[0])           fastPaceZoneSeconds.easy      += a.movingTime;
+      else if (pace >= paceZones.marathon[0])  fastPaceZoneSeconds.marathon   += a.movingTime;
+      else if (pace >= paceZones.threshold[0]) fastPaceZoneSeconds.threshold  += a.movingTime;
+      else if (pace >= paceZones.interval[0])  fastPaceZoneSeconds.interval   += a.movingTime;
+      else                                     fastPaceZoneSeconds.repetition += a.movingTime;
+    }
+
+    // Per-model predictions from the cached VO2max breakdown
+    const fastModelVdots: Record<string, number> = {
+      "Weighted (default)": vo2max.vdot,
+      ...Object.fromEntries(
+        Object.entries((vo2max as { breakdown?: Record<string, number> }).breakdown ?? {})
+          .filter(([, v]) => v > 30 && v < 90)
+          .map(([name, v]) => [name, Math.round(v * 10) / 10])
+      ),
+    };
+    const fastModelPredictions = Object.fromEntries(
+      Object.entries(fastModelVdots).map(([model, vdot]) => [
+        model,
+        RACE_DISTANCES.map(({ label, meters }) => ({ label, meters, peak: predictRaceTime(vdot, meters) })),
+      ])
+    );
 
     return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
-      zoneSeconds, hrZones, vo2max, paceZones, predictions, polarisation, acwr, null, overviewRun, null, {}, {}, {});
+      fastZoneSeconds, hrZones, vo2max, paceZones, predictions, fastPolarisation, acwr,
+      null, overviewRun, null, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────
