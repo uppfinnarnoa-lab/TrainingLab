@@ -59,8 +59,9 @@ export async function POST(req: NextRequest) {
   // ── Load or create conversation ─────────────────────────────────────
   let convId = conversationId;
   if (!convId) {
+    const datePrefix = new Date().toLocaleDateString("sv-SE", { day: "numeric", month: "short" });
     const conv = await prisma.conversation.create({
-      data: { userId, title: message.slice(0, 60) },
+      data: { userId, title: `${datePrefix} — ${message.slice(0, 50)}` },
     });
     convId = conv.id;
   } else {
