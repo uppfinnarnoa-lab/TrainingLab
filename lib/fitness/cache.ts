@@ -82,23 +82,7 @@ export async function updateVO2maxAndPaces(userId: string) {
   const maxHR  = profile?.maxHeartRate    ?? existingCache?.maxHR    ?? 190;
   const restHR = profile?.restingHeartRate ?? garminRecent.at(-1)?.restingHR ?? existingCache?.restHR ?? 50;
 
-  // ── VO2max & paces ──────────────────────────────────────────────────────
-  const vo2maxResult = estimateVO2max(
-    (activities as Act[]).map(a => ({
-      distanceM: a.distance, timeSec: a.movingTime,
-      avgHR: a.averageHeartrate, isRace: a.isRace,
-      sportType: a.sportType, name: a.name, bestEfforts: a.bestEfforts,
-      startDate: a.startDate, totalElevationGain: a.totalElevationGain,
-    })),
-    maxHR, restHR, racePBs,
-  );
-  const paceZones = buildPaceZones(vo2maxResult.vdot);
-  // Zones are NEVER calculated automatically — only when user presses the calibration button.
-  // On first cache creation (no existing cache), use static placeholder (fixed 78%/88% of 185 bpm).
-  // The UPDATE path never touches zones — they only change via updateHRZones() (button press).
-  const existingZones = (existingCache?.zones as object | null) ?? buildHRZonesJson(185, 45);
-
-  // ── ATL / CTL / TSB / ACWR ─────────────────────────────────────────────
+  // ── ATL / CTL / TSB / ACWR — computed first so TSB can feed into VO2max ──
   const dailyTSS = new Map<string, number>();
   for (const a of activities as Act[]) {
     const key = format(a.startDate, "yyyy-MM-dd");
@@ -108,6 +92,19 @@ export async function updateVO2maxAndPaces(userId: string) {
   const loadCurve = buildLoadCurve(dailyTSS, subDays(now, 365), now);
   const todayLoad = loadCurve.at(-1) ?? { atl: 0, ctl: 0, tsb: 0, tss: 0, date: "" };
   const acwr = computeACWR(dailyTSS, now);
+
+  // ── VO2max & paces — TSB passed so form-adjusted model runs ────────────
+  const vo2maxResult = estimateVO2max(
+    (activities as Act[]).map(a => ({
+      distanceM: a.distance, timeSec: a.movingTime,
+      avgHR: a.averageHeartrate, isRace: a.isRace,
+      sportType: a.sportType, name: a.name, bestEfforts: a.bestEfforts,
+      startDate: a.startDate, totalElevationGain: a.totalElevationGain,
+    })),
+    maxHR, restHR, racePBs, todayLoad.tsb,
+  );
+  const paceZones = buildPaceZones(vo2maxResult.vdot);
+  const existingZones = (existingCache?.zones as object | null) ?? buildHRZonesJson(185, 45);
 
   // ── Weekly volumes (last 16 weeks) ─────────────────────────────────────
   const sixteenWeeksAgo = subDays(now, 112);
@@ -282,7 +279,7 @@ export async function updateHRZones(userId: string) {
       sportType: a.sportType, name: a.name, bestEfforts: a.bestEfforts,
       startDate: a.startDate, totalElevationGain: a.totalElevationGain,
     })),
-    maxHR, restHR, racePBs,
+    maxHR, restHR, racePBs, undefined,
   );
   const paceZones = buildPaceZones(vo2maxResult.vdot);
 
@@ -322,10 +319,16 @@ export async function updateHRZones(userId: string) {
     },
   });
 
+  // Only persist to AthleteProfile if the user hasn't manually set these values.
+  // Manually entered values always trump computed estimates.
   await prisma.athleteProfile.upsert({
     where: { userId },
     create: { userId, maxHeartRate: maxHR, restingHeartRate: restHR },
-    update: { maxHeartRate: maxHR, restingHeartRate: restHR },
+    update: {
+      // Only overwrite if profile value was null/unset (i.e., came from estimation, not user input)
+      ...(profile?.maxHeartRate    ? {} : { maxHeartRate: maxHR }),
+      ...(profile?.restingHeartRate ? {} : { restingHeartRate: restHR }),
+    },
   });
 
   return { maxHR, restHR, thresholdHR, zones: zonesJson, vo2max: vo2maxResult.value, vdot: vo2maxResult.vdot };

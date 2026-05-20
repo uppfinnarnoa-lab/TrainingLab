@@ -337,11 +337,70 @@ export interface RacePB {
   date: Date;
 }
 
+/**
+ * TSB-adjusted VDOT (Banister impulse-response model, simplified).
+ * Formula: VDOT_adjusted = VDOT_PB × (1 + 0.003 × TSB)
+ * TSB +15 → +4.5% performance boost (peak form)
+ * TSB −30 → −9% (deep fatigue)
+ * Based on industry practice (TrainingPeaks/WKO form model).
+ * Clamped to ±15% of base VDOT to prevent extreme corrections.
+ */
+export function tsbAdjustedVdot(baseVdot: number, tsb: number): number {
+  const factor = 1 + 0.003 * tsb;
+  const clamped = Math.max(0.85, Math.min(1.15, factor));
+  return Math.round(baseVdot * clamped * 10) / 10;
+}
+
+/**
+ * HR-at-pace form signal: compare recent 30-day avg HR at easy pace
+ * vs 90-day baseline. A +8-12bpm drift at same pace implies ~8-12% fitness loss.
+ * Returns a fitness-change fraction (negative = decline, positive = improvement).
+ * Returns null if insufficient data.
+ */
+export function hrFormSignal(
+  runs: Array<{ avgHR: number; avgPaceSecPerKm: number; startDate: Date }>,
+  maxHR: number,
+): number | null {
+  const now = Date.now();
+  const easy = runs.filter(r =>
+    r.avgHR > maxHR * 0.60 && r.avgHR < maxHR * 0.80 &&
+    r.avgPaceSecPerKm > 240 && r.avgPaceSecPerKm < 480  // 4-8 min/km
+  );
+  if (easy.length < 10) return null;
+
+  // Pick pace band with most data: round to nearest 15 sec/km bucket
+  const buckets = new Map<number, { hrSum: number; count: number; recent: number; recentCount: number }>();
+  for (const r of easy) {
+    const bucket = Math.round(r.avgPaceSecPerKm / 15) * 15;
+    if (!buckets.has(bucket)) buckets.set(bucket, { hrSum: 0, count: 0, recent: 0, recentCount: 0 });
+    const b = buckets.get(bucket)!;
+    b.hrSum += r.avgHR; b.count++;
+    const daysAgo = (now - r.startDate.getTime()) / 86400000;
+    if (daysAgo < 30) { b.recent += r.avgHR; b.recentCount++; }
+  }
+
+  // Find best bucket (most data)
+  let bestBucket: { hrSum: number; count: number; recent: number; recentCount: number } | null = null;
+  let bestCount = 0;
+  for (const b of buckets.values()) {
+    if (b.count > bestCount && b.recentCount >= 2) { bestBucket = b; bestCount = b.count; }
+  }
+  if (!bestBucket || bestBucket.recentCount < 2) return null;
+
+  const baselineHR = bestBucket.hrSum / bestBucket.count;
+  const recentHR   = bestBucket.recent / bestBucket.recentCount;
+  const hrDrift    = recentHR - baselineHR; // positive = higher HR = worse fitness
+
+  // Convert HR drift to VDOT fraction: every 10 bpm = ~10% change
+  return -hrDrift / maxHR; // negative fraction = decline
+}
+
 export function estimateVO2max(
   activities: ActivitySample[],
   maxHR: number,
   restHR: number,
   racePBs?: RacePB[],
+  tsb?: number,
 ): VO2maxEstimate {
   const isRunning = (a: ActivitySample) => /run|trail/i.test(a.sportType);
   const runs = activities.filter(isRunning);
@@ -503,20 +562,52 @@ export function estimateVO2max(
     if (cs && cs.vdot > 35 && cs.vdot < 90) model6Vdot = cs.vdot;
   }
 
+  // ── MODEL 7: TSB-adjusted VDOT (Banister form model) ─────────────────────
+  // Adjusts the PB-based estimate up/down based on current training stress balance.
+  // TSB +15 ≈ peak form (+4.5%); TSB −30 ≈ heavy fatigue (−9%).
+  let model7Vdot: number | null = null;
+  if (model1Vdot && tsb !== undefined && tsb !== null) {
+    model7Vdot = tsbAdjustedVdot(model1Vdot, tsb);
+  }
+
+  // ── MODEL 8: HR-form signal from easy runs ────────────────────────────────
+  // If HR at easy pace has drifted vs 90-day baseline, adjust VDOT accordingly.
+  let model8Vdot: number | null = null;
+  if (model1Vdot) {
+    const hrRuns = runs
+      .filter(a => a.avgHR && a.distanceM > 0 && a.timeSec > 0 && !looksLikeIntervals(a.name ?? ""))
+      .map(a => ({
+        avgHR: a.avgHR!,
+        avgPaceSecPerKm: gradeAdjustedPace(a.timeSec / (a.distanceM / 1000), a.totalElevationGain ?? 0, a.distanceM),
+        startDate: a.startDate ?? new Date(),
+      }));
+    const signal = hrFormSignal(hrRuns, maxHR);
+    if (signal !== null) {
+      // Limit adjustment to ±8% of model1Vdot
+      const adjustment = Math.max(-0.08, Math.min(0.08, signal));
+      model8Vdot = model1Vdot * (1 + adjustment);
+    }
+  }
+
   // ── WEIGHTED MEAN — race PBs dominate when present ───────────────────────
   const hasRacePBs = racePBCandidates.length > 0 || model6Vdot !== null;
-  // Increased race PB weight: verified race times are the most accurate VO2max signal
-  const vdotWeight = hasRacePBs ? 0.65 : 0.00;
-  const csWeight   = model6Vdot !== null ? 0.12 : 0.00;
-  const regrWeight = hasRacePBs ? Math.min(model4Weight, 0.12) : model4Weight;
+  const vdotWeight = hasRacePBs ? 0.50 : 0.00;
+  const csWeight   = model6Vdot !== null ? 0.08 : 0.00;
+  const regrWeight = hasRacePBs ? Math.min(model4Weight, 0.10) : model4Weight;
+  // TSB model gets weight when available — it reflects current form, not just historical PBs
+  const tsbWeight  = model7Vdot !== null ? 0.15 : 0.00;
+  // HR form signal gets moderate weight — it detects recent fitness changes from training data
+  const hrFormWeight = model8Vdot !== null ? 0.10 : 0.00;
   type ModelEntry = [number | null, number, string];
   const models: ModelEntry[] = [
-    [model1Vdot,  vdotWeight, "VDOT (pace)"],
-    [model6Vdot,  csWeight,   "Critical Speed"],
-    [model4,      regrWeight, "HR-pace regression"],
-    [model2,      hasRacePBs ? 0.05 : 0.10, "Uth-Sørensen"],
-    [model3,      hasRacePBs ? 0.03 : 0.07, "Cooper"],
-    [model5Vdot,  hasRacePBs ? 0.02 : 0.05, "decay bridge"],
+    [model1Vdot,  vdotWeight,  "VDOT (race PBs)"],
+    [model7Vdot,  tsbWeight,   "TSB-adjusted (form)"],
+    [model8Vdot,  hrFormWeight,"HR-form signal"],
+    [model6Vdot,  csWeight,    "Critical Speed"],
+    [model4,      regrWeight,  "HR-pace regression"],
+    [model2,      hasRacePBs ? 0.04 : 0.10, "Uth-Sørensen"],
+    [model3,      hasRacePBs ? 0.02 : 0.07, "Cooper"],
+    [model5Vdot,  hasRacePBs ? 0.01 : 0.05, "decay bridge"],
   ];
 
   const available = models.filter(([v]) => v !== null && v > 35 && v < 90);
@@ -528,13 +619,7 @@ export function estimateVO2max(
   const weightedSum = available.reduce((s, [v, w]) => s + v! * w, 0);
   const mean = weightedSum / totalWeight;
 
-  // Floor: VDOT must never be lower than what the best verified race PB implies.
-  // Otherwise the predictions would be slower than the user's actual times.
-  const bestPBVdot = racePBCandidates.length > 0
-    ? Math.max(...racePBCandidates.map(c => c.v))
-    : 0;
-
-  const clamped = Math.max(Math.min(Math.max(mean, 25), 90), bestPBVdot * 0.99);
+  const clamped = Math.min(Math.max(mean, 25), 90);
   const breakdown = Object.fromEntries(available.map(([v, , name]) => [name, Math.round(v! * 10) / 10]));
 
   const primaryMethod = available[0][2];
