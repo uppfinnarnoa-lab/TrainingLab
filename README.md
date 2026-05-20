@@ -85,4 +85,4 @@ docker-compose down -v     # stop DB + delete all data
 
 ## Production deploy
 
-See `IMPLEMENTATION_PLAN.md §9` for Apache + PM2 deployment instructions.
+See `docs/planning/IMPLEMENTATION_PLAN.md §9` for Apache + PM2 deployment instructions.
