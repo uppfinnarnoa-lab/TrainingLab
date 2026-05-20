@@ -1,8 +1,8 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { PlannerClient } from "./planner-client";
-import { subDays, addDays } from "date-fns";
-import { buildHRZones, buildPaceZones, estimateMaxHR } from "@/lib/fitness/zones";
+import { subDays, addDays, startOfWeek } from "date-fns";
+import { buildHRZones, buildPaceZones } from "@/lib/fitness/zones";
 
 export default async function PlannerPage() {
   const session = await auth();
@@ -12,7 +12,9 @@ export default async function PlannerPage() {
   const from = subDays(now, 90);
   const to = addDays(now, 180);
 
-  const [sports, templates, workouts, blocks, profile, recentActivities, garminRecent] =
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+
+  const [sports, templates, workouts, blocks, profile, fitnessCache, garminRecent, weekActivities] =
     await Promise.all([
       prisma.sportCategory.findMany({
         where: { userId },
@@ -42,22 +44,28 @@ export default async function PlannerPage() {
         orderBy: { startDate: "asc" },
       }),
       prisma.athleteProfile.findUnique({ where: { userId } }),
-      prisma.activity.findMany({
-        where: { userId, startDate: { gte: subDays(now, 365) } },
-        select: { maxHeartrate: true },
-      }),
+      // FitnessCache replaces the 365-day activity fetch for maxHR/zones
+      prisma.fitnessCache.findUnique({ where: { userId }, select: { maxHR: true, restHR: true, vdot: true } }),
       prisma.garminDailySummary.findMany({
         where: { userId, date: { gte: subDays(now, 14) } },
         orderBy: { date: "asc" },
       }),
+      // This week's actual running activities for predicted distance
+      prisma.activity.findMany({
+        where: {
+          userId,
+          startDate: { gte: weekStart, lte: now },
+          sportType: { in: ["Run", "TrailRun", "VirtualRun"] },
+        },
+        select: { startDateLocal: true, distance: true },
+      }),
     ]);
 
-  // Compute zones for the workout builder
-  const maxHRs = recentActivities.flatMap((a: { maxHeartrate: number | null }) => a.maxHeartrate ? [a.maxHeartrate] : []);
-  const maxHR = profile?.maxHeartRate ?? estimateMaxHR(maxHRs);
-  const restHR = profile?.restingHeartRate ?? garminRecent.at(-1)?.restingHR ?? 50;
+  // Compute zones for the workout builder — use FitnessCache (fast, no big activity fetch)
+  const maxHR = profile?.maxHeartRate ?? fitnessCache?.maxHR ?? 190;
+  const restHR = profile?.restingHeartRate ?? garminRecent.at(-1)?.restingHR ?? fitnessCache?.restHR ?? 50;
   const hrZones = buildHRZones(maxHR, restHR);
-  const paceZonesData = buildPaceZones(45); // safe default if no VDOT yet
+  const paceZonesData = buildPaceZones(fitnessCache?.vdot ?? 45);
 
   // Serialise dates to strings for client components
   const serialise = (obj: unknown): unknown => {
@@ -90,6 +98,10 @@ export default async function PlannerPage() {
         blocks={serialise(blocks) as never}
         hrZoneRanges={hrZoneRanges}
         paceZoneRanges={paceZoneRanges}
+        weekRunActivities={(weekActivities as { startDateLocal: Date; distance: number }[]).map(a => ({
+          date: a.startDateLocal.toISOString().slice(0, 10),
+          distanceM: a.distance,
+        }))}
       />
     </div>
   );

@@ -20,9 +20,10 @@ interface Props {
   blocks: TrainingBlock[];
   onDayClick: (date: string) => void;
   onWorkoutClick: (workout: PlannedWorkout) => void;
+  weekRunActivities?: { date: string; distanceM: number }[];
 }
 
-export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick }: Props) {
+export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, weekRunActivities = [] }: Props) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [summaryLayout, setSummaryLayout] = useState<SummaryLayout>("row");
 
@@ -158,7 +159,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick }
                   const key = format(day, "yyyy-MM-dd");
                   const dayWorkouts = byDate.get(key) ?? [];
                   const isCurrentMonth = isSameMonth(day, currentMonth);
-                  const isPast = isBefore(day, new Date()) && key !== today;
+                  const isPast = key <= today; // today counts as past — shows outcome modal, not editor
                   const blockHere = blockForDate(day);
 
                   return (
@@ -209,6 +210,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick }
                   weekStart={weekStart}
                   workouts={weekWorkouts}
                   block={weekBlock}
+                  weekRunActivities={weekRunActivities}
                 />
               )}
             </div>

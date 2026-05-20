@@ -20,6 +20,7 @@ interface Props {
   blocks: TrainingBlock[];
   hrZoneRanges: [number, number][];
   paceZoneRanges: [number, number][];
+  weekRunActivities?: { date: string; distanceM: number }[];
 }
 
 export function PlannerClient(props: Props) {
@@ -265,6 +266,7 @@ export function PlannerClient(props: Props) {
             blocks={props.blocks}
             onDayClick={date => openBuilder(date)}
             onWorkoutClick={handleWorkoutClick}
+            weekRunActivities={props.weekRunActivities ?? []}
           />
         </div>
       </div>

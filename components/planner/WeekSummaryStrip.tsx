@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { format, addDays } from "date-fns";
 import { ZoneBar } from "./ZoneBar";
 import type { PlannedWorkout, TrainingBlock } from "@/lib/planner/types";
 import { formatDuration } from "@/lib/utils";
@@ -13,9 +13,10 @@ interface Props {
   block?: TrainingBlock;
   onClick?: () => void;
   compact?: boolean; // sidebar mode: vertical stack instead of horizontal row
+  weekRunActivities?: { date: string; distanceM: number }[]; // actual Strava activities this week
 }
 
-export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact }: Props) {
+export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact, weekRunActivities = [] }: Props) {
   const router = useRouter();
 
   function handleClick() {
@@ -47,7 +48,39 @@ export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact 
   const totalKm  = Object.values(bySport).reduce((s, v) => s + v.km, 0);
   const totalSec = Object.values(bySport).reduce((s, v) => s + v.timeSec, 0);
   const hasZones = Object.values(totalZones).some(v => v > 0);
-  const isPast   = workouts.some(w => w.date < format(new Date(), "yyyy-MM-dd"));
+  const today    = format(new Date(), "yyyy-MM-dd");
+  const isPast   = workouts.some(w => w.date < today);
+
+  // ── Predicted weekly run distance ─────────────────────────────────────
+  // Only compute for the current week (weekActivities are only fetched for current week)
+  const weekEnd = format(addDays(weekStart, 6), "yyyy-MM-dd");
+  const isCurrentWeek = weekRunActivities.length > 0 ||
+    (today >= format(weekStart, "yyyy-MM-dd") && today <= weekEnd);
+
+  let predictedRunKm: number | null = null;
+  if (isCurrentWeek) {
+    // Build a map of days that already have actual Strava runs
+    const actualByDate = new Map<string, number>();
+    for (const a of weekRunActivities) {
+      actualByDate.set(a.date, (actualByDate.get(a.date) ?? 0) + a.distanceM / 1000);
+    }
+
+    let pred = 0;
+    // Sum actual running km done so far this week
+    for (const [, km] of actualByDate) pred += km;
+
+    // Add planned running km for days without actual activities (today + future)
+    const runningWorkouts = workouts.filter(w =>
+      /run|trail|virtual/i.test(w.sportType) && w.date >= today
+    );
+    for (const w of runningWorkouts) {
+      if (!actualByDate.has(w.date) && w.targetDistance) {
+        pred += w.targetDistance / 1000;
+      }
+    }
+
+    if (pred > 0) predictedRunKm = Math.round(pred * 10) / 10;
+  }
   const topSports = Object.entries(bySport)
     .sort((a, b) => b[1].timeSec - a[1].timeSec)
     .slice(0, 3);
@@ -99,10 +132,18 @@ export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact 
           </div>
         )}
 
+        {/* Predicted total running distance */}
+        {predictedRunKm !== null && (
+          <span className="shrink-0 text-xs text-accent font-mono ml-auto" title="Beräknad löpdistans för veckan (gjort + planerat)">
+            ~{predictedRunKm}km
+          </span>
+        )}
+
         {/* Completion */}
         {isPast && (
           <span className={cn(
-            "shrink-0 text-xs font-semibold ml-auto",
+            "shrink-0 text-xs font-semibold",
+            predictedRunKm !== null ? "" : "ml-auto",
             missed > 0 ? "text-error" : "text-accent"
           )}>
             {completed}/{workouts.length}
