@@ -36,7 +36,7 @@
 - **Docs**: `https://docs.anthropic.com`
 
 ## Gemini Flash (Google AI)
-- **Model**: `gemini-2.0-flash-001` — free tier: 15 RPM, 1M TPM, 1500 RPD.
+- **Model**: `gemini-2.5-flash` — free tier: 15 RPM, 1M TPM, 1500 RPD.
 - **Context caching**: Use Gemini's context cache API for system prompt (equivalent to Claude's prompt caching).
 - **Cost tracking**: Free tier tracked by request count per day (shown in UI). Paid tier by token if user upgrades.
 - **SDK**: `@google/generative-ai`

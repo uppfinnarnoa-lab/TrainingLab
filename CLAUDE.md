@@ -15,10 +15,11 @@ Personal AI-powered training platform. Connects Strava activity data + Garmin ph
 2. Read the docs files relevant to your task (see below)
 
 ## Session End — Always
-1. Stage changed files by name, commit, and push
-2. If any API endpoint or cross-module function signature changed → update its doc in `docs/api/`
-3. If architecture, workflow, or integration knowledge changed → update the relevant file in `docs/`
-4. Update `docs/planning/IMPLEMENTATION_PLAN.md` to reflect what was built or changed (see below)
+1. Run `pnpm build --no-lint` to verify the build compiles without errors before pushing
+2. Stage changed files by name, commit, and push
+3. If any API endpoint or cross-module function signature changed → update its doc in `docs/api/`
+4. If architecture, workflow, or integration knowledge changed → update the relevant file in `docs/`
+5. Update `docs/planning/IMPLEMENTATION_PLAN.md` to reflect what was built or changed (see below)
 
 ## Keeping IMPLEMENTATION_PLAN.md Current
 `docs/planning/IMPLEMENTATION_PLAN.md` is a living document — it must always reflect reality, not just intent.

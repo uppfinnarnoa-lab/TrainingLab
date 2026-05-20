@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
             content: fullResponse,
             tokensUsed: inputTokens + outputTokens,
             estimatedCostUsd: cost,
-            modelUsed: provider === "claude" ? "claude-sonnet-4-6" : "gemini-2.0-flash-001",
+            modelUsed: provider === "claude" ? "claude-sonnet-4-6" : "gemini-2.5-flash",
           },
         });
 

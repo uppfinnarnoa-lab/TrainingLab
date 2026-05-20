@@ -23,7 +23,7 @@ export default async function RacesPage() {
       <div>
         <h1 className="text-2xl font-semibold text-primary">Races & PBs</h1>
         <p className="text-sm text-muted mt-1">
-          Personal bests per distance — auto-imported from Strava race activities
+          Personliga rekord per distans — lägg till manuellt
         </p>
       </div>
       <RacesClient records={serialised} />

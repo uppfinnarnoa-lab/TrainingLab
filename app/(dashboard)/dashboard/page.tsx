@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { TrendingUp, AlertTriangle, BarChart3, Footprints } from "lucide-react";
+import { SyncButton } from "./sync-button";
 import { prisma } from "@/lib/db/prisma";
 import { startOfWeek, startOfMonth, startOfYear, subDays } from "date-fns";
 import { generateInsights } from "@/lib/fitness/insights";
@@ -95,9 +96,14 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-primary">Dashboard</h1>
-        <p className="text-sm text-muted mt-1">Welcome back, {session.user.name ?? session.user.email}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-primary">Dashboard</h1>
+          <p className="text-sm text-muted mt-1">Welcome back, {session.user.name ?? session.user.email}</p>
+        </div>
+        {stravaAccount && (
+          <SyncButton lastSyncAt={stravaAccount.lastSyncAt?.toISOString() ?? null} />
+        )}
       </div>
 
       {/* Stats grid */}

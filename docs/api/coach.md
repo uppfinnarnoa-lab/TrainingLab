@@ -41,7 +41,7 @@ data: {"error": "Message text here"}       ← AI provider error
 
 **Providers:**
 - `claude` → `claude-sonnet-4-6`, uses `cache_control: ephemeral` on system prompt
-- `gemini` → `gemini-2.0-flash-001`, free tier
+- `gemini` → `gemini-2.5-flash`, free tier
 
 **Apache note:** Requires `SetEnv proxy-sendchunked 1` and `ProxyPass` for streaming to work behind reverse proxy.
 

@@ -57,7 +57,7 @@ export class GeminiClient implements AIClient {
     }
 
     // Create new cache
-    const model = "models/gemini-2.0-flash-001";
+    const model = "models/gemini-2.5-flash";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const caches = (this.genAI as any).caches;
     if (!caches) throw new Error("Caching API not available");
@@ -133,7 +133,7 @@ export class GeminiClient implements AIClient {
     recentContext: string,
   ): AsyncIterable<StreamChunk> {
     const model = this.genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-001",
+      model: "gemini-2.5-flash",
       systemInstruction: systemPrompt,
     });
 

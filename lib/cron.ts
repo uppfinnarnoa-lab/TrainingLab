@@ -10,15 +10,15 @@ export function startCronJobs() {
   if (started) return;
   started = true;
 
-  // Daily Strava sync at 06:00
-  cron.schedule("0 6 * * *", async () => {
-    console.log("[cron] Starting daily Strava sync");
+  // Hourly Strava sync (incremental — typically 1-2 API calls per run, well within the 1000/day cap)
+  cron.schedule("0 * * * *", async () => {
     const accounts = await prisma.stravaAccount.findMany({ select: { userId: true, lastSyncAt: true } });
     for (const account of accounts) {
       try {
         const since = account.lastSyncAt ?? undefined;
         const result = await syncActivities(account.userId, { since });
-        console.log(`[cron] Strava sync ${account.userId}: ${result.synced} new activities`);
+        if (result.synced > 0)
+          console.log(`[cron] Strava sync ${account.userId}: ${result.synced} new activities`);
       } catch (e) {
         console.error(`[cron] Strava sync failed for ${account.userId}:`, e);
       }
