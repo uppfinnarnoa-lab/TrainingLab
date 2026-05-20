@@ -44,9 +44,12 @@ interface Props {
     lyWeek: SumData; lyMonth: SumData; lyYtd: SumData;
   };
   analytics: {
-    aeiByWeek: { week: string; aei: number }[];
-    rampRate: number | null;
-    activeStreak: number;
+    aeiByWeek:       { week: string; aei: number }[];
+    reByWeek:        { week: string; paceSecPerKm: number }[];
+    rampRate:        number | null;
+    injuryRisk:      number | null;
+    activeStreak:    number;
+    tempSensitivity: number | null;
   } | null;
 }
 
@@ -225,8 +228,8 @@ export function StatsClient(props: Props) {
               {/* AEI trend */}
               <div className="sm:col-span-2 rounded-xl border border-border p-4 space-y-3">
                 <div>
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Aerob Effektivitetsindex (AEI)</p>
-                  <p className="text-[10px] text-muted mt-0.5">Fart (m/min) ÷ avgHR · endast lätta löppass (under LT1)</p>
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Aerobic Efficiency Index (AEI)</p>
+                  <p className="text-[10px] text-muted mt-0.5">Speed (m/min) ÷ avg HR · easy runs only (below LT1)</p>
                 </div>
                 {analytics.aeiByWeek.length >= 2 ? (
                   <div className="flex items-end gap-px h-12">
@@ -253,16 +256,45 @@ export function StatsClient(props: Props) {
                   const up = last > first;
                   return (
                     <p className="text-xs" style={{ color: up ? "var(--accent)" : "var(--text-muted)" }}>
-                      {up ? "↑" : "↓"} {up ? "+" : ""}{delta}% jämfört med {analytics.aeiByWeek.length} veckor sedan
+                      {up ? "↑" : "↓"} {up ? "+" : ""}{delta}% vs {analytics.aeiByWeek.length} weeks ago · Higher = more aerobically efficient
                     </p>
+                  );
+                })()}
+
+                {/* Running Economy proxy */}
+                {analytics.reByWeek.length >= 2 && (() => {
+                  const { secPerKmToPaceStr } = require("@/lib/fitness/paces");
+                  const first = analytics.reByWeek[0].paceSecPerKm;
+                  const last  = analytics.reByWeek.at(-1)!.paceSecPerKm;
+                  const delta = first - last; // negative delta = faster = better
+                  const better = delta > 0;
+                  const minRE = Math.min(...analytics.reByWeek.map(d => d.paceSecPerKm));
+                  const maxRE = Math.max(...analytics.reByWeek.map(d => d.paceSecPerKm));
+                  const rng = maxRE - minRE || 1;
+                  return (
+                    <div className="space-y-2 pt-2 border-t border-border">
+                      <p className="text-xs font-semibold text-muted uppercase tracking-wide">Running Economy proxy</p>
+                      <p className="text-[10px] text-muted">Pace at ~75% maxHR — lower = more economical</p>
+                      <div className="flex items-end gap-px h-10">
+                        {analytics.reByWeek.map((d, i) => {
+                          const h = Math.max(10, Math.round(((maxRE - d.paceSecPerKm) / rng) * 100));
+                          const isLast = i === analytics.reByWeek.length - 1;
+                          return <div key={d.week} title={`${secPerKmToPaceStr(d.paceSecPerKm)}/km`}
+                            className="flex-1 rounded-sm" style={{ height: `${h}%`, backgroundColor: isLast ? "#818CF8" : "var(--surface-2)", minHeight: 4 }} />;
+                        })}
+                      </div>
+                      <p className="text-xs" style={{ color: better ? "var(--accent)" : "#F87171" }}>
+                        {better ? "↑ " : "↓ "}{better ? "" : "+"}{Math.abs(Math.round(delta))}s/km {better ? "faster" : "slower"} at same HR over this period
+                      </p>
+                    </div>
                   );
                 })()}
               </div>
 
-              {/* Ramp rate + Streak */}
+              {/* Ramp rate + Streak + Injury risk + Temp */}
               <div className="space-y-3">
                 <div className="rounded-xl border border-border p-4 space-y-1">
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Veckans ramphöjning</p>
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Weekly ramp rate</p>
                   {analytics.rampRate !== null ? (
                     <>
                       <p className="text-2xl font-semibold font-mono"
@@ -270,16 +302,38 @@ export function StatsClient(props: Props) {
                         {analytics.rampRate > 0 ? "+" : ""}{analytics.rampRate}%
                       </p>
                       {Math.abs(analytics.rampRate) > 10 && (
-                        <p className="text-[10px] text-error">⚠ Ökar snabbt — skaderisk</p>
+                        <p className="text-[10px] text-error">⚠ High — elevated injury risk</p>
                       )}
                     </>
                   ) : <p className="text-sm text-muted">—</p>}
                 </div>
+
+                {analytics.injuryRisk !== null && (
+                  <div className="rounded-xl border border-border p-4 space-y-1">
+                    <p className="text-xs font-semibold text-muted uppercase tracking-wide">Injury risk</p>
+                    <p className="text-2xl font-semibold font-mono"
+                      style={{ color: analytics.injuryRisk >= 50 ? "#F87171" : analytics.injuryRisk >= 25 ? "#FBBF24" : "#6EE7B7" }}>
+                      {analytics.injuryRisk}/100
+                    </p>
+                    <p className="text-[10px] text-muted">ACWR + ramp rate composite</p>
+                  </div>
+                )}
+
                 <div className="rounded-xl border border-border p-4 space-y-1">
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Aktiv streak</p>
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Active streak</p>
                   <p className="text-2xl font-semibold font-mono text-primary">{analytics.activeStreak}</p>
-                  <p className="text-[10px] text-muted">konsekutiva dagar</p>
+                  <p className="text-[10px] text-muted">consecutive days</p>
                 </div>
+
+                {analytics.tempSensitivity !== null && (
+                  <div className="rounded-xl border border-border p-4 space-y-1">
+                    <p className="text-xs font-semibold text-muted uppercase tracking-wide">Heat impact (easy runs)</p>
+                    <p className="text-xl font-semibold font-mono" style={{ color: analytics.tempSensitivity > 5 ? "#F87171" : "#94A3B8" }}>
+                      {analytics.tempSensitivity > 0 ? "+" : ""}{analytics.tempSensitivity}s/km
+                    </p>
+                    <p className="text-[10px] text-muted">per 5°C above 15°C</p>
+                  </div>
+                )}
               </div>
             </div>
           )}

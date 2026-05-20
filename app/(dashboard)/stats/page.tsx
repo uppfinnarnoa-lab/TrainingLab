@@ -11,7 +11,7 @@ type A = {
   id: string; sportType: string; startDate: Date; name: string;
   distance: number; movingTime: number; totalElevationGain: number;
   averageHeartrate: number | null; maxHeartrate: number | null;
-  averageSpeed: number | null; isRace: boolean;
+  averageSpeed: number | null; isRace: boolean; weatherTemp: number | null;
 };
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — cache valid if sync runs hourly
@@ -157,7 +157,7 @@ export default async function StatsPage() {
       id: true, sportType: true, startDate: true, name: true,
       distance: true, movingTime: true, totalElevationGain: true,
       averageHeartrate: true, maxHeartrate: true,
-      averageSpeed: true, isRace: true,
+      averageSpeed: true, isRace: true, weatherTemp: true,
       // bestEfforts + splitsMetric intentionally omitted — saves 2-5x query time
     },
   });
@@ -248,42 +248,92 @@ export default async function StatsPage() {
   } : null;
   const acwr = computeACWR(dailyTSSMap, now);
 
-  // ── ANALYTICS PLAN 1A ────────────────────────────────────────────────
+  // ── ANALYTICS PLAN 1A-1E ─────────────────────────────────────────────
 
-  // AEI (Aerobic Efficiency Index): avgSpeed (m/min) ÷ avgHR on easy runs (HR < LT1)
-  // Track as weekly averages over last 16 weeks
-  const lt1HR = computedHrZones.z3[0]; // bottom of Z3 = LT1
+  const lt1HR = computedHrZones.z3[0]; // LT1 = bottom of Z3
+  const pct75HR = Math.round(computedMaxHR * 0.75);
+
+  // AEI (Aerobic Efficiency Index): avgSpeed (m/min) ÷ avgHR — easy runs below LT1, by week
   const aeiByWeek: { week: string; aei: number }[] = [];
   {
-    const weekMap = new Map<string, { sum: number; count: number }>();
+    const wm = new Map<string, { sum: number; n: number }>();
     for (const a of activities as A[]) {
       if (!a.averageHeartrate || !a.averageSpeed) continue;
       if (!a.sportType.toLowerCase().includes("run")) continue;
-      if (a.averageHeartrate >= lt1HR) continue; // only easy runs below LT1
+      if (a.averageHeartrate >= lt1HR || a.distance < 4000 || a.movingTime < 900) continue;
+      const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const aei = (a.averageSpeed * 60) / a.averageHeartrate;
+      if (!wm.has(wk)) wm.set(wk, { sum: 0, n: 0 });
+      const e = wm.get(wk)!; e.sum += aei; e.n++;
+    }
+    for (const [wk, { sum, n }] of [...wm.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-16)) {
+      aeiByWeek.push({ week: wk, aei: Math.round(sum / n * 100) / 100 });
+    }
+  }
+
+  // Running Economy proxy: avg pace (sec/km) at ≈75% maxHR ± 3 bpm, by 6-week windows
+  const reByWeek: { week: string; paceSecPerKm: number }[] = [];
+  {
+    const wm = new Map<string, { sum: number; n: number }>();
+    for (const a of activities as A[]) {
+      if (!a.averageHeartrate || !a.averageSpeed) continue;
+      if (!a.sportType.toLowerCase().includes("run")) continue;
+      if (Math.abs(a.averageHeartrate - pct75HR) > 5) continue; // ±5 bpm window around 75% HRmax
       if (a.distance < 4000 || a.movingTime < 900) continue;
       const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      const aei = (a.averageSpeed * 60) / a.averageHeartrate; // m/min per bpm
-      if (!weekMap.has(wk)) weekMap.set(wk, { sum: 0, count: 0 });
-      const entry = weekMap.get(wk)!;
-      entry.sum += aei; entry.count++;
+      const pace = 1000 / a.averageSpeed;
+      if (!wm.has(wk)) wm.set(wk, { sum: 0, n: 0 });
+      const e = wm.get(wk)!; e.sum += pace; e.n++;
     }
-    for (const [week, { sum, count }] of [...weekMap.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-16)) {
-      aeiByWeek.push({ week, aei: Math.round(sum / count * 100) / 100 });
+    for (const [wk, { sum, n }] of [...wm.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-12)) {
+      reByWeek.push({ week: wk, paceSecPerKm: Math.round(sum / n) });
     }
   }
 
   // Ramp rate: % change in 7-day TSS vs prior 7 days
-  const last7dTSS  = [...dailyTSSMap.entries()].filter(([d]) => d >= format(subDays(now, 7), "yyyy-MM-dd")).reduce((s, [, v]) => s + v, 0);
-  const prev7dTSS  = [...dailyTSSMap.entries()].filter(([d]) => d >= format(subDays(now, 14), "yyyy-MM-dd") && d < format(subDays(now, 7), "yyyy-MM-dd")).reduce((s, [, v]) => s + v, 0);
+  const last7dStr  = format(subDays(now, 7), "yyyy-MM-dd");
+  const prev14dStr = format(subDays(now, 14), "yyyy-MM-dd");
+  const last7dTSS  = [...dailyTSSMap.entries()].filter(([d]) => d >= last7dStr).reduce((s, [, v]) => s + v, 0);
+  const prev7dTSS  = [...dailyTSSMap.entries()].filter(([d]) => d >= prev14dStr && d < last7dStr).reduce((s, [, v]) => s + v, 0);
   const rampRate   = prev7dTSS > 0 ? Math.round(((last7dTSS - prev7dTSS) / prev7dTSS) * 100) : null;
 
-  // Active streak: consecutive days with at least one activity up to today
+  // Injury risk score (0–100): ACWR × 50 + ramp rate × 30 + (no data for HRV from here)
+  let injuryRisk: number | null = null;
+  if (acwr !== null) {
+    const acwrRisk = acwr > 1.5 ? 50 : acwr > 1.3 ? 30 : acwr < 0.8 ? 10 : 0;
+    const rampRisk = rampRate !== null && rampRate > 10 ? 30 : rampRate !== null && rampRate > 20 ? 50 : 0;
+    injuryRisk = Math.min(100, acwrRisk + rampRisk);
+  }
+
+  // Temperature sensitivity: regression of weatherTemp → pace (sec/km) for runs with weather data
+  let tempSensitivity: number | null = null; // sec/km per 5°C above 15°C baseline
+  {
+    const pts = (activities as A[]).filter(a =>
+      a.averageSpeed && a.averageSpeed > 0 && /run|trail/i.test(a.sportType) &&
+      a.distance >= 4000 && a.averageHeartrate && a.averageHeartrate < lt1HR
+    );
+    if (pts.length >= 10) {
+      const meanTemp = pts.reduce((s, a) => s + (a.weatherTemp ?? 15), 0) / pts.length;
+      const meanPace = pts.reduce((s, a) => s + 1000 / a.averageSpeed!, 0) / pts.length;
+      let num = 0, den = 0;
+      for (const a of pts) {
+        const dt = (a.weatherTemp ?? 15) - meanTemp;
+        const dp = (1000 / a.averageSpeed!) - meanPace;
+        num += dt * dp; den += dt * dt;
+      }
+      if (den > 0.01) {
+        const slope = num / den; // sec/km per °C
+        tempSensitivity = Math.round(slope * 5 * 10) / 10; // per 5°C
+      }
+    }
+  }
+
+  // Active streak: consecutive days with ≥1 activity up to today
   let activeStreak = 0;
   {
-    const activityDates = new Set((activities as A[]).map(a => format(a.startDate, "yyyy-MM-dd")));
+    const days = new Set((activities as A[]).map(a => format(a.startDate, "yyyy-MM-dd")));
     for (let i = 0; i < 365; i++) {
-      const d = format(subDays(now, i), "yyyy-MM-dd");
-      if (activityDates.has(d)) activeStreak++;
+      if (days.has(format(subDays(now, i), "yyyy-MM-dd"))) activeStreak++;
       else break;
     }
   }
@@ -302,16 +352,19 @@ export default async function StatsPage() {
 
   return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, computedHrZones, vo2max, paceZones, predictions, polarisation, acwr, statZones, overviewRun,
-    { aeiByWeek, rampRate, activeStreak });
+    { aeiByWeek, reByWeek, rampRate, injuryRisk, activeStreak, tempSensitivity });
 }
 
 // Shared render — used by both fast and slow paths
 type OverviewData = { thisWeek: { km: number; timeSec: number; count: number }; thisMonth: { km: number; timeSec: number; count: number }; ytd: { km: number; timeSec: number; count: number }; lyWeek: { km: number; timeSec: number; count: number }; lyMonth: { km: number; timeSec: number; count: number }; lyYtd: { km: number; timeSec: number; count: number } };
 
 type Analytics1A = {
-  aeiByWeek: { week: string; aei: number }[];
-  rampRate: number | null;
-  activeStreak: number;
+  aeiByWeek:       { week: string; aei: number }[];
+  reByWeek:        { week: string; paceSecPerKm: number }[];
+  rampRate:        number | null;
+  injuryRisk:      number | null;
+  activeStreak:    number;
+  tempSensitivity: number | null; // sec/km per 5°C above 15°C
 };
 
 function renderStats(
