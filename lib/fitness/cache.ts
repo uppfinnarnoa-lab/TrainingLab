@@ -93,7 +93,10 @@ export async function updateVO2maxAndPaces(userId: string) {
     maxHR, restHR, racePBs,
   );
   const paceZones = buildPaceZones(vo2maxResult.vdot);
-  const existingZones = (existingCache?.zones as object | null) ?? buildHRZonesJson(maxHR, restHR);
+  // Zones are NEVER calculated automatically — only when user presses the calibration button.
+  // On first cache creation (no existing cache), use static placeholder (fixed 78%/88% of 185 bpm).
+  // The UPDATE path never touches zones — they only change via updateHRZones() (button press).
+  const existingZones = (existingCache?.zones as object | null) ?? buildHRZonesJson(185, 45);
 
   // ── ATL / CTL / TSB / ACWR ─────────────────────────────────────────────
   const dailyTSS = new Map<string, number>();
