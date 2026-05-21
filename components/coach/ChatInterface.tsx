@@ -48,6 +48,7 @@ export function ChatInterface({
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
+  const [showToolMenu, setShowToolMenu] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [sessionCost, setSessionCost] = useState(0);
   const [convId, setConvId] = useState<string | undefined>(initialConversationId);
@@ -161,7 +162,21 @@ export function ChatInterface({
   }, [input, streaming, convId, provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleKey(e: React.KeyboardEvent) {
+    if (e.key === "Escape") { setShowToolMenu(false); return; }
+    if (showToolMenu && e.key === "Enter") { e.preventDefault(); setShowToolMenu(false); return; }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    setInput(val);
+    setShowToolMenu(val === "/");
+  }
+
+  function selectTool(example: string) {
+    setInput(example);
+    setShowToolMenu(false);
+    textareaRef.current?.focus();
   }
 
   async function deleteConversation(id: string, e: React.MouseEvent) {
@@ -346,13 +361,51 @@ export function ChatInterface({
 
         {/* Input */}
         <div className="shrink-0 px-4 py-3 border-t border-border bg-surface">
+          {/* Tool picker — shown when user types "/" */}
+          {showToolMenu && (
+            <div className="mb-2 rounded-xl border border-border bg-surface shadow-lg overflow-hidden">
+              <div className="px-3 py-2 border-b border-border bg-surface-2 flex items-center justify-between">
+                <p className="text-xs font-semibold text-muted">Available tools — click to use</p>
+                <button onClick={() => setShowToolMenu(false)} className="text-muted hover:text-primary text-xs">✕</button>
+              </div>
+              <div className="divide-y divide-border/50 max-h-72 overflow-y-auto">
+                {[
+                  { name: "get_fitness_summary", label: "Fitness summary", desc: "VO2max, CTL, TSB, zones, predictions", example: "Visa min fitness-sammanfattning" },
+                  { name: "get_race_history", label: "Race history / PBs", desc: "All personal bests by distance", example: "Visa alla mina PBs" },
+                  { name: "get_readiness", label: "Readiness today", desc: "HRV, sleep, resting HR, TSB", example: "Hur är min återhämtning idag?" },
+                  { name: "get_training_blocks", label: "Training blocks", desc: "Current and upcoming training blocks", example: "Visa mina träningsblock" },
+                  { name: "get_upcoming_plan", label: "Upcoming plan", desc: "Planned sessions next 14 days", example: "Visa min träningsplan kommande 2 veckor" },
+                  { name: "search_activities", label: "Search activities", desc: "Find sessions by keyword, date, sport", example: "Hitta mina senaste tisdagsbanor" },
+                  { name: "get_activity_detail", label: "Activity detail", desc: "Full splits, HR, description for one session", example: "Visa detaljer om mitt senaste intervallpass" },
+                  { name: "get_activities_in_range", label: "Activities in range ⚠️ cost", desc: "ALL activities with full data — requires confirmation", example: "Analysera alla mina pass från maj 2025" },
+                  { name: "analyze_full_history", label: "Full history analysis", desc: "Multi-year aggregated stats", example: "Analysera min träningshistorik de senaste 3 åren" },
+                  { name: "create_workout", label: "Create workout", desc: "Add a session to the training plan", example: "Lägg till ett lätt löppass 10km på fredag" },
+                  { name: "get_upcoming_plan + delete_workout", label: "Delete workout", desc: "Remove a planned session", example: "Ta bort fredagens pass" },
+                  { name: "update_profile", label: "Update profile", desc: "Change weight, goal, training years", example: "Uppdatera min vikt till 72kg" },
+                ].map(tool => (
+                  <button
+                    key={tool.name}
+                    onClick={() => selectTool(tool.example)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-surface-2 transition flex items-start gap-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-primary">{tool.label}</p>
+                      <p className="text-[10px] text-muted truncate">{tool.desc}</p>
+                    </div>
+                    <p className="text-[10px] text-accent shrink-0 mt-0.5 hidden sm:block">{tool.example}</p>
+                  </button>
+                ))}
+              </div>
+              <p className="px-3 py-1.5 text-[10px] text-muted border-t border-border">Type / to open · Esc to close · Click to use example</p>
+            </div>
+          )}
           <div className="flex gap-2 items-end">
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKey}
-              placeholder="Fråga din tränare… (Enter skickar, Shift+Enter ny rad)"
+              placeholder="Fråga din tränare… (/ för verktyg · Enter skickar)"
               rows={2}
               disabled={streaming}
               className="flex-1 rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none disabled:opacity-50 transition"

@@ -68,7 +68,25 @@ export async function syncActivities(
 
     for (const raw of activities) {
       try {
-        const data = mapActivity(raw, userId);
+        const stravaId = BigInt(raw.id);
+        const exists = await prisma.activity.findUnique({
+          where: { stravaId },
+          select: { stravaId: true },
+        });
+
+        let fullRaw = raw;
+        if (!exists) {
+          // New activity — fetch individually to get description, splits, best efforts
+          try {
+            fullRaw = await stravaFetch(userId, `/activities/${raw.id}`);
+            await new Promise(r => setTimeout(r, 300)); // rate limit safety
+          } catch {
+            // Fall back to list data if individual fetch fails
+            fullRaw = raw;
+          }
+        }
+
+        const data = mapActivity(fullRaw, userId);
         await prisma.activity.upsert({
           where: { stravaId: data.stravaId },
           create: data,
