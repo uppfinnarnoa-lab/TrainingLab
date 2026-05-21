@@ -28,12 +28,15 @@ interface NearActivity {
   movingTime: number;
 }
 
-interface Props { records: RaceRecord[] }
+interface Props {
+  records: RaceRecord[];
+  perfTrend?: { distance: string; period: string; time: number }[];
+}
 
 // Canonical distance order for the sidebar
 const DISTANCE_ORDER = ["400m","800m","1K","1500m","Mile","2K","3K","5K","10K","15K","Half Marathon","Marathon"];
 
-export function RacesClient({ records: initialRecords }: Props) {
+export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) {
   const router = useRouter();
   const [records, setRecords] = useState(initialRecords);
   const [selected, setSelected] = useState<string | null>(null);
@@ -284,6 +287,9 @@ export function RacesClient({ records: initialRecords }: Props) {
         </div>
       )}
 
+      {/* Performance trend per half-year */}
+      {perfTrend.length > 0 && <PerformanceTrendCard data={perfTrend} />}
+
       {showAdd && (
         <RaceModal onClose={() => setShowAdd(false)} onSave={r => onSaved(r, false)} />
       )}
@@ -476,6 +482,62 @@ function RaceModal({ record, onClose, onSave }: {
             {saving ? "Sparar…" : isEdit ? "Spara ändringar" : "Lägg till"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PerformanceTrendCard({ data }: { data: { distance: string; period: string; time: number }[] }) {
+  const distances = [...new Set(data.map(d => d.distance))].filter(d =>
+    ["5K","10K","Half Marathon","3K","Mile","1K"].includes(d)
+  ).slice(0, 5);
+  if (distances.length === 0) return null;
+  const periods = [...new Set(data.map(d => d.period))].sort().slice(-8);
+  const COLORS = ["#6EE7B7","#818CF8","#F472B6","#FBBF24","#3B82F6"];
+
+  return (
+    <div className="rounded-2xl bg-surface border border-border p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-primary">Performance progression by half-year</h2>
+          <p className="text-[10px] text-muted mt-0.5">Best time per distance per 6-month period</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {distances.map((d, i) => (
+            <span key={d} className="flex items-center gap-1 text-[10px] text-muted">
+              <span className="w-3 h-1.5 rounded-full inline-block" style={{ backgroundColor: COLORS[i] }} />{d}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border">
+              <th className="text-left py-1.5 text-muted font-medium pr-4">Period</th>
+              {distances.map((d, i) => (
+                <th key={d} className="text-right py-1.5 font-medium" style={{ color: COLORS[i] }}>{d}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {periods.map(period => (
+              <tr key={period} className="hover:bg-surface-2 transition-colors">
+                <td className="py-1.5 text-muted pr-4">{period}</td>
+                {distances.map(dist => {
+                  const entry = data.find(x => x.distance === dist && x.period === period);
+                  const mm = entry ? Math.floor(entry.time / 60) : null;
+                  const ss = entry ? entry.time % 60 : null;
+                  return (
+                    <td key={dist} className="py-1.5 text-right font-mono text-primary">
+                      {mm !== null ? `${mm}:${String(ss).padStart(2,"0")}` : "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

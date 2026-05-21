@@ -28,6 +28,8 @@ export function StravaConnectSection({
   const [syncing,      setSyncing]      = useState(false);
   const [syncResult,   setSyncResult]   = useState<{ synced?: number; error?: string } | null>(null);
   const [copied,       setCopied]       = useState(false);
+  const [backfilling,  setBackfilling]  = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{ updated: number; remaining: number } | null>(null);
 
   const credentialsSet = hasClientId && hasClientSecret;
 
@@ -64,6 +66,20 @@ export function StravaConnectSection({
       setSyncResult({ error: "Network error" });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleBackfill() {
+    setBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const res = await fetch("/api/strava/backfill-descriptions", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setBackfillResult({ updated: data.updated ?? 0, remaining: data.remaining ?? 0 });
+      }
+    } finally {
+      setBackfilling(false);
     }
   }
 
@@ -213,6 +229,30 @@ export function StravaConnectSection({
                     : `✓ Synced ${syncResult.synced} new activities`}
                 </p>
               )}
+
+              {/* Backfill descriptions */}
+              <div className="pt-3 border-t border-border space-y-2">
+                <p className="text-xs font-medium text-muted">Descriptions backfill</p>
+                <p className="text-xs text-muted">
+                  Older activities synced in bulk are missing your own Strava descriptions/notes.
+                  Run this to fetch them individually. Processes ~30 per click (Strava rate limit).
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleBackfill}
+                    disabled={backfilling}
+                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 py-2 text-sm font-medium text-primary hover:bg-surface transition disabled:opacity-50"
+                  >
+                    {backfilling ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                    {backfilling ? "Fetching..." : "Backfill descriptions (30 at a time)"}
+                  </button>
+                  {backfillResult && (
+                    <p className="text-xs text-accent">
+                      ✓ Updated {backfillResult.updated} · {backfillResult.remaining} remaining
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>

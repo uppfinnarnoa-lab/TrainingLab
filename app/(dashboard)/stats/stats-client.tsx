@@ -54,6 +54,14 @@ interface Props {
   paceZoneSeconds: Record<string, number>;
   modelPredictions: Record<string, { label: string; meters: number; peak: number }[]>;
   modelVdots: Record<string, number>;
+  extraViz: {
+    heatmapData: { week: string; km: number }[];
+    monthlyOverlay: { month: string; year: number; km: number }[];
+    intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
+    vdotTrend: { month: string; vdot: number }[];
+    terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
+    perfByDistYear: { distance: string; period: string; time: number }[];
+  } | null;
 }
 
 function pct(curr: number, prev: number) {
@@ -69,7 +77,7 @@ export function StatsClient(props: Props) {
   const o = sportMode === "run" ? props.overviewRun : props.overview;
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZones, analytics, paceZoneSeconds,
-    modelPredictions, modelVdots } = props;
+    modelPredictions, modelVdots, extraViz } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -184,6 +192,21 @@ export function StatsClient(props: Props) {
             <OverviewCard label="This month" value={`${o.thisMonth.km} km`} sub={formatDuration(o.thisMonth.timeSec)} delta={pct(o.thisMonth.km, o.lyMonth.km)} />
             <OverviewCard label="Year to date" value={`${o.ytd.km} km`} sub={formatDuration(o.ytd.timeSec)} delta={pct(o.ytd.km, o.lyYtd.km)} />
           </div>
+
+          {/* 3-year monthly overlay */}
+          {extraViz && extraViz.monthlyOverlay.length > 0 && (
+            <MonthlyOverlayCard data={extraViz.monthlyOverlay} />
+          )}
+
+          {/* Monthly intensity profile */}
+          {extraViz && extraViz.intensityProfile.length > 0 && (
+            <IntensityProfileCard data={extraViz.intensityProfile} />
+          )}
+
+          {/* Activity heatmap */}
+          {extraViz && extraViz.heatmapData.length > 0 && (
+            <ActivityHeatmapCard data={extraViz.heatmapData} />
+          )}
         </div>
       )}
 
@@ -346,6 +369,16 @@ export function StatsClient(props: Props) {
                 )}
               </div>
             </div>
+          )}
+
+          {/* VDOT trend over time */}
+          {extraViz && extraViz.vdotTrend.length >= 4 && (
+            <VdotTrendCard data={extraViz.vdotTrend} />
+          )}
+
+          {/* OL terrain factor */}
+          {extraViz && extraViz.terrainFactor && (
+            <TerrainFactorCard tf={extraViz.terrainFactor} />
           )}
         </div>
       )}
@@ -705,6 +738,180 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult }) {
           Använd "AI-estimat" för att tillämpa dessa zoner.
         </p>
       </div>
+    </div>
+  );
+}
+
+// ── NEW VISUALIZATION COMPONENTS ──────────────────────────────────────────────
+
+function ActivityHeatmapCard({ data }: { data: { week: string; km: number }[] }) {
+  const maxKm = Math.max(...data.map(d => d.km), 1);
+  // Group by year
+  const years = [...new Set(data.map(d => d.week.slice(0, 4)))].sort().slice(-3);
+  const color = (km: number) => {
+    if (km === 0) return "var(--surface-2)";
+    const i = Math.min(4, Math.ceil((km / maxKm) * 4));
+    return ["#d1fae5","#6EE7B7","#34D399","#10B981","#059669"][i - 1];
+  };
+  return (
+    <div className="rounded-xl border border-border p-4 space-y-3">
+      <p className="text-sm font-semibold text-primary">Activity heatmap — last 3 years (weekly km)</p>
+      <div className="space-y-1">
+        {years.map(yr => {
+          const weeks = Array.from({ length: 53 }, (_, i) => {
+            const d = new Date(Number(yr), 0, 1 + i * 7);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate() - d.getDay() + 1).padStart(2, "0")}`;
+            const found = data.find(x => x.week.startsWith(yr) && x.week === key.slice(0, 10));
+            return found?.km ?? 0;
+          });
+          return (
+            <div key={yr} className="flex items-center gap-1.5">
+              <span className="text-xs text-muted w-8 shrink-0">{yr}</span>
+              <div className="flex gap-0.5 flex-wrap">
+                {weeks.map((km, i) => (
+                  <div key={i} title={`${km.toFixed(0)} km`}
+                    className="w-2.5 h-2.5 rounded-sm"
+                    style={{ backgroundColor: color(km) }} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-2 items-center text-[10px] text-muted">
+        <span>Less</span>
+        {["#d1fae5","#6EE7B7","#34D399","#10B981","#059669"].map((c,i) => (
+          <span key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
+        ))}
+        <span>More</span>
+      </div>
+    </div>
+  );
+}
+
+function MonthlyOverlayCard({ data }: { data: { month: string; year: number; km: number }[] }) {
+  const years = [...new Set(data.map(d => d.year))].sort();
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const COLORS = ["#818CF8","#6EE7B7","#F472B6"];
+  const maxKm = Math.max(...data.map(d => d.km), 1);
+  return (
+    <div className="rounded-xl border border-border p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-primary">3-year monthly volume overlay</p>
+        <div className="flex gap-3">
+          {years.map((yr, i) => (
+            <span key={yr} className="flex items-center gap-1 text-xs text-muted">
+              <span className="w-3 h-2 rounded-sm inline-block" style={{ backgroundColor: COLORS[i] }} />
+              {yr}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-end gap-1 h-24">
+        {MONTHS.map((mo, mi) => (
+          <div key={mo} className="flex-1 flex flex-col items-center gap-px">
+            <div className="flex items-end gap-px w-full justify-center h-20">
+              {years.map((yr, yi) => {
+                const d = data.find(x => x.year === yr && x.month === String(mi + 1).padStart(2, "0"));
+                const h = d ? Math.max(2, Math.round((d.km / maxKm) * 80)) : 2;
+                return (
+                  <div key={yr} title={`${yr} ${mo}: ${d?.km ?? 0} km`}
+                    className="flex-1 rounded-t-sm"
+                    style={{ height: h, backgroundColor: COLORS[yi] + (d?.km ? "cc" : "22") }} />
+                );
+              })}
+            </div>
+            <span className="text-[9px] text-muted">{mo.slice(0,1)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function IntensityProfileCard({ data }: { data: { month: string; easyMin: number; tempoMin: number; hardMin: number }[] }) {
+  const last12 = data.slice(-12);
+  return (
+    <div className="rounded-xl border border-border p-4 space-y-3">
+      <p className="text-sm font-semibold text-primary">Monthly intensity distribution (last 12 months)</p>
+      <div className="flex items-end gap-1 h-20">
+        {last12.map(d => {
+          const total = d.easyMin + d.tempoMin + d.hardMin || 1;
+          const easyH = Math.round((d.easyMin / total) * 80);
+          const tempoH = Math.round((d.tempoMin / total) * 80);
+          const hardH = Math.round((d.hardMin / total) * 80);
+          return (
+            <div key={d.month} className="flex-1 flex flex-col justify-end rounded-sm overflow-hidden"
+              title={`${d.month}: Easy ${Math.round(d.easyMin/60)}h Tempo ${Math.round(d.tempoMin/60)}h Hard ${Math.round(d.hardMin/60)}h`}>
+              {hardH  > 0 && <div style={{ height: hardH,  backgroundColor: "#EF4444" }} />}
+              {tempoH > 0 && <div style={{ height: tempoH, backgroundColor: "#FBBF24" }} />}
+              {easyH  > 0 && <div style={{ height: easyH,  backgroundColor: "#6EE7B7" }} />}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-4 text-[10px] text-muted">
+        <span><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#6EE7B7] mr-1" />Easy (below LT1)</span>
+        <span><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#FBBF24] mr-1" />Tempo (LT1–LT2)</span>
+        <span><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#EF4444] mr-1" />Hard (above LT2)</span>
+      </div>
+    </div>
+  );
+}
+
+function VdotTrendCard({ data }: { data: { month: string; vdot: number }[] }) {
+  const min = Math.min(...data.map(d => d.vdot)) - 2;
+  const max = Math.max(...data.map(d => d.vdot)) + 2;
+  const range = max - min || 1;
+  return (
+    <div className="rounded-xl border border-border p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-primary">VDOT trend (3-month rolling window)</p>
+        <span className="text-xs font-mono text-accent">Current: {data.at(-1)?.vdot.toFixed(1)}</span>
+      </div>
+      <div className="relative h-20">
+        <svg width="100%" height="80" viewBox={`0 0 ${data.length * 20} 80`} preserveAspectRatio="none">
+          <polyline
+            fill="none" stroke="var(--accent)" strokeWidth="2"
+            points={data.map((d, i) => `${i * 20 + 10},${Math.round(((max - d.vdot) / range) * 72 + 4)}`).join(" ")}
+          />
+          {data.at(-1) && (
+            <circle cx={(data.length - 1) * 20 + 10} cy={Math.round(((max - data.at(-1)!.vdot) / range) * 72 + 4)} r="4" fill="var(--accent)" />
+          )}
+        </svg>
+        <div className="absolute top-0 left-0 right-0 flex justify-between text-[9px] text-muted pointer-events-none">
+          <span>{data[0]?.month.slice(0,7)}</span>
+          <span>{data.at(-1)?.month.slice(0,7)}</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted">Estimated from quality sessions in rolling 3-month windows. Rising = improving fitness.</p>
+    </div>
+  );
+}
+
+function TerrainFactorCard({ tf }: { tf: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } }) {
+  const diff = tf.olPaceSecPerKm - tf.roadPaceSecPerKm;
+  const pct = Math.round((diff / tf.roadPaceSecPerKm) * 100);
+  const olMM = Math.floor(tf.olPaceSecPerKm / 60), olSS = tf.olPaceSecPerKm % 60;
+  const roadMM = Math.floor(tf.roadPaceSecPerKm / 60), roadSS = tf.roadPaceSecPerKm % 60;
+  return (
+    <div className="rounded-xl border border-border p-4 space-y-3">
+      <p className="text-sm font-semibold text-primary">Orienteering terrain factor</p>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs text-muted">Road running avg pace</p>
+          <p className="text-2xl font-semibold font-mono text-primary">{roadMM}:{String(roadSS).padStart(2,"0")}</p>
+          <p className="text-[10px] text-muted">{tf.roadSessions} sessions (at moderate HR)</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Orienteering avg pace</p>
+          <p className="text-2xl font-semibold font-mono text-primary">{olMM}:{String(olSS).padStart(2,"0")}</p>
+          <p className="text-[10px] text-muted">{tf.olSessions} sessions</p>
+        </div>
+      </div>
+      <p className="text-xs text-muted">
+        Terrain cost: <span className="font-semibold text-warning">+{diff}s/km (+{pct}%)</span> slower in orienteering terrain vs road at similar effort.
+      </p>
     </div>
   );
 }

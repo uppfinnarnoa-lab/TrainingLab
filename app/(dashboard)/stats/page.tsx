@@ -237,7 +237,7 @@ export default async function StatsPage() {
 
     return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
       fastZoneSeconds, hrZones, vo2max, paceZones, predictions, fastPolarisation, acwr,
-      null, overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots);
+      null, overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, null);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────
@@ -462,6 +462,127 @@ export default async function StatsPage() {
     }
   }
 
+  // ── NEW VISUALIZATIONS ────────────────────────────────────────────────
+
+  // Activity heatmap: weekly km for last 3 years (§3A)
+  const heatmapData: { week: string; km: number }[] = [];
+  {
+    const wm = new Map<string, number>();
+    for (const a of activities as A[]) {
+      const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      wm.set(wk, (wm.get(wk) ?? 0) + a.distance / 1000);
+    }
+    const threeYearsAgo = subDays(now, 3 * 365);
+    for (const [week, km] of wm) {
+      if (new Date(week) >= threeYearsAgo) {
+        heatmapData.push({ week, km: Math.round(km * 10) / 10 });
+      }
+    }
+    heatmapData.sort((a, b) => a.week.localeCompare(b.week));
+  }
+
+  // 3-year monthly volume overlay (§2A)
+  const monthlyOverlay: { month: string; year: number; km: number }[] = [];
+  {
+    const mm = new Map<string, number>();
+    for (const a of activities as A[]) {
+      const key = `${a.startDate.getFullYear()}-${format(a.startDate, "MM")}`;
+      mm.set(key, (mm.get(key) ?? 0) + a.distance / 1000);
+    }
+    const yr = now.getFullYear();
+    for (let y = yr - 2; y <= yr; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const mo = String(m).padStart(2, "0");
+        const km = mm.get(`${y}-${mo}`) ?? 0;
+        monthlyOverlay.push({ month: mo, year: y, km: Math.round(km) });
+      }
+    }
+  }
+
+  // Monthly intensity profile: % easy/tempo/hard by month (§2B)
+  const intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[] = [];
+  {
+    const lt1 = computedHrZones.z3[0], lt2 = computedHrZones.z4[0];
+    const mm = new Map<string, { easy: number; tempo: number; hard: number }>();
+    for (const a of activities as A[]) {
+      if (!a.averageHeartrate || a.distance < 2000) continue;
+      const key = format(a.startDate, "yyyy-MM");
+      if (!mm.has(key)) mm.set(key, { easy: 0, tempo: 0, hard: 0 });
+      const e = mm.get(key)!;
+      const min = a.movingTime / 60;
+      if (a.averageHeartrate < lt1) e.easy += min;
+      else if (a.averageHeartrate < lt2) e.tempo += min;
+      else e.hard += min;
+    }
+    for (const [month, d] of [...mm.entries()].sort(([a],[b])=>a.localeCompare(b)).slice(-24)) {
+      intensityProfile.push({ month, easyMin: Math.round(d.easy), tempoMin: Math.round(d.tempo), hardMin: Math.round(d.hard) });
+    }
+  }
+
+  // VDOT trend per month: best vdot estimate per 3-month rolling window (§1D)
+  const vdotTrend: { month: string; vdot: number }[] = [];
+  {
+    for (let i = 0; i < 30; i++) {
+      const windowEnd = subDays(now, i * 30);
+      const windowStart = subDays(windowEnd, 90);
+      const windowActs = (activities as A[]).filter(a => a.startDate >= windowStart && a.startDate <= windowEnd);
+      if (windowActs.length < 5) continue;
+      const v = estimateVO2max(
+        windowActs.map(a => ({
+          distanceM: a.distance, timeSec: a.movingTime,
+          avgHR: a.averageHeartrate, isRace: a.isRace,
+          sportType: a.sportType, name: a.name, startDate: a.startDate,
+        })),
+        computedMaxHR, restHR,
+      );
+      const month = format(windowEnd, "yyyy-MM");
+      if (!vdotTrend.find(x => x.month === month))
+        vdotTrend.push({ month, vdot: Math.round(v.vdot * 10) / 10 });
+    }
+    vdotTrend.sort((a, b) => a.month.localeCompare(b.month));
+  }
+
+  // OL terrain factor vs road running (§7A/7B)
+  const terrainFactor = (() => {
+    const lt1 = computedHrZones.z3[0], lt2 = computedHrZones.z4[0];
+    const olRuns = (activities as A[]).filter(a =>
+      /orienteer|ol\b|ol-|olpass/i.test(a.sportType) ||
+      /\bol\b|\borienteringsl|\bskogsl/i.test(a.name ?? "")
+    );
+    const roadRuns = (activities as A[]).filter(a =>
+      /run|trail/i.test(a.sportType) && a.averageSpeed && a.averageHeartrate &&
+      a.averageHeartrate > lt1 * 0.9 && a.averageHeartrate < lt2 &&
+      !/orienteer|ol\b/i.test(a.sportType) && !/\bol\b/i.test(a.name ?? "")
+    );
+    const avgOLPace = olRuns.length >= 5 && olRuns.filter(a=>a.averageSpeed).length >= 5
+      ? olRuns.filter(a=>a.averageSpeed).reduce((s, a) => s + 1000/a.averageSpeed!, 0) / olRuns.filter(a=>a.averageSpeed).length
+      : null;
+    const avgRoadPace = roadRuns.length >= 10 && roadRuns.filter(a=>a.averageSpeed).length >= 10
+      ? roadRuns.filter(a=>a.averageSpeed).reduce((s, a) => s + 1000/a.averageSpeed!, 0) / roadRuns.filter(a=>a.averageSpeed).length
+      : null;
+    if (!avgOLPace || !avgRoadPace) return null;
+    return { olPaceSecPerKm: Math.round(avgOLPace), roadPaceSecPerKm: Math.round(avgRoadPace), olSessions: olRuns.length, roadSessions: roadRuns.length };
+  })();
+
+  // Best performance per distance by half-year (§1B) — from RaceRecord
+  const allTimePBs = await prisma.raceRecord.findMany({
+    where: { userId, date: { gte: subDays(now, 5 * 365) } },
+    select: { distance: true, time: true, date: true },
+  });
+  const byDistPeriod = new Map<string, number>();
+  for (const pb of allTimePBs) {
+    const yr = pb.date.getFullYear();
+    const half = pb.date.getMonth() < 6 ? "H1" : "H2";
+    const key = `${pb.distance}||${yr}-${half}`;
+    if (!byDistPeriod.has(key) || byDistPeriod.get(key)! > pb.time) byDistPeriod.set(key, pb.time);
+  }
+  const perfByDistYear: { distance: string; period: string; time: number }[] = [];
+  for (const [key, time] of byDistPeriod) {
+    const [dist, period] = key.split("||");
+    perfByDistYear.push({ distance: dist, period, time });
+  }
+  perfByDistYear.sort((a, b) => a.period.localeCompare(b.period));
+
   // Statistical zone estimation from all running data
   const statZones = estimateZonesFromStatisticalAnalysis(
     activities.filter((a: A) => /run|trail/i.test(a.sportType) && a.averageHeartrate).map((a: A) => ({
@@ -477,7 +598,8 @@ export default async function StatsPage() {
   return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, computedHrZones, vo2max, paceZones, predictions, polarisation, acwr, statZones, overviewRun,
     { aeiByWeek, reByWeek, rampRate, injuryRisk, activeStreak, tempSensitivity }, paceZoneSeconds,
-    modelPredictions, modelVdots);
+    modelPredictions, modelVdots,
+    { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear });
 }
 
 // Shared render — used by both fast and slow paths
@@ -512,6 +634,14 @@ function renderStats(
   paceZoneSeconds?: Record<string, number>,
   modelPredictions?: Record<string, { label: string; meters: number; peak: number }[]>,
   modelVdots?: Record<string, number>,
+  extraViz?: {
+    heatmapData: { week: string; km: number }[];
+    monthlyOverlay: { month: string; year: number; km: number }[];
+    intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
+    vdotTrend: { month: string; vdot: number }[];
+    terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
+    perfByDistYear: { distance: string; period: string; time: number }[];
+  } | null,
 ) {
   return (
     <div className="space-y-2">
@@ -539,6 +669,7 @@ function renderStats(
         paceZoneSeconds={paceZoneSeconds ?? {}}
         modelPredictions={modelPredictions ?? {}}
         modelVdots={modelVdots ?? {}}
+        extraViz={extraViz ?? null}
       />
     </div>
   );

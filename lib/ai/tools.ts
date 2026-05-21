@@ -7,7 +7,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { addDays, subDays, format } from "date-fns";
+import { addDays, subDays, format, differenceInDays } from "date-fns";
 
 // ── Tool schema (Claude format — converted to Gemini format in the Gemini client) ──
 
@@ -76,6 +76,26 @@ export const COACH_TOOLS = [
         date_to:    { type: "string",  description: "End date YYYY-MM-DD (optional, defaults to today)" },
         limit:      { type: "number",  description: "Max results to return (default 10, max 20)" },
       },
+    },
+  },
+  {
+    name: "get_activities_in_range",
+    description:
+      `Fetch ALL individual activities in a date range with full detail (pace, HR, splits, description).
+IMPORTANT: Before calling with confirmed=true, you MUST warn the user about token cost:
+  1. First call with confirmed=false → returns activity count and estimated cost
+  2. Show the warning to user and wait for explicit confirmation
+  3. Only then call again with confirmed=true
+Never skip the cost warning. Do NOT use for short questions — use search_activities instead.`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date_from: { type: "string", description: "Start date YYYY-MM-DD (required)" },
+        date_to:   { type: "string", description: "End date YYYY-MM-DD (required)" },
+        sport:     { type: "string", description: "Filter by sport (optional)" },
+        confirmed: { type: "boolean", description: "false = return cost estimate only; true = fetch full data (requires prior user confirmation)" },
+      },
+      required: ["date_from", "date_to"],
     },
   },
   {
@@ -323,6 +343,100 @@ export async function executeCoachTool(
           return `[${status}] ${b.name} (${b.blockType}) ${format(b.startDate, "d MMM")}–${format(b.endDate, "d MMM")}${kmTarget}${actual}`;
         });
         return { success: true, message: "Träningsblock", data: lines.join("\n") };
+      }
+
+      case "get_activities_in_range": {
+        const dateFrom = new Date(input.date_from as string);
+        const dateTo   = new Date(input.date_to as string);
+        const sport    = input.sport as string | undefined;
+        const confirmed = (input.confirmed as boolean) ?? false;
+
+        if (isNaN(dateFrom.getTime()) || isNaN(dateTo.getTime()))
+          return { success: false, message: "Ogiltigt datum.", data: "error: invalid date" };
+
+        // Count activities for cost estimate
+        const count = await prisma.activity.count({
+          where: {
+            userId,
+            startDate: { gte: dateFrom, lte: dateTo },
+            ...(sport ? { sportType: { contains: sport, mode: "insensitive" } } : {}),
+          },
+        });
+
+        if (!confirmed) {
+          const estTokens = count * 200; // ~200 tokens per activity with full detail
+          const claudeCost = (estTokens / 1_000_000 * 3.0).toFixed(4);
+          const msg = `⚠️ Kostnadsvarning: Perioden ${format(dateFrom,"d MMM yyyy")}–${format(dateTo,"d MMM yyyy")} innehåller **${count} aktiviteter** ≈ ${estTokens.toLocaleString()} tokens ≈ $${claudeCost} (Claude) / gratis (Gemini). Vill du fortsätta? Svara "ja" för att bekräfta.`;
+          return { success: true, message: `${count} aktiviteter hittades — bekräftelse krävs`, data: msg };
+        }
+
+        if (count > 500)
+          return { success: false, message: `${count} aktiviteter — för stort. Begränsa till max 500 (≈3 månader).`, data: "error: too many activities" };
+
+        const acts = await prisma.activity.findMany({
+          where: {
+            userId,
+            startDate: { gte: dateFrom, lte: dateTo },
+            ...(sport ? { sportType: { contains: sport, mode: "insensitive" } } : {}),
+          },
+          orderBy: { startDate: "asc" },
+          select: {
+            name: true, sportType: true, startDate: true, isRace: true,
+            distance: true, movingTime: true, averageSpeed: true, maxSpeed: true,
+            averageHeartrate: true, maxHeartrate: true, averageCadence: true,
+            totalElevationGain: true, weatherTemp: true, weatherWind: true,
+            sufferScore: true, perceivedExertion: true, description: true,
+            splitsMetric: true,
+          },
+        });
+
+        if (acts.length === 0)
+          return { success: true, message: "Inga aktiviteter", data: "No activities in this period." };
+
+        type Act = typeof acts[number];
+        const lines: string[] = [];
+        for (const a of acts as Act[]) {
+          const dow = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][a.startDate.getDay()];
+          const dateStr = `${format(a.startDate, "yyyy-MM-dd")} ${dow}`;
+          const pace = a.averageSpeed && a.movingTime > 0 ? Math.round(1000 / a.averageSpeed) : null;
+          const maxPace = a.maxSpeed && a.maxSpeed > 0 ? Math.round(1000 / a.maxSpeed) : null;
+          const formatPace = (s: number) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+          const distKm = (a.distance / 1000).toFixed(1);
+          const timeStr = `${Math.floor(a.movingTime/60)}:${String(a.movingTime%60).padStart(2,"0")}`;
+          const elev = a.totalElevationGain > 5 ? ` · ${Math.round(a.totalElevationGain)}m elev` : "";
+          const gap = a.totalElevationGain > 5 && a.distance > 0 && pace
+            ? Math.round(pace / (1 + Math.min(0.15, a.totalElevationGain / a.distance) * 0.033))
+            : null;
+
+          lines.push(`[${dateStr}] ${a.name}${a.isRace ? " 🏆" : ""} — ${a.sportType}`);
+          lines.push(`  Distans: ${distKm} km · Tid: ${timeStr}${pace ? ` · Tempo: ${formatPace(pace)}/km` : ""}${maxPace ? ` · Max: ${formatPace(maxPace)}/km` : ""}${gap && gap !== pace ? ` · GAP: ${formatPace(gap)}/km` : ""}`);
+          if (a.averageHeartrate) {
+            const hrRes = a.maxHeartrate ? ` / max ${Math.round(a.maxHeartrate)} bpm` : "";
+            lines.push(`  HR: avg ${Math.round(a.averageHeartrate)} bpm${hrRes}`);
+          }
+          if (a.averageCadence) lines.push(`  Kadens: ${Math.round(a.averageCadence * 2)} spm`);
+          if (elev) lines.push(`  Höjd: ${Math.round(a.totalElevationGain)} m${a.weatherTemp != null ? ` · Väder: ${Math.round(a.weatherTemp)}°C${a.weatherWind ? ` ${Math.round(a.weatherWind)}km/h` : ""}` : ""}`);
+          if (a.sufferScore) lines.push(`  Suffer: ${a.sufferScore}${a.perceivedExertion ? ` · RPE: ${a.perceivedExertion}/10` : ""}`);
+
+          // Splits per km
+          if (a.splitsMetric && Array.isArray(a.splitsMetric)) {
+            type Split = { split: number; average_speed: number; average_heartrate?: number };
+            const splits = (a.splitsMetric as Split[]).filter(s => s.average_speed > 0).slice(0, 20);
+            if (splits.length > 1) {
+              const splitStr = splits.map(s => {
+                const sp = Math.round(1000 / s.average_speed);
+                const hr = s.average_heartrate ? `/${Math.round(s.average_heartrate)}` : "";
+                return `km${s.split} ${formatPace(sp)}${hr}`;
+              }).join(" · ");
+              lines.push(`  Splits: ${splitStr}`);
+            }
+          }
+
+          if (a.description) lines.push(`  Beskrivning: "${a.description}"`);
+          lines.push("");
+        }
+
+        return { success: true, message: `${acts.length} aktiviteter hämtade`, data: lines.join("\n") };
       }
 
       case "analyze_full_history": {
