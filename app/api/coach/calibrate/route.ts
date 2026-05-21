@@ -174,11 +174,8 @@ Din JSON med rätt värden:`;
             zones: z,
           },
         });
-        await prisma.athleteProfile.upsert({
-          where: { userId },
-          create: { userId, maxHeartRate: parsed.max_hr },
-          update: { maxHeartRate: parsed.max_hr },
-        });
+        // Do NOT write maxHR to AthleteProfile — only user-entered values go there.
+        // Calibration results are stored exclusively in FitnessCache.
       } else {
         aiInsights = "AI returnerade ogiltiga zonvärden — algoritmiska zoner behålls.";
       }
