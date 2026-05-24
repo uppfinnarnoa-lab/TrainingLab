@@ -22,6 +22,7 @@ interface Split {
 interface Props {
   splits: Split[];
   avgSpeedMs: number;
+  isLaps?: boolean;
 }
 
 function secPerKmStr(secPerKm: number) {
@@ -30,7 +31,7 @@ function secPerKmStr(secPerKm: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function SplitsChart({ splits, avgSpeedMs }: Props) {
+export function SplitsChart({ splits, avgSpeedMs, isLaps }: Props) {
   const validSplits = splits.filter(s => s.average_speed > 0 && s.moving_time > 0 && s.distance > 200);
   if (validSplits.length < 2) return null;
 
@@ -64,7 +65,7 @@ export function SplitsChart({ splits, avgSpeedMs }: Props) {
   return (
     <div>
       <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
-        Splits — bredd = tid · höjd = tempo
+        {isLaps ? "Laps" : "Splits"} — bredd = tid · höjd = tempo
       </p>
 
       <div className="relative" style={{ height: chartHeight + 28 }}>
@@ -94,7 +95,7 @@ export function SplitsChart({ splits, avgSpeedMs }: Props) {
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/bar:flex flex-col items-center z-10 pointer-events-none">
                 <div className="bg-surface border border-border rounded-lg px-2.5 py-1.5 text-xs text-center whitespace-nowrap shadow-xl">
                   <p className="font-semibold font-mono text-primary">{secPerKmStr(pace)}/km</p>
-                  <p className="text-muted">km {sp.split}</p>
+                  <p className="text-muted">{isLaps ? "Lap" : "km"} {sp.split}</p>
                   {sp.average_heartrate && (
                     <p className="text-muted">{Math.round(sp.average_heartrate)} bpm</p>
                   )}

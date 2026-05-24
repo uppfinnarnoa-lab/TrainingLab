@@ -38,7 +38,30 @@ export default async function ActivityDetailPage({
 
   const color = sportColor(activity.sportType);
   const pace = activity.averageSpeed ? formatPace(activity.averageSpeed) : null;
-  const splits = activity.splitsMetric as Split[] | null;
+  interface LapRaw {
+    lap_index: number;
+    distance: number;
+    moving_time: number;
+    average_speed: number;
+    average_heartrate?: number;
+    total_elevation_gain?: number;
+  }
+
+  const lapsRaw = activity.laps as LapRaw[] | null;
+  const splitsRaw = activity.splitsMetric as Split[] | null;
+
+  // Prefer imported Strava laps (manual lap presses); fall back to auto km-splits
+  const isLaps = !!(lapsRaw && lapsRaw.length >= 2);
+  const splits: Split[] | null = isLaps
+    ? lapsRaw!.map(l => ({
+        split: l.lap_index,
+        distance: l.distance,
+        moving_time: l.moving_time,
+        average_speed: l.average_speed,
+        average_heartrate: l.average_heartrate,
+        elevation_difference: l.total_elevation_gain,
+      }))
+    : splitsRaw;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -144,13 +167,13 @@ export default async function ActivityDetailPage({
       {/* Splits chart */}
       {splits && splits.length > 1 && (
         <div className="rounded-2xl bg-surface border border-border p-5">
-          <SplitsChart splits={splits} avgSpeedMs={activity.averageSpeed ?? 0} />
+          <SplitsChart splits={splits} avgSpeedMs={activity.averageSpeed ?? 0} isLaps={isLaps} />
         </div>
       )}
 
       {/* Splits table */}
       {splits && splits.length > 0 && (
-        <SplitsTable splits={splits} />
+        <SplitsTable splits={splits} isLaps={isLaps} />
       )}
     </div>
   );
@@ -158,7 +181,7 @@ export default async function ActivityDetailPage({
 
 interface Split {
   distance: number;
-  elapsed_time: number;
+  elapsed_time?: number;
   moving_time: number;
   average_heartrate?: number;
   average_speed: number;
