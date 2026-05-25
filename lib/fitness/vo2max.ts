@@ -237,6 +237,51 @@ export function vdotFromTempoRun(
   return v > 30 && v < 90 ? v : null;
 }
 
+// ── Personalized fatigue exponent (power-law, Gemini 2025) ───────────────────
+
+/**
+ * Derives a personalized Riegel-style fatigue exponent by fitting a power-law
+ * V = V_ref × (D/D_ref)^k to the runner's actual best efforts in log-log space.
+ *
+ * Endurance specialists: k ≈ −0.05 (exponent ≈ 1.05).
+ * Average runner: k ≈ −0.06 (exponent ≈ 1.06, matches standard Riegel).
+ * Explosive / undertrained: k ≈ −0.12 (exponent ≈ 1.12).
+ *
+ * Returns k (the log-log slope) or null if insufficient data.
+ * Convert to Riegel exponent: exp = 1 − k.
+ */
+export function personalizedFatigueExponent(
+  bestEfforts: Array<{ distance: number; elapsed_time: number }>,
+): number | null {
+  const valid = bestEfforts.filter(e => e.distance >= 1000 && e.distance <= 42200 && e.elapsed_time > 0);
+
+  // Keep only fastest per distance
+  const byDistance = new Map<number, number>();
+  for (const e of valid) {
+    const existing = byDistance.get(e.distance);
+    if (!existing || e.elapsed_time < existing) byDistance.set(e.distance, e.elapsed_time);
+  }
+  if (byDistance.size < 3) return null;
+
+  const pts = [...byDistance.entries()].map(([d, t]) => ({
+    logD: Math.log(d),
+    logV: Math.log(d / t),
+  }));
+
+  const n = pts.length;
+  const sumX  = pts.reduce((s, p) => s + p.logD, 0);
+  const sumY  = pts.reduce((s, p) => s + p.logV, 0);
+  const sumXY = pts.reduce((s, p) => s + p.logD * p.logV, 0);
+  const sumX2 = pts.reduce((s, p) => s + p.logD * p.logD, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (Math.abs(denom) < 1e-10) return null;
+
+  const k = (n * sumXY - sumX * sumY) / denom;
+  // Plausible physiological range (outside → bad data or model misfit)
+  if (k > -0.01 || k < -0.20) return null;
+  return k;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function looksLikeRace(name: string): boolean {

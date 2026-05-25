@@ -22,7 +22,7 @@ interface Activity {
 }
 
 function ActivityPill({ a }: { a: Activity }) {
-  const color = workoutColor(a.sportType, null);
+  const color = a.isRace ? "#FBBF24" : workoutColor(a.sportType, null);
   const label = a.sportType.replace(/([A-Z])/g, " $1").trim().split(" ")[0];
   return (
     <div
@@ -147,7 +147,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
             <p className="text-sm text-muted">No activities on this day.</p>
           ) : (
             selected.map(a => {
-              const color = workoutColor(a.sportType, null);
+              const color = a.isRace ? "#FBBF24" : workoutColor(a.sportType, null);
               return (
               <div
                 key={a.id}

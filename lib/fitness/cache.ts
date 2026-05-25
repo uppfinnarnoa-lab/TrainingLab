@@ -14,7 +14,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromStatisticalAnalysis, ensureValidZones, MAXHR_ARTIFACT_CAP } from "./zones";
-import { estimateVO2max, buildHRPaceRegressionParams, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, gradeAdjustedPace, type RacePB } from "./vo2max";
+import { estimateVO2max, buildHRPaceRegressionParams, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, gradeAdjustedPace, personalizedFatigueExponent, type RacePB } from "./vo2max";
 import { computeTSS, buildLoadCurve, computeACWR } from "./training-load";
 import { RACE_DISTANCES } from "./paces";
 import { subDays, format, startOfWeek } from "date-fns";
@@ -153,9 +153,18 @@ export async function updateVO2maxAndPaces(userId: string) {
       if (!best) return p;
       return vdotFromRace(p.distanceM, p.timeSec) > vdotFromRace(best.distanceM, best.timeSec) ? p : best;
     }, null);
+
+  // Personalized fatigue exponent from log-log regression on best efforts across all runs.
+  // Falls back to standard Riegel 1.06 if insufficient data.
+  const allBestEfforts = (activities as Act[])
+    .filter(a => /run|trail/i.test(a.sportType) && Array.isArray(a.bestEfforts))
+    .flatMap(a => a.bestEfforts as Array<{ distance: number; elapsed_time: number }>);
+  const personalK = personalizedFatigueExponent(allBestEfforts);
+  const riegelExponent = personalK !== null ? (1 - personalK) : 1.06;
+
   const predictionsJson = RACE_DISTANCES.map(({ label, meters }) => {
     const peak = predictRaceTime(vo2maxResult.vdot, meters);
-    const riegel = anchorPB ? riegelPredict(anchorPB.timeSec, anchorPB.distanceM, meters) : null;
+    const riegel = anchorPB ? riegelPredict(anchorPB.timeSec, anchorPB.distanceM, meters, riegelExponent) : null;
     const range = predictionRange(peak, meters);
     return { label, meters, peak, today: tsbAdjustedRaceTime(peak, todayLoad.tsb), riegel, rangeLo: range.lo, rangeHi: range.hi };
   });

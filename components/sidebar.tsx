@@ -105,10 +105,9 @@ export function Sidebar() {
       {/* Sidebar — fixed on mobile, sticky on desktop */}
       <aside className={cn(
         "flex flex-col border-r border-border bg-surface overflow-y-auto",
-        // Desktop: sticky in the flex row
-        "hidden md:flex md:sticky md:top-0 md:h-screen md:shrink-0 md:w-56",
-        // Mobile: fixed overlay
-        mobileOpen && "fixed inset-y-0 left-0 z-50 flex w-64 h-screen"
+        mobileOpen
+          ? "fixed inset-y-0 left-0 z-50 w-64 h-screen"
+          : "hidden md:flex md:sticky md:top-0 md:h-screen md:shrink-0 md:w-56"
       )}>
         {sidebarContent}
       </aside>
