@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, Trash2 } from "lucide-react";
 import type { PlannedWorkout } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
@@ -16,13 +16,15 @@ interface Props {
   workout: PlannedWorkout;
   onClose: () => void;
   onSave: (id: string, status: string, missedReason?: string, missedNote?: string) => Promise<void>;
+  onDelete?: (id: string) => void;
 }
 
-export function OutcomeModal({ workout, onClose, onSave }: Props) {
-  const [step, setStep]     = useState<"choose" | "missed">("choose");
-  const [reason, setReason] = useState(workout.missedReason ?? "");
-  const [note, setNote]     = useState(workout.missedNote ?? "");
-  const [saving, setSaving] = useState(false);
+export function OutcomeModal({ workout, onClose, onSave, onDelete }: Props) {
+  const [step, setStep]         = useState<"choose" | "missed" | "confirm-delete">("choose");
+  const [reason, setReason]     = useState(workout.missedReason ?? "");
+  const [note, setNote]         = useState(workout.missedNote ?? "");
+  const [saving, setSaving]     = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function save(status: string, r?: string, n?: string) {
     setSaving(true);
@@ -78,6 +80,46 @@ export function OutcomeModal({ workout, onClose, onSave }: Props) {
                     Återställ till planerat
                   </button>
                 )}
+              </div>
+
+              {onDelete && (
+                <button
+                  onClick={() => setStep("confirm-delete")}
+                  disabled={saving}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-border text-xs text-muted hover:border-error/40 hover:text-error hover:bg-error/5 transition mt-1"
+                >
+                  <Trash2 size={12} />
+                  Ta bort pass
+                </button>
+              )}
+            </>
+          )}
+
+          {step === "confirm-delete" && (
+            <>
+              <p className="text-sm text-primary font-medium">Ta bort passet?</p>
+              <p className="text-xs text-muted">
+                <span className="font-semibold text-primary">{workout.name}</span> raderas permanent. Det går inte att ångra.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setStep("choose")}
+                  className="flex-1 py-2 rounded-xl border border-border text-sm text-muted hover:bg-surface-2 transition"
+                >
+                  Avbryt
+                </button>
+                <button
+                  onClick={async () => {
+                    setDeleting(true);
+                    onDelete!(workout.id);
+                    onClose();
+                  }}
+                  disabled={deleting}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-error/10 border border-error/30 text-sm font-semibold text-error hover:bg-error/20 transition"
+                >
+                  {deleting && <Loader2 size={14} className="animate-spin" />}
+                  Ta bort
+                </button>
               </div>
             </>
           )}

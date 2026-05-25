@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, ExternalLink, Trophy } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isToday,
   addMonths, subMonths, parseISO,
 } from "date-fns";
-import { formatDistance, formatDuration, formatPace, sportColor } from "@/lib/utils";
+import { formatDistance, formatDuration, formatPace } from "@/lib/utils";
+import { workoutColor } from "@/lib/planner/colors";
 import { cn } from "@/lib/utils";
 
 interface Activity {
@@ -21,7 +22,7 @@ interface Activity {
 }
 
 function ActivityPill({ a }: { a: Activity }) {
-  const color = sportColor(a.sportType);
+  const color = workoutColor(a.sportType, null);
   const label = a.sportType.replace(/([A-Z])/g, " $1").trim().split(" ")[0];
   return (
     <div
@@ -36,6 +37,7 @@ function ActivityPill({ a }: { a: Activity }) {
 }
 
 export function HistoryClient({ activities }: { activities: Activity[] }) {
+  const router = useRouter();
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selected, setSelected] = useState<Activity[] | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -144,12 +146,14 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
           {selected.length === 0 ? (
             <p className="text-sm text-muted">No activities on this day.</p>
           ) : (
-            selected.map(a => (
-              <Link
+            selected.map(a => {
+              const color = workoutColor(a.sportType, null);
+              return (
+              <div
                 key={a.id}
-                href={`/activities/${a.id}`}
-                className="block rounded-xl border border-border p-4 hover:border-accent/40 hover:bg-surface-2 transition-colors"
-                style={{ borderLeftWidth: 3, borderLeftColor: sportColor(a.sportType) }}
+                onClick={() => router.push(`/activities/${a.id}`)}
+                className="relative rounded-xl border border-border p-4 hover:border-accent/40 hover:bg-surface-2 transition-colors cursor-pointer"
+                style={{ borderLeftWidth: 3, borderLeftColor: color }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
@@ -159,7 +163,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
                     </div>
                     <span
                       className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ backgroundColor: `${sportColor(a.sportType)}20`, color: sportColor(a.sportType) }}
+                      style={{ backgroundColor: `${color}20`, color }}
                     >
                       {a.sportType.replace(/([A-Z])/g, " $1").trim()}
                     </span>
@@ -187,8 +191,9 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
                     </a>
                   </div>
                 </div>
-              </Link>
-            ))
+              </div>
+            );
+          })
           )}
         </div>
       )}

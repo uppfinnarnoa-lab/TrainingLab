@@ -300,6 +300,7 @@ export function PlannerClient(props: Props) {
           workout={statusWorkout}
           onClose={() => setStatusWorkout(null)}
           onSave={handleOutcomeSave}
+          onDelete={id => { handleDeleteWorkout(id); setStatusWorkout(null); }}
         />
       )}
 
