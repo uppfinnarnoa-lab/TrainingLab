@@ -187,7 +187,7 @@ export function StatsClient(props: Props) {
           }>
             <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
           </SectionCard>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <OverviewCard label="This week" value={`${o.thisWeek.km} km`} sub={formatDuration(o.thisWeek.timeSec)} delta={pct(o.thisWeek.km, o.lyWeek.km)} />
             <OverviewCard label="This month" value={`${o.thisMonth.km} km`} sub={formatDuration(o.thisMonth.timeSec)} delta={pct(o.thisMonth.km, o.lyMonth.km)} />
             <OverviewCard label="Year to date" value={`${o.ytd.km} km`} sub={formatDuration(o.ytd.timeSec)} delta={pct(o.ytd.km, o.lyYtd.km)} />
@@ -213,7 +213,7 @@ export function StatsClient(props: Props) {
       {/* ── Load ── */}
       {section === "Load" && (
         <div className="space-y-6">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <LoadCard label="CTL (fitness)" value={todayLoad.ctl.toFixed(1)} tip={tooltips.ctl} color="#6EE7B7" />
             <LoadCard label="ATL (fatigue)" value={todayLoad.atl.toFixed(1)} tip={tooltips.atl} color="#F87171" />
             <LoadCard label="TSB (form)" value={(todayLoad.tsb > 0 ? "+" : "") + todayLoad.tsb.toFixed(1)} tip={tooltips.tsb} color={form.color} sub={form.label} />

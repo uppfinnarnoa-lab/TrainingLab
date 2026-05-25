@@ -32,7 +32,7 @@ export function TrainingLoadChart({ curve }: Props) {
         />
         <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={36} />
         <Tooltip
-          contentStyle={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, fontSize: 12 }}
+          contentStyle={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, fontSize: 12, color: "var(--text-primary)" }}
           labelStyle={{ color: "var(--text-primary)", fontWeight: 600 }}
           labelFormatter={(v: string) => format(parseISO(v), "EEE d MMM yyyy")}
           formatter={(v: number, name: string) => [v.toFixed(1), name]}

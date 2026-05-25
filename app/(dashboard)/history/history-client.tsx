@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Trophy } from "lucide-react";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, ExternalLink, Trophy } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isToday,
   addMonths, subMonths, parseISO,
 } from "date-fns";
-import { formatDistance, formatDuration, sportColor } from "@/lib/utils";
+import { formatDistance, formatDuration, formatPace, sportColor } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
 interface Activity {
@@ -16,6 +17,22 @@ interface Activity {
   distance: number; movingTime: number;
   totalElevationGain: number; averageHeartrate: number | null;
   averageSpeed: number | null; isRace: boolean; weatherTemp: number | null;
+  stravaId: string;
+}
+
+function ActivityPill({ a }: { a: Activity }) {
+  const color = sportColor(a.sportType);
+  const label = a.sportType.replace(/([A-Z])/g, " $1").trim().split(" ")[0];
+  return (
+    <div
+      className="rounded px-1 py-0.5 text-[9px] font-medium leading-tight truncate"
+      style={{ backgroundColor: `${color}20`, color }}
+      title={a.name}
+    >
+      {a.isRace ? "🏆 " : ""}{label}
+      {a.distance > 0 && ` ${Math.round(a.distance / 100) / 10}k`}
+    </div>
+  );
 }
 
 export function HistoryClient({ activities }: { activities: Activity[] }) {
@@ -49,7 +66,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
   return (
     <div className="space-y-4">
       {/* Month nav */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between px-1">
         <button onClick={() => setCurrentMonth(m => subMonths(m, 1))}
           className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition">
           <ChevronLeft size={18} />
@@ -64,8 +81,8 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
       </div>
 
       {/* Weekday headers */}
-      <div className="grid grid-cols-7 mb-1">
-        {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
+      <div className="grid grid-cols-7 mb-1 gap-x-1">
+        {["Mån","Tis","Ons","Tor","Fre","Lör","Sön"].map(d => (
           <div key={d} className="text-center text-xs font-medium text-muted py-1">{d}</div>
         ))}
       </div>
@@ -83,35 +100,34 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
               key={key}
               onClick={() => selectDay(day)}
               className={cn(
-                "relative min-h-[72px] rounded-xl p-1.5 text-left transition-all border",
+                "min-h-[88px] rounded-xl p-1.5 text-left transition-colors border cursor-pointer",
                 isSelected
                   ? "border-accent bg-accent/5"
+                  : isToday(day)
+                  ? "border-accent/50 bg-accent/5"
                   : acts.length > 0
                   ? "border-border hover:border-accent/40 hover:bg-surface"
-                  : "border-transparent hover:border-border",
-                !inMonth && "opacity-30"
+                  : "border-transparent hover:border-border hover:bg-surface",
+                !inMonth && "opacity-35"
               )}
             >
               {/* Day number */}
-              <span className={cn(
-                "text-xs font-medium w-5 h-5 flex items-center justify-center rounded-full mb-1",
-                isToday(day) ? "bg-accent text-white" : "text-muted"
-              )}>
-                {format(day, "d")}
-              </span>
+              <div className="mb-1">
+                <span className={cn(
+                  "text-xs font-medium w-5 h-5 flex items-center justify-center rounded-full",
+                  isToday(day) ? "bg-accent text-white" : "text-muted"
+                )}>
+                  {format(day, "d")}
+                </span>
+              </div>
 
-              {/* Activity dots / pills */}
+              {/* Activity pills */}
               <div className="space-y-0.5">
-                {acts.slice(0, 2).map(a => (
-                  <div
-                    key={a.id}
-                    className="h-1.5 rounded-full w-full"
-                    style={{ backgroundColor: sportColor(a.sportType) }}
-                    title={a.name}
-                  />
+                {acts.slice(0, 4).map(a => (
+                  <ActivityPill key={a.id} a={a} />
                 ))}
-                {acts.length > 2 && (
-                  <p className="text-[9px] text-muted">+{acts.length - 2}</p>
+                {acts.length > 4 && (
+                  <p className="text-[9px] text-muted pl-0.5">+{acts.length - 4}</p>
                 )}
               </div>
             </button>
@@ -129,16 +145,17 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
             <p className="text-sm text-muted">No activities on this day.</p>
           ) : (
             selected.map(a => (
-              <div
+              <Link
                 key={a.id}
-                className="rounded-xl border border-border p-4"
+                href={`/activities/${a.id}`}
+                className="block rounded-xl border border-border p-4 hover:border-accent/40 hover:bg-surface-2 transition-colors"
                 style={{ borderLeftWidth: 3, borderLeftColor: sportColor(a.sportType) }}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-sm text-primary">{a.name}</span>
-                      {a.isRace && <Trophy size={13} className="text-warning" />}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm text-primary truncate">{a.name}</span>
+                      {a.isRace && <Trophy size={13} className="text-warning shrink-0" />}
                     </div>
                     <span
                       className="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -150,14 +167,27 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
                       <p className="mt-1.5 text-xs text-muted line-clamp-3">{a.description}</p>
                     )}
                   </div>
-                  <div className="text-right shrink-0 space-y-1 text-xs font-mono">
-                    <p className="text-primary font-semibold">{formatDistance(a.distance)}</p>
-                    <p className="text-muted">{formatDuration(a.movingTime)}</p>
-                    {a.averageHeartrate && <p className="text-muted">{Math.round(a.averageHeartrate)} bpm</p>}
-                    {a.weatherTemp !== null && <p className="text-muted">{Math.round(a.weatherTemp)}°C</p>}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <div className="text-right space-y-0.5 text-xs font-mono">
+                      {a.distance > 0 && <p className="text-primary font-semibold">{formatDistance(a.distance)}</p>}
+                      <p className="text-muted">{formatDuration(a.movingTime)}</p>
+                      {a.averageSpeed && <p className="text-muted">{formatPace(a.averageSpeed)}/km</p>}
+                      {a.averageHeartrate && <p className="text-muted">{Math.round(a.averageHeartrate)} bpm</p>}
+                      {a.weatherTemp !== null && <p className="text-muted">{Math.round(a.weatherTemp)}°C</p>}
+                    </div>
+                    <a
+                      href={`https://www.strava.com/activities/${a.stravaId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="text-muted hover:text-accent transition"
+                      title="View on Strava"
+                    >
+                      <ExternalLink size={12} />
+                    </a>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))
           )}
         </div>

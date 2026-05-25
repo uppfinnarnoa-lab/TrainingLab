@@ -15,7 +15,7 @@ export default async function HistoryPage() {
       id: true, name: true, description: true, sportType: true,
       startDate: true, distance: true, movingTime: true,
       totalElevationGain: true, averageHeartrate: true,
-      averageSpeed: true, isRace: true, weatherTemp: true,
+      averageSpeed: true, isRace: true, weatherTemp: true, stravaId: true,
     },
   });
 
@@ -31,6 +31,7 @@ export default async function HistoryPage() {
         activities={activities.map((a: typeof activities[number]) => ({
           ...a,
           startDate: a.startDate.toISOString().slice(0, 10),
+          stravaId: a.stravaId.toString(),
         }))}
       />
     </div>

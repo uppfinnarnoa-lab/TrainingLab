@@ -9,6 +9,7 @@ import { ActivityMap } from "./activity-map";
 import { SplitsTable } from "./splits-table";
 import { SplitsChart } from "./splits-chart";
 import { ActivityCharts } from "./activity-charts";
+import { BestEffortsTable } from "./best-efforts";
 
 export default async function ActivityDetailPage({
   params,
@@ -47,8 +48,11 @@ export default async function ActivityDetailPage({
     total_elevation_gain?: number;
   }
 
+  interface BestEffortRaw { name: string; distance: number; elapsed_time: number }
+
   const lapsRaw = activity.laps as LapRaw[] | null;
   const splitsRaw = activity.splitsMetric as Split[] | null;
+  const bestEffortsRaw = (activity.bestEfforts as BestEffortRaw[] | null) ?? [];
 
   // Prefer imported Strava laps (manual lap presses); fall back to auto km-splits
   const isLaps = !!(lapsRaw && lapsRaw.length >= 2);
@@ -174,6 +178,11 @@ export default async function ActivityDetailPage({
       {/* Splits table */}
       {splits && splits.length > 0 && (
         <SplitsTable splits={splits} isLaps={isLaps} />
+      )}
+
+      {/* Best efforts */}
+      {bestEffortsRaw.length > 0 && (
+        <BestEffortsTable bestEfforts={bestEffortsRaw} />
       )}
     </div>
   );

@@ -14,6 +14,12 @@ interface Props {
 }
 
 export function WorkoutPill({ workout, isPast, onClick, compact }: Props) {
+  function handleDragStart(e: React.DragEvent) {
+    if (isPast) { e.preventDefault(); return; }
+    e.dataTransfer.setData("workoutId", workout.id);
+    e.dataTransfer.effectAllowed = "move";
+    e.stopPropagation();
+  }
   const typeColor = workout.color
     ?? workoutColor(workout.sportType, workout.template?.type?.name ?? null);
 
@@ -24,6 +30,8 @@ export function WorkoutPill({ workout, isPast, onClick, compact }: Props) {
 
   return (
     <button
+      draggable={!isPast}
+      onDragStart={handleDragStart}
       onClick={e => { e.stopPropagation(); onClick(workout); }}
       className={cn(
         "w-full text-left rounded-lg text-xs transition-all group relative overflow-hidden",

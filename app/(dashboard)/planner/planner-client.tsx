@@ -84,6 +84,17 @@ export function PlannerClient(props: Props) {
     setWorkouts(prev => [...prev, w].sort((a, b) => a.date.localeCompare(b.date)));
   }
 
+  // ── Move workout to another date ──────────────────────────────────
+  async function handleMoveWorkout(workoutId: string, newDate: string) {
+    const res = await fetch(`/api/planner/workouts/${workoutId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: newDate }),
+    });
+    if (!res.ok) return;
+    setWorkouts(prev => prev.map(w => w.id === workoutId ? { ...w, date: newDate } : w));
+  }
+
   // ── Update existing template ───────────────────────────────────────
   async function handleTemplateUpdate(data: BuilderData) {
     if (!editingTemplate) return;
@@ -253,6 +264,7 @@ export function PlannerClient(props: Props) {
             onDayClick={date => openBuilder(date)}
             onWorkoutClick={handleWorkoutClick}
             onTemplateDrop={(templateId, date) => handleAddTemplateToDate(templateId, date)}
+            onWorkoutMove={handleMoveWorkout}
             weekRunActivities={props.weekRunActivities ?? []}
           />
         </div>

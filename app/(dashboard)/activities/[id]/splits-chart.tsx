@@ -32,7 +32,7 @@ function secPerKmStr(secPerKm: number) {
 }
 
 export function SplitsChart({ splits, avgSpeedMs, isLaps }: Props) {
-  const validSplits = splits.filter(s => s.average_speed > 0 && s.moving_time > 0 && s.distance > 200);
+  const validSplits = splits.filter(s => s.average_speed > 0 && s.moving_time > 0 && s.distance > 10);
   if (validSplits.length < 2) return null;
 
   const avgSecPerKm  = avgSpeedMs > 0 ? 1000 / avgSpeedMs : 300;

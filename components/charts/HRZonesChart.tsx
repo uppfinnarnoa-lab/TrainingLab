@@ -34,7 +34,7 @@ export function HRZonesChart({ zoneSeconds }: Props) {
             {data.map((d, i) => <Cell key={i} fill={d.color} />)}
           </Pie>
           <Tooltip
-            contentStyle={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12 }}
+            contentStyle={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12, color: "var(--text-primary)" }}
             formatter={(v: number, name: string) => [formatDuration(v), name]}
           />
         </PieChart>

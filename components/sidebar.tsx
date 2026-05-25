@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -11,6 +12,8 @@ import {
   Trophy,
   Settings,
   History,
+  Menu,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
@@ -28,12 +31,18 @@ const nav = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  return (
-    <aside className="sticky top-0 h-screen shrink-0 w-56 flex flex-col border-r border-border bg-surface overflow-y-auto">
+  const close = () => setMobileOpen(false);
+
+  const sidebarContent = (
+    <>
       {/* Logo */}
-      <div className="flex h-16 items-end px-4 pb-3 border-b border-border">
+      <div className="flex h-16 items-end px-4 pb-3 border-b border-border justify-between">
         <LogoWordmark size={28} />
+        <button onClick={close} className="md:hidden p-1.5 rounded-lg text-muted hover:text-primary transition">
+          <X size={18} />
+        </button>
       </div>
 
       {/* Nav */}
@@ -44,6 +53,7 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              onClick={close}
               className={cn(
                 "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                 active
@@ -62,6 +72,7 @@ export function Sidebar() {
       <div className="border-t border-border p-3 flex items-center justify-between">
         <Link
           href="/settings"
+          onClick={close}
           className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted hover:bg-surface-2 hover:text-primary transition-colors"
         >
           <Settings size={16} />
@@ -69,6 +80,38 @@ export function Sidebar() {
         </Link>
         <ThemeToggle />
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-3 left-3 z-50 p-2 rounded-xl bg-surface border border-border text-muted hover:text-primary shadow-sm transition"
+        aria-label="Open menu"
+      >
+        <Menu size={20} />
+      </button>
+
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={close}
+        />
+      )}
+
+      {/* Sidebar — fixed on mobile, sticky on desktop */}
+      <aside className={cn(
+        "flex flex-col border-r border-border bg-surface overflow-y-auto",
+        // Desktop: sticky in the flex row
+        "hidden md:flex md:sticky md:top-0 md:h-screen md:shrink-0 md:w-56",
+        // Mobile: fixed overlay
+        mobileOpen && "fixed inset-y-0 left-0 z-50 flex w-64 h-screen"
+      )}>
+        {sidebarContent}
+      </aside>
+    </>
   );
 }

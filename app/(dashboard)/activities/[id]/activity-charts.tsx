@@ -10,12 +10,14 @@ import { cn } from "@/lib/utils";
 
 interface StreamPoint {
   distKm: number;
+  timeSec: number;
   paceSecKm: number | null;
   heartrate: number | null;
   altitude: number | null;
 }
 
 type Serie = "pace" | "heartrate" | "altitude";
+type XMode = "distance" | "time";
 
 const SERIES_CONFIG: Record<Serie, { label: string; color: string }> = {
   pace:      { label: "Pace",       color: "#6EE7B7" },
@@ -30,12 +32,20 @@ function formatPaceStr(secPerKm: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function formatTimeAxis(sec: number) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h${String(m).padStart(2, "0")}`;
+  return `${m}m`;
+}
+
 export function ActivityCharts({ activityId }: { activityId: string }) {
   const [data, setData]       = useState<StreamPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(false);
   const [visible, setVisible] = useState<Set<Serie>>(new Set(["pace", "heartrate"]));
   const [hasAlt, setHasAlt]   = useState(false);
+  const [xMode, setXMode]     = useState<XMode>("distance");
 
   useEffect(() => {
     fetch(`/api/activities/${activityId}/streams`)
@@ -43,6 +53,7 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
       .then(raw => {
         if (raw.error) { setError(true); return; }
         const dist = (raw.distance?.data as number[]) ?? [];
+        const time = (raw.time?.data as number[]) ?? [];
         const hr   = (raw.heartrate?.data as number[]) ?? [];
         const vel  = (raw.velocity_smooth?.data as number[]) ?? [];
         const alt  = (raw.altitude?.data as number[]) ?? [];
@@ -63,6 +74,7 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
           const pace = v && v > 0.5 ? Math.round(1000 / v) : null;
           points.push({
             distKm:    Math.round(dist[i] / 10) / 100,
+            timeSec:   time[i] ?? 0,
             paceSecKm: pace && pace > 60 && pace < 600 ? pace : null,
             heartrate: hr[i] > 30 ? hr[i] : null,
             altitude:  altPresent && alt[i] != null ? Math.round(alt[i]) : null,
@@ -96,12 +108,15 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
     </p>
   );
 
+  const xKey = xMode === "distance" ? "distKm" : "timeSec";
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
+    const xLabel = xMode === "distance" ? `${label} km` : formatTimeAxis(label);
     return (
       <div className="bg-surface border border-border rounded-xl px-3 py-2 text-xs shadow-xl space-y-1">
-        <p className="font-semibold text-muted">{label} km</p>
+        <p className="font-semibold text-muted">{xLabel}</p>
         {payload.map((p: { dataKey: string; value: number; color: string }) => {
           let display = "";
           if (p.dataKey === "paceSecKm") display = formatPaceStr(p.value) + "/km";
@@ -119,32 +134,53 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Series toggles */}
-      <div className="flex flex-wrap gap-2">
-        {visibleSeries.map(s => {
-          const cfg = SERIES_CONFIG[s];
-          const on  = visible.has(s);
-          return (
-            <button key={s} onClick={() => toggle(s)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all",
-                on ? "border-transparent" : "border-border text-muted hover:text-primary"
-              )}
-              style={on ? { backgroundColor: `${cfg.color}25`, color: cfg.color, borderColor: `${cfg.color}60` } : undefined}
-            >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg.color }} />
-              {cfg.label}
-            </button>
-          );
-        })}
+      {/* Controls row */}
+      <div className="flex flex-wrap items-center gap-2 justify-between">
+        {/* Series toggles */}
+        <div className="flex flex-wrap gap-2">
+          {visibleSeries.map(s => {
+            const cfg = SERIES_CONFIG[s];
+            const on  = visible.has(s);
+            return (
+              <button key={s} onClick={() => toggle(s)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all",
+                  on ? "border-transparent" : "border-border text-muted hover:text-primary"
+                )}
+                style={on ? { backgroundColor: `${cfg.color}25`, color: cfg.color, borderColor: `${cfg.color}60` } : undefined}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg.color }} />
+                {cfg.label}
+              </button>
+            );
+          })}
+        </div>
+        {/* X-axis toggle */}
+        <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
+          <button
+            onClick={() => setXMode("distance")}
+            className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+              xMode === "distance" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+          >
+            Distance
+          </button>
+          <button
+            onClick={() => setXMode("time")}
+            className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+              xMode === "time" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+          >
+            Time
+          </button>
+        </div>
       </div>
 
       {/* Overlaid chart */}
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-          <XAxis dataKey="distKm" tick={{ fontSize: 10, fill: "var(--text-muted)" }}
-            tickFormatter={v => `${v}km`} axisLine={false} tickLine={false} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--text-muted)" }}
+            tickFormatter={xMode === "distance" ? v => `${v}km` : formatTimeAxis}
+            axisLine={false} tickLine={false} />
 
           {visible.has("pace") && (
             <YAxis yAxisId="pace" orientation="left" reversed
@@ -168,7 +204,6 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
 
           <Tooltip content={<CustomTooltip />} />
 
-          {/* Elevation as shaded area behind the lines */}
           {visible.has("altitude") && hasAlt && (
             <Area yAxisId="alt" type="monotone" dataKey="altitude"
               stroke="none" fill="#818CF8" fillOpacity={0.12}

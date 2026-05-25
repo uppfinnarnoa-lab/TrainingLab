@@ -21,10 +21,11 @@ interface Props {
   onDayClick: (date: string) => void;
   onWorkoutClick: (workout: PlannedWorkout) => void;
   onTemplateDrop?: (templateId: string, date: string) => void;
+  onWorkoutMove?: (workoutId: string, newDate: string) => void;
   weekRunActivities?: { date: string; distanceM: number }[];
 }
 
-export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, weekRunActivities = [] }: Props) {
+export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove, weekRunActivities = [] }: Props) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [summaryLayout, setSummaryLayout] = useState<SummaryLayout>("row");
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
@@ -170,13 +171,16 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                     <div
                       key={key}
                       onClick={() => onDayClick(key)}
-                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOverDate(key); }}
+                      onDragOver={e => { if (isPast) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOverDate(key); }}
                       onDragLeave={() => setDragOverDate(null)}
                       onDrop={e => {
                         e.preventDefault();
                         setDragOverDate(null);
+                        if (isPast) return;
                         const templateId = e.dataTransfer.getData("templateId");
-                        if (templateId && onTemplateDrop) onTemplateDrop(templateId, key);
+                        const workoutId  = e.dataTransfer.getData("workoutId");
+                        if (workoutId && onWorkoutMove) onWorkoutMove(workoutId, key);
+                        else if (templateId && onTemplateDrop) onTemplateDrop(templateId, key);
                       }}
                       className={cn(
                         "min-h-[88px] rounded-xl p-1.5 cursor-pointer border transition-colors",

@@ -59,7 +59,7 @@ export function WeeklyVolumeChart({ weeklyVolumes, mode = "distance" }: Props) {
         <XAxis dataKey="week" tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} unit={` ${yLabel}`} width={52} />
         <Tooltip
-          contentStyle={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, fontSize: 12 }}
+          contentStyle={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, fontSize: 12, color: "var(--text-primary)" }}
           labelStyle={{ color: "var(--text-primary)", fontWeight: 600 }}
           formatter={(v: number, name: string) => [`${v} ${yLabel}`, name]}
         />
