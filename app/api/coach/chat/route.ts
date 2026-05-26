@@ -63,8 +63,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Budget check ────────────────────────────────────────────────────────
+  // ── Monthly reset + budget check ───────────────────────────────────────
   if (aiSettings) {
+    const now = new Date();
+    if (aiSettings.spendResetAt && (now.getTime() - aiSettings.spendResetAt.getTime()) > 30 * 24 * 3600_000) {
+      await prisma.aISettings.update({
+        where: { userId },
+        data: { currentMonthSpendUsd: 0, geminiCurrentMonthSpendUsd: 0, spendResetAt: now },
+      });
+      aiSettings.currentMonthSpendUsd = 0;
+      aiSettings.geminiCurrentMonthSpendUsd = 0;
+    }
     const budget  = provider === "gemini" ? aiSettings.geminiMonthlyBudgetUsd  : aiSettings.monthlyBudgetUsd;
     const current = provider === "gemini" ? aiSettings.geminiCurrentMonthSpendUsd : aiSettings.currentMonthSpendUsd;
     if (budget > 0 && current >= budget) {

@@ -12,7 +12,7 @@ const schema = z.object({
   notes:           z.string().max(500).optional().nullable(),
   targetKmPerWeek: z.number().positive().optional().nullable(),
   targetIntensity: z.string().optional().nullable(),
-  targetRaceId:    z.string().optional().nullable(),
+  targetRaceId:    z.string().cuid().optional().nullable(),
   archived:        z.boolean().optional(),
 });
 

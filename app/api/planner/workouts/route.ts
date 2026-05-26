@@ -47,6 +47,12 @@ export async function POST(req: NextRequest) {
   const parsed = workoutSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
+  if (parsed.data.templateId) {
+    const tmpl = await prisma.workoutTemplate.findUnique({ where: { id: parsed.data.templateId } });
+    if (!tmpl || tmpl.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
   const workout = await prisma.plannedWorkout.create({
     data: {
       ...parsed.data,

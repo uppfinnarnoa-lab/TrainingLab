@@ -138,7 +138,7 @@ export async function resyncRecentActivities(
 
   // Step 1: get list of recent activities from Strava
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const listRaw: any[] = await stravaFetch(userId, `/athlete/activities?after=${after}&per_page=30`);
+  const listRaw: any[] = await stravaFetch(userId, "/athlete/activities", { after: String(after), per_page: "30" });
   if (!Array.isArray(listRaw)) return { synced: 0, updated: 0, errors: 0 };
 
   let synced = 0, updated = 0, errors = 0;

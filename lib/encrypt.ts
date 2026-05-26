@@ -27,6 +27,8 @@ export function decrypt(ciphertext: string): string {
     return ciphertext;
   }
   const [ivHex, authTagHex, encryptedHex] = parts;
+  // Guard against malformed values that happen to contain two colons
+  if (ivHex.length !== 24 || authTagHex.length !== 32) return ciphertext;
   const key = getKey();
   const iv = Buffer.from(ivHex, "hex");
   const authTag = Buffer.from(authTagHex, "hex");
