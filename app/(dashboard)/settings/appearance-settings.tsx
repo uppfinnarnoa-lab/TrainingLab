@@ -11,6 +11,7 @@ const SCHEME_OPTIONS: { value: ColorScheme; label: string; light: string; dark: 
   { value: "ocean",  label: "Ocean",  light: "#0284C7", dark: "#38BDF8" },
   { value: "ember",  label: "Ember",  light: "#EA580C", dark: "#FB923C" },
   { value: "mono",   label: "Mono",   light: "#18181B", dark: "#E4E4E7" },
+  { value: "slate",  label: "Slate",  light: "#2563EB", dark: "#60A5FA" },
 ];
 
 export function AppearanceSettings() {

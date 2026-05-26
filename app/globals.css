@@ -90,6 +90,35 @@
   --warning:       #FBBF24;
 }
 
+/* ── Theme: Slate ── */
+.scheme-slate {
+  /* dim light — cool mid-gray, clearly between white and dark */
+  --background:    #CBD5E1;
+  --surface:       #D8E2EE;
+  --surface-2:     #BEC9D8;
+  --border:        #A6B6C8;
+  --accent:        #2563EB;
+  --accent-2:      #7C3AED;
+  --text-primary:  #0D1829;
+  --text-muted:    #3A5270;
+  --error:         #DC2626;
+  --warning:       #D97706;
+}
+.dark.scheme-slate,
+.scheme-slate.dark {
+  /* dim dark — comfortable navy, noticeably lighter than other dark themes */
+  --background:    #1A2235;
+  --surface:       #222D48;
+  --surface-2:     #2A3858;
+  --border:        #384E72;
+  --accent:        #60A5FA;
+  --accent-2:      #A78BFA;
+  --text-primary:  #D5E3F5;
+  --text-muted:    #7A98BE;
+  --error:         #F87171;
+  --warning:       #FBBF24;
+}
+
 /* ── Theme: Mono ── */
 .scheme-mono {
   --background:    #FAFAFA;

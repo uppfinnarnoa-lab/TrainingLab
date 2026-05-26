@@ -2,8 +2,8 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-export type ColorScheme = "forest" | "ocean" | "ember" | "mono";
-export const COLOR_SCHEMES: ColorScheme[] = ["forest", "ocean", "ember", "mono"];
+export type ColorScheme = "forest" | "ocean" | "ember" | "mono" | "slate";
+export const COLOR_SCHEMES: ColorScheme[] = ["forest", "ocean", "ember", "mono", "slate"];
 const KEY = "traininglab_scheme";
 
 const Ctx = createContext<{ scheme: ColorScheme; setScheme: (s: ColorScheme) => void }>({
