@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft, CalendarRange, Calendar } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isToday,
-  isBefore, addMonths, subMonths,
+  isBefore, addMonths, subMonths, subWeeks, addWeeks,
 } from "date-fns";
 import { WorkoutPill } from "./WorkoutPill";
 import { WeekSummaryStrip } from "./WeekSummaryStrip";
@@ -13,7 +13,9 @@ import type { PlannedWorkout, TrainingBlock } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
 type SummaryLayout = "row" | "sidebar";
+type CalendarMode = "month" | "rolling";
 const PREF_KEY = "planner_summary_layout";
+const MODE_KEY = "planner_calendar_mode";
 
 interface Props {
   workouts: PlannedWorkout[];
@@ -28,12 +30,15 @@ interface Props {
 export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove, weekRunActivities = [] }: Props) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [summaryLayout, setSummaryLayout] = useState<SummaryLayout>("row");
+  const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
-  // Persist layout preference
+  // Persist preferences
   useEffect(() => {
     const saved = localStorage.getItem(PREF_KEY) as SummaryLayout | null;
     if (saved === "sidebar" || saved === "row") setSummaryLayout(saved);
+    const savedMode = localStorage.getItem(MODE_KEY) as CalendarMode | null;
+    if (savedMode === "month" || savedMode === "rolling") setCalendarMode(savedMode);
   }, []);
 
   function toggleLayout() {
@@ -42,11 +47,27 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
     localStorage.setItem(PREF_KEY, next);
   }
 
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const calStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-  const days = eachDayOfInterval({ start: calStart, end: calEnd });
+  function toggleMode() {
+    const next: CalendarMode = calendarMode === "month" ? "rolling" : "month";
+    setCalendarMode(next);
+    localStorage.setItem(MODE_KEY, next);
+  }
+
+  // ── Day range — month or rolling 4-week window ──────────────────────────
+  const days = useMemo(() => {
+    if (calendarMode === "rolling") {
+      const now = new Date();
+      const start = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
+      const end   = endOfWeek(addWeeks(now, 2), { weekStartsOn: 1 });
+      return eachDayOfInterval({ start, end });
+    }
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd   = endOfMonth(currentMonth);
+    return eachDayOfInterval({
+      start: startOfWeek(monthStart, { weekStartsOn: 1 }),
+      end:   endOfWeek(monthEnd,   { weekStartsOn: 1 }),
+    });
+  }, [calendarMode, currentMonth]);
 
   // Group workouts by date string
   const byDate = useMemo(() => {
@@ -89,18 +110,51 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
 
   const today = format(new Date(), "yyyy-MM-dd");
 
+  // Rolling header label — "19 maj – 15 jun"
+  const rollingLabel = useMemo(() => {
+    if (calendarMode !== "rolling") return null;
+    const first = days[0];
+    const last  = days[days.length - 1];
+    const sameMonth = format(first, "M") === format(last, "M");
+    return sameMonth
+      ? `${format(first, "d")}–${format(last, "d MMM")}`
+      : `${format(first, "d MMM")} – ${format(last, "d MMM")}`;
+  }, [calendarMode, days]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Month navigation */}
+      {/* Header / navigation */}
       <div className="flex items-center justify-between px-1 pb-3">
-        <button onClick={() => setCurrentMonth(m => subMonths(m, 1))}
-          className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition">
-          <ChevronLeft size={18} />
-        </button>
+        {calendarMode === "month" ? (
+          <button onClick={() => setCurrentMonth(m => subMonths(m, 1))}
+            className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition">
+            <ChevronLeft size={18} />
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5 px-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+            <span className="text-xs text-muted">Löpande</span>
+          </div>
+        )}
+
         <h2 className="text-base font-semibold text-primary">
-          {format(currentMonth, "MMMM yyyy")}
+          {calendarMode === "rolling" ? rollingLabel : format(currentMonth, "MMMM yyyy")}
         </h2>
+
         <div className="flex items-center gap-1">
+          {/* Rolling / month mode toggle */}
+          <button
+            onClick={toggleMode}
+            title={calendarMode === "month" ? "Byt till löpande 4-veckorsvy" : "Byt till månadsvy"}
+            className={cn(
+              "p-1.5 rounded-lg transition",
+              calendarMode === "rolling"
+                ? "text-accent bg-accent/10"
+                : "text-muted hover:text-primary hover:bg-surface-2"
+            )}
+          >
+            {calendarMode === "rolling" ? <CalendarRange size={16} /> : <Calendar size={16} />}
+          </button>
           {/* Layout toggle */}
           <button
             onClick={toggleLayout}
@@ -109,10 +163,12 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
           >
             {summaryLayout === "row" ? <PanelLeft size={16} /> : <AlignJustify size={16} />}
           </button>
-          <button onClick={() => setCurrentMonth(m => addMonths(m, 1))}
-            className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition">
-            <ChevronRight size={18} />
-          </button>
+          {calendarMode === "month" && (
+            <button onClick={() => setCurrentMonth(m => addMonths(m, 1))}
+              className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition">
+              <ChevronRight size={18} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -137,8 +193,31 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
           // sidebar mode: [summary col | 7 day cols]
           const isSidebar = summaryLayout === "sidebar";
 
+          // Rolling mode: label each week relative to current week
+          const rollingWeekLabel = (() => {
+            if (calendarMode !== "rolling") return null;
+            const now = new Date();
+            const thisWeekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd");
+            const wk = format(weekStart, "yyyy-MM-dd");
+            if (wk === format(startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Förra veckan";
+            if (wk === thisWeekStart) return "Denna vecka";
+            if (wk === format(startOfWeek(addWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Nästa vecka";
+            return "Om 2 veckor";
+          })();
+
           return (
             <div key={wi} className="space-y-1">
+              {rollingWeekLabel && (
+                <div className="flex items-center gap-2 px-1 pt-1">
+                  <span className={cn(
+                    "text-xs font-semibold",
+                    rollingWeekLabel === "Denna vecka" ? "text-accent" : "text-muted"
+                  )}>
+                    {rollingWeekLabel}
+                  </span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+              )}
               <div className={cn(
                 "gap-x-1",
                 isSidebar ? "grid grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]" : "grid grid-cols-7"
@@ -161,7 +240,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                 {week.map(day => {
                   const key = format(day, "yyyy-MM-dd");
                   const dayWorkouts = byDate.get(key) ?? [];
-                  const isCurrentMonth = isSameMonth(day, currentMonth);
+                  const isCurrentMonth = calendarMode === "rolling" || isSameMonth(day, currentMonth);
                   const isPast = key <= today; // today counts as past — shows outcome modal, not editor
                   const blockHere = blockForDate(day);
 
