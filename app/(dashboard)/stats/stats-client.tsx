@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { RefreshCw, Loader2 } from "lucide-react";
 import { OverviewCard } from "@/components/stats/overview-card";
 import { FitnessMetrics } from "@/components/stats/fitness-metrics";
-import { WeeklyVolumeChart } from "@/components/charts/WeeklyVolumeChart";
-import { TrainingLoadChart } from "@/components/charts/TrainingLoadChart";
-import { HRZonesChart } from "@/components/charts/HRZonesChart";
+
+const WeeklyVolumeChart = dynamic(() => import("@/components/charts/WeeklyVolumeChart").then(m => m.WeeklyVolumeChart), { ssr: false });
+const TrainingLoadChart  = dynamic(() => import("@/components/charts/TrainingLoadChart").then(m => m.TrainingLoadChart),  { ssr: false });
+const HRZonesChart       = dynamic(() => import("@/components/charts/HRZonesChart").then(m => m.HRZonesChart),           { ssr: false });
 import { MetricTooltip } from "@/components/stats/metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
