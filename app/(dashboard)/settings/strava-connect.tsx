@@ -25,11 +25,12 @@ export function StravaConnectSection({
   const [showSecret,   setShowSecret]   = useState(false);
   const [saving,       setSaving]       = useState(false);
   const [saved,        setSaved]        = useState(false);
-  const [syncing,      setSyncing]      = useState(false);
-  const [syncResult,   setSyncResult]   = useState<{ synced?: number; error?: string } | null>(null);
-  const [copied,       setCopied]       = useState(false);
-  const [backfilling,   setBackfilling]   = useState(false);
-  const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
+  const [syncing,         setSyncing]         = useState(false);
+  const [syncResult,      setSyncResult]      = useState<{ synced?: number; error?: string } | null>(null);
+  const [copied,          setCopied]          = useState(false);
+  const [backfilling,     setBackfilling]     = useState(false);
+  const [backfillStatus,  setBackfillStatus]  = useState<string | null>(null);
+  const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(null);
 
   const credentialsSet = hasClientId && hasClientSecret;
 
@@ -71,9 +72,10 @@ export function StravaConnectSection({
 
   async function handleBackfill() {
     setBackfilling(true);
-    setBackfillStatus("Starting...");
+    setBackfillStatus("Connecting...");
+    setBackfillProgress(null);
     try {
-      const res = await fetch("/api/strava/backfill-descriptions?stream=true", { method: "POST" });
+      const res = await fetch("/api/strava/backfill-history", { method: "POST" });
       if (!res.ok || !res.body) { setBackfillStatus("Error — check console"); return; }
 
       const reader = res.body.getReader();
@@ -90,10 +92,25 @@ export function StravaConnectSection({
           if (!line.startsWith("data: ")) continue;
           try {
             const d = JSON.parse(line.slice(6));
-            if (d.type === "start") setBackfillStatus(`Fetching ${d.total} activities...`);
-            if (d.type === "progress") setBackfillStatus(`${d.updated}/${d.total} fetched${d.errors > 0 ? ` (${d.errors} errors)` : ""}...`);
-            if (d.type === "rate_limit") setBackfillStatus(`${d.updated}/${d.total} — rate limit, waiting ${Math.round(d.waitMs/1000)}s...`);
-            if (d.type === "done") setBackfillStatus(`✓ Done! ${d.updated} descriptions fetched${d.errors > 0 ? `, ${d.errors} errors` : ""}.`);
+            if (d.type === "start") {
+              setBackfillStatus(`Fetching ${d.total} activities...`);
+              setBackfillProgress({ done: 0, total: d.total });
+            }
+            if (d.type === "progress") {
+              setBackfillStatus(`${d.done}/${d.total}${d.errors > 0 ? ` (${d.errors} errors)` : ""}...`);
+              setBackfillProgress({ done: d.done, total: d.total });
+            }
+            if (d.type === "rate_limit") {
+              setBackfillStatus(`${d.done}/${d.total} — rate limit, waiting ${Math.round(d.waitMs / 1000)}s...`);
+            }
+            if (d.type === "daily_limit") {
+              setBackfillStatus(`${d.done}/${d.total} done — Strava daily limit reached. Run again tomorrow to continue.`);
+              setBackfillProgress({ done: d.done, total: d.total });
+            }
+            if (d.type === "done") {
+              setBackfillStatus(`✓ All ${d.done} activities fetched${d.errors > 0 ? ` (${d.errors} errors)` : ""}.`);
+              setBackfillProgress({ done: d.done, total: d.total });
+            }
             if (d.type === "error") setBackfillStatus(`Error: ${d.message}`);
           } catch { /* skip malformed */ }
         }
@@ -233,13 +250,6 @@ export function StravaConnectSection({
                   {syncing ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
                   Sync new activities
                 </button>
-                <button
-                  onClick={() => handleSync(true)}
-                  disabled={syncing}
-                  className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-muted hover:text-primary hover:bg-surface-2 transition disabled:opacity-50"
-                >
-                  Full re-sync (all history)
-                </button>
               </div>
 
               {syncResult && (
@@ -250,28 +260,40 @@ export function StravaConnectSection({
                 </p>
               )}
 
-              {/* Backfill descriptions */}
+              {/* Historical backfill */}
               <div className="pt-3 border-t border-border space-y-2">
-                <p className="text-xs font-medium text-muted">Descriptions backfill</p>
+                <p className="text-xs font-medium text-muted">Historical data backfill</p>
                 <p className="text-xs text-muted">
-                  Older activities synced in bulk are missing your own Strava descriptions/notes.
-                  Run this to fetch them individually. Processes ~30 per click (Strava rate limit).
+                  Fetches full detail (HR, pace, splits, descriptions) for every activity individually.
+                  Respects Strava&apos;s rate limits — pauses between windows and stops if the daily limit
+                  is reached. Run again the next day to continue where it left off.
                 </p>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <button
                     onClick={handleBackfill}
                     disabled={backfilling}
                     className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 py-2 text-sm font-medium text-primary hover:bg-surface transition disabled:opacity-50"
                   >
                     {backfilling ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-                    {backfilling ? "Fetching all..." : "Fetch all descriptions (runs until done)"}
+                    {backfilling ? "Running…" : "Backfill all historical activities"}
                   </button>
-                  {backfillStatus && (
-                    <p className={`text-xs ${backfillStatus.startsWith("✓") ? "text-accent" : backfillStatus.startsWith("Error") ? "text-error" : "text-muted"}`}>
-                      {backfillStatus}
-                    </p>
+                  {backfillProgress && (
+                    <div className="flex-1 min-w-[140px]">
+                      <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-accent transition-all"
+                          style={{ width: `${Math.round((backfillProgress.done / backfillProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted mt-0.5">{backfillProgress.done} / {backfillProgress.total}</p>
+                    </div>
                   )}
                 </div>
+                {backfillStatus && (
+                  <p className={`text-xs ${backfillStatus.startsWith("✓") ? "text-accent" : backfillStatus.includes("daily limit") ? "text-warning" : backfillStatus.startsWith("Error") ? "text-error" : "text-muted"}`}>
+                    {backfillStatus}
+                  </p>
+                )}
               </div>
             </div>
           )}
