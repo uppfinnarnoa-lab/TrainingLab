@@ -23,7 +23,7 @@ export default async function StatsPage() {
   const now = new Date();
 
   // ── Always fetch ────────────────────────────────────────────────────────
-  const [profile, fitnessCache, garminRecent, allRacePBs] = await Promise.all([
+  const [profile, fitnessCache, garminRecent, allRacePBs, weatherActs] = await Promise.all([
     prisma.athleteProfile.findUnique({ where: { userId } }),
     prisma.fitnessCache.findUnique({ where: { userId } }),
     prisma.garminDailySummary.findMany({
@@ -35,7 +35,19 @@ export default async function StatsPage() {
       select: { distanceM: true, time: true, date: true },
       orderBy: { time: "asc" },
     }),
+    // Weather profile: all running activities with weather data (no date limit)
+    prisma.activity.findMany({
+      where: {
+        userId,
+        sportType: { contains: "run", mode: "insensitive" },
+        weatherTemp: { not: null },
+        averageSpeed: { not: null },
+        distance: { gte: 1000 },
+      },
+      select: { averageSpeed: true, weatherTemp: true, weatherWind: true },
+    }),
   ]);
+  const weatherStats = computeWeatherStats(weatherActs);
 
   const bestPerDist = new Map<number, { distanceM: number; timeSec: number; date: Date }>();
   for (const r of allRacePBs) {
@@ -265,7 +277,7 @@ export default async function StatsPage() {
       fastZoneSeconds, hrZones, vo2max, effectivePaceZones, predictions, fastPolarisation, acwr,
       null, overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, null,
       fitnessCache.decouplingLt1HR ?? null, fitnessCache.criticalSpeedMs ?? null,
-      profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null);
+      profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────
@@ -692,7 +704,7 @@ export default async function StatsPage() {
     modelPredictions, modelVdots,
     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear },
     fitnessCache?.decouplingLt1HR ?? null, fitnessCache?.criticalSpeedMs ?? null,
-    profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null);
+    profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats);
 }
 
 // Shared render — used by both fast and slow paths
@@ -739,6 +751,7 @@ function renderStats(
   criticalSpeedMs?: number | null,
   manualMaxHR?: number | null,
   manualRestHR?: number | null,
+  weatherStats?: WeatherStats,
 ) {
   return (
     <div className="space-y-2">
@@ -772,6 +785,7 @@ function renderStats(
         criticalSpeedMs={criticalSpeedMs ?? null}
         manualMaxHR={manualMaxHR ?? null}
         manualRestHR={manualRestHR ?? null}
+        weatherStats={weatherStats ?? null}
       />
       </StatsErrorBoundary>
     </div>
@@ -788,6 +802,48 @@ type OverviewResult = {
 };
 function buildOverview(_: OverviewResult): OverviewResult { return _; } // just for type inference
 
+
+export interface WeatherBand { label: string; count: number; avgPaceSecPerKm: number | null }
+export interface WeatherStats { byTemp: WeatherBand[]; byWind: WeatherBand[] }
+
+function computeWeatherStats(
+  acts: Array<{ averageSpeed: number | null; weatherTemp: number | null; weatherWind: number | null }>,
+): WeatherStats {
+  const TEMP_BANDS = [
+    { label: "< 5°C",   test: (t: number) => t < 5 },
+    { label: "5–10°C",  test: (t: number) => t >= 5  && t < 10 },
+    { label: "10–15°C", test: (t: number) => t >= 10 && t < 15 },
+    { label: "15–20°C", test: (t: number) => t >= 15 && t < 20 },
+    { label: "> 20°C",  test: (t: number) => t >= 20 },
+  ];
+  const WIND_BANDS = [
+    { label: "Calm (< 10)",    test: (w: number) => w < 10 },
+    { label: "Light (10–20)",  test: (w: number) => w >= 10 && w < 20 },
+    { label: "Moderate (20–30)", test: (w: number) => w >= 20 && w < 30 },
+    { label: "Strong (> 30)", test: (w: number) => w >= 30 },
+  ];
+
+  function computeBands<T extends { label: string; test: (v: number) => boolean }>(
+    bands: T[],
+    getValue: (a: typeof acts[0]) => number | null,
+  ): WeatherBand[] {
+    return bands.map(band => {
+      const matching = acts.filter(a => {
+        const v = getValue(a);
+        return v != null && band.test(v) && a.averageSpeed && a.averageSpeed > 0;
+      });
+      if (matching.length === 0) return { label: band.label, count: 0, avgPaceSecPerKm: null };
+      const paces = matching.map(a => 1000 / a.averageSpeed!);
+      const avg = paces.reduce((s, p) => s + p, 0) / paces.length;
+      return { label: band.label, count: matching.length, avgPaceSecPerKm: Math.round(avg) };
+    });
+  }
+
+  return {
+    byTemp: computeBands(TEMP_BANDS, a => a.weatherTemp),
+    byWind: computeBands(WIND_BANDS, a => a.weatherWind),
+  };
+}
 
 function normalizeSport(t: string): string {
   const s = t.toLowerCase();

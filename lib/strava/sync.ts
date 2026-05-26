@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { stravaFetch } from "./client";
+import { fetchAndSaveWeather } from "@/lib/weather/open-meteo";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapActivity(raw: any, userId: string) {
@@ -33,6 +34,8 @@ function mapActivity(raw: any, userId: string) {
     laps: raw.laps ?? null,
     bestEfforts: raw.best_efforts ?? null,
     splitDetailFetched: false, // overridden to true when fetched from detail endpoint
+    startLat: Array.isArray(raw.start_latlng) && raw.start_latlng.length >= 2 ? (raw.start_latlng[0] as number) : null,
+    startLng: Array.isArray(raw.start_latlng) && raw.start_latlng.length >= 2 ? (raw.start_latlng[1] as number) : null,
   };
 }
 
@@ -89,7 +92,7 @@ export async function syncActivities(
         }
 
         const data = { ...mapActivity(fullRaw, userId), splitDetailFetched: detailFetched };
-        await prisma.activity.upsert({
+        const saved = await prisma.activity.upsert({
           where: { stravaId: data.stravaId },
           create: data,
           update: {
@@ -99,8 +102,14 @@ export async function syncActivities(
             maxHeartrate: data.maxHeartrate,
             sufferScore: data.sufferScore,
             perceivedExertion: data.perceivedExertion,
+            startLat: data.startLat,
+            startLng: data.startLng,
           },
         });
+        // Fetch weather from Open-Meteo for new activities that have coordinates
+        if (!exists && saved.startLat != null && saved.startLng != null && saved.weatherTemp == null) {
+          fetchAndSaveWeather(saved.id, saved.startLat, saved.startLng, saved.startDate).catch(() => {});
+        }
         synced++;
       } catch (e) {
         console.error("Activity upsert failed for stravaId", raw.id, e);
@@ -189,4 +198,45 @@ export async function resyncRecentActivities(
   });
 
   return { synced, updated, errors };
+}
+
+/**
+ * Sync a single activity by its Strava ID.
+ * Used by the webhook handler on activity.create / activity.update events.
+ */
+export async function syncSingleActivity(userId: string, stravaActivityId: number): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const full: any = await stravaFetch(userId, `/activities/${stravaActivityId}`);
+  const data = { ...mapActivity(full, userId), splitDetailFetched: true };
+
+  const saved = await prisma.activity.upsert({
+    where: { stravaId: data.stravaId },
+    create: data,
+    update: {
+      name: data.name,
+      description: data.description,
+      splitsMetric: data.splitsMetric,
+      laps: data.laps,
+      bestEfforts: data.bestEfforts,
+      averageHeartrate: data.averageHeartrate,
+      maxHeartrate: data.maxHeartrate,
+      sufferScore: data.sufferScore,
+      perceivedExertion: data.perceivedExertion,
+      startLat: data.startLat,
+      startLng: data.startLng,
+    },
+  });
+
+  if (saved.startLat != null && saved.startLng != null && saved.weatherTemp == null) {
+    fetchAndSaveWeather(saved.id, saved.startLat, saved.startLng, saved.startDate).catch(() => {});
+  }
+}
+
+/**
+ * Delete an activity from the DB when Strava pushes a delete event.
+ */
+export async function deleteStravaActivity(userId: string, stravaActivityId: number): Promise<void> {
+  await prisma.activity.deleteMany({
+    where: { userId, stravaId: BigInt(stravaActivityId) },
+  });
 }

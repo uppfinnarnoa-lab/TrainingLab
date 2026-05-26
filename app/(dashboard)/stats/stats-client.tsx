@@ -15,6 +15,7 @@ import type { DailyLoad } from "@/lib/fitness/training-load";
 import { tsbLabel } from "@/lib/fitness/training-load";
 import type { HRZones, PaceZones, StatisticalZoneResult } from "@/lib/fitness/zones";
 import type { VO2maxEstimate } from "@/lib/fitness/vo2max";
+import type { WeatherStats } from "@/app/(dashboard)/stats/page";
 import { cn } from "@/lib/utils";
 
 interface SumData { km: number; timeSec: number; count: number }
@@ -58,6 +59,7 @@ interface Props {
   criticalSpeedMs: number | null;
   manualMaxHR: number | null;
   manualRestHR: number | null;
+  weatherStats: WeatherStats | null;
   extraViz: {
     heatmapData: { week: string; km: number }[];
     monthlyOverlay: { month: string; year: number; km: number }[];
@@ -81,7 +83,7 @@ export function StatsClient(props: Props) {
   const o = sportMode === "run" ? props.overviewRun : props.overview;
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZones, analytics, paceZoneSeconds,
-    modelPredictions, modelVdots, extraViz, decouplingLt1HR, criticalSpeedMs, manualMaxHR, manualRestHR } = props;
+    modelPredictions, modelVdots, extraViz, decouplingLt1HR, criticalSpeedMs, manualMaxHR, manualRestHR, weatherStats } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -260,6 +262,7 @@ export function StatsClient(props: Props) {
 
           {/* Analytics 1A: AEI trend + ramp rate + active streak */}
           {analytics && (
+            <>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
               {/* AEI trend */}
@@ -372,6 +375,12 @@ export function StatsClient(props: Props) {
                 )}
               </div>
             </div>
+
+            {/* Weather profile — temp + wind */}
+            {weatherStats && (weatherStats.byTemp.some(b => b.count > 0) || weatherStats.byWind.some(b => b.count > 0)) && (
+              <WeatherProfileCard weatherStats={weatherStats} />
+            )}
+            </>
           )}
 
           {/* VDOT trend over time */}
@@ -383,6 +392,102 @@ export function StatsClient(props: Props) {
           {extraViz && extraViz.terrainFactor && (
             <TerrainFactorCard tf={extraViz.terrainFactor} />
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats }) {
+  function fmtPace(sec: number | null): string {
+    if (!sec) return "—";
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, "0")}/km`;
+  }
+
+  const tempBands  = weatherStats.byTemp.filter(b => b.count > 0);
+  const windBands  = weatherStats.byWind.filter(b => b.count > 0);
+  const maxTempCount = Math.max(...tempBands.map(b => b.count), 1);
+  const maxWindCount = Math.max(...windBands.map(b => b.count), 1);
+
+  // Find fastest pace band (lowest sec/km) as reference for relative coloring
+  const tempsWithPace = tempBands.filter(b => b.avgPaceSecPerKm != null);
+  const fastestTempPace = tempsWithPace.length > 0
+    ? Math.min(...tempsWithPace.map(b => b.avgPaceSecPerKm!)) : null;
+  const windsWithPace = windBands.filter(b => b.avgPaceSecPerKm != null);
+  const fastestWindPace = windsWithPace.length > 0
+    ? Math.min(...windsWithPace.map(b => b.avgPaceSecPerKm!)) : null;
+
+  function paceColor(sec: number | null, fastest: number | null): string {
+    if (!sec || !fastest) return "var(--text-muted)";
+    const diff = sec - fastest;
+    if (diff < 5)  return "var(--accent)";       // within 5s/km of fastest
+    if (diff < 15) return "var(--text-primary)";
+    return "#F87171";                             // 15+ s/km slower
+  }
+
+  return (
+    <div className="rounded-xl bg-surface border border-border p-5 space-y-5">
+      <p className="text-sm font-semibold text-primary">Weather profile</p>
+
+      {tempBands.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted uppercase tracking-wide">Avg pace by temperature</p>
+          <div className="space-y-1.5">
+            {tempBands.map(band => (
+              <div key={band.label} className="flex items-center gap-3">
+                <span className="text-xs text-muted w-20 shrink-0">{band.label}</span>
+                <div className="flex-1 relative h-6 flex items-center">
+                  <div className="h-1.5 rounded-full bg-surface-2 w-full" />
+                  <div
+                    className="absolute h-1.5 rounded-full"
+                    style={{
+                      width: `${(band.count / maxTempCount) * 100}%`,
+                      backgroundColor: "var(--accent)",
+                      opacity: 0.4,
+                    }}
+                  />
+                </div>
+                <span className="text-xs font-mono w-16 text-right shrink-0"
+                  style={{ color: paceColor(band.avgPaceSecPerKm, fastestTempPace) }}>
+                  {fmtPace(band.avgPaceSecPerKm)}
+                </span>
+                <span className="text-[10px] text-muted w-10 text-right shrink-0">{band.count}×</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted">Color: green = fastest, red = 15+ s/km slower</p>
+        </div>
+      )}
+
+      {windBands.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted uppercase tracking-wide">Avg pace by wind (km/h)</p>
+          <div className="space-y-1.5">
+            {windBands.map(band => (
+              <div key={band.label} className="flex items-center gap-3">
+                <span className="text-xs text-muted w-28 shrink-0">{band.label}</span>
+                <div className="flex-1 relative h-6 flex items-center">
+                  <div className="h-1.5 rounded-full bg-surface-2 w-full" />
+                  <div
+                    className="absolute h-1.5 rounded-full"
+                    style={{
+                      width: `${(band.count / maxWindCount) * 100}%`,
+                      backgroundColor: "#818CF8",
+                      opacity: 0.4,
+                    }}
+                  />
+                </div>
+                <span className="text-xs font-mono w-16 text-right shrink-0"
+                  style={{ color: paceColor(band.avgPaceSecPerKm, fastestWindPace) }}>
+                  {fmtPace(band.avgPaceSecPerKm)}
+                </span>
+                <span className="text-[10px] text-muted w-10 text-right shrink-0">{band.count}×</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-muted">Bar width = number of runs · Calm baseline vs windy sessions</p>
         </div>
       )}
     </div>

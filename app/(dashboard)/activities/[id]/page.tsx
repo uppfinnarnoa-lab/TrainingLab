@@ -10,6 +10,7 @@ import { SplitsTable } from "./splits-table";
 import { SplitsChart } from "./splits-chart";
 import { ActivityCharts } from "./activity-charts";
 import { BestEffortsTable } from "./best-efforts";
+import { WorkoutAnalysis } from "./workout-analysis";
 
 export default async function ActivityDetailPage({
   params,
@@ -32,6 +33,7 @@ export default async function ActivityDetailPage({
       sufferScore: true, isRace: true, mapPolyline: true,
       splitsMetric: true, laps: true, bestEfforts: true,
       weatherTemp: true, weatherWind: true, weatherCode: true,
+      workoutType: true,
     },
   });
 
@@ -183,6 +185,19 @@ export default async function ActivityDetailPage({
       {/* Best efforts */}
       {bestEffortsRaw.length > 0 && (
         <BestEffortsTable bestEfforts={bestEffortsRaw} />
+      )}
+
+      {/* Workout analysis — only for Strava workoutType=3 (interval/tempo sessions) */}
+      {activity.workoutType === 3 && (
+        <WorkoutAnalysis
+          activity={{
+            id: activity.id,
+            averageSpeed: activity.averageSpeed,
+            averageHeartrate: activity.averageHeartrate,
+            maxHeartrate: activity.maxHeartrate,
+          }}
+          splits={splits}
+        />
       )}
     </div>
   );

@@ -8,7 +8,7 @@ import { formatDuration } from "@/lib/utils";
 interface SportData { km: number; sec: number; count: number }
 interface Props {
   all: { week: SportData; month: SportData; ytd: SportData };
-  run: { week: SportData; month: SportData; ytd: SportData };
+  run: { week: SportData; month: SportData; ytd: SportData; onPaceKm: number; lyYtdKm: number };
   fitnessLabel: string | null;
   fitnessPrimary: string;
   fitnessSub: string;
@@ -53,6 +53,8 @@ export function DashboardCards({ all, run, fitnessLabel, fitnessPrimary, fitness
           primary={d.ytd.km > 0 ? fmt(d.ytd.km * 1000) : "—"}
           sub={d.ytd.km > 0 ? formatDuration(d.ytd.sec) : "Sync Strava to see data"}
           detail={mode === "run" && d.ytd.km > 0 ? `${d.ytd.count} runs` : undefined}
+          onPace={mode === "run" && run.onPaceKm > 0 ? `On pace for ${run.onPaceKm.toLocaleString()} km` : undefined}
+          lyYtd={mode === "run" && run.lyYtdKm > 0 ? `vs ${run.lyYtdKm.toLocaleString()} km last year` : undefined}
           accent />
 
         {/* Fitness */}
@@ -62,8 +64,9 @@ export function DashboardCards({ all, run, fitnessLabel, fitnessPrimary, fitness
   );
 }
 
-function StatCard({ label, primary, sub, detail, accent }: {
-  label: string; primary: string; sub: string; detail?: string; accent?: boolean;
+function StatCard({ label, primary, sub, detail, onPace, lyYtd, accent }: {
+  label: string; primary: string; sub: string;
+  detail?: string; onPace?: string; lyYtd?: string; accent?: boolean;
 }) {
   return (
     <div className={`rounded-xl bg-surface border p-4 shadow-sm ${accent ? "border-accent/30" : "border-border"}`}>
@@ -74,6 +77,12 @@ function StatCard({ label, primary, sub, detail, accent }: {
         <p className="flex items-center gap-1 text-xs text-accent mt-1.5 font-medium">
           <Activity size={11} />{detail}
         </p>
+      )}
+      {onPace && (
+        <p className="text-xs text-accent mt-1 font-medium">{onPace}</p>
+      )}
+      {lyYtd && (
+        <p className="text-xs text-muted mt-0.5">{lyYtd}</p>
       )}
     </div>
   );

@@ -144,6 +144,9 @@ model Activity {
   weatherPrecip Float?
   weatherCode   Int?
 
+  startLat  Float?
+  startLng  Float?
+
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   matchedPlannedId String?
   matchedPlanned   PlannedWorkout? @relation(fields: [matchedPlannedId], references: [id])
