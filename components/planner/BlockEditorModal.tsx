@@ -37,8 +37,9 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
   const [endDate, setEnd]     = useState(initial?.endDate?.slice(0, 10) ?? "");
   const [notes, setNotes]     = useState(initial?.notes ?? "");
   const [kmPerWeek, setKm]    = useState(initial?.targetKmPerWeek ? String(initial.targetKmPerWeek) : "");
-  const [saving, setSaving]   = useState(false);
+  const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Auto-update color when type changes (unless manually changed)
   function handleTypeChange(t: string) {
@@ -66,11 +67,11 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
   }
 
   async function handleDelete() {
-    if (!onDelete || !confirm("Ta bort det här blocket?")) return;
+    if (!onDelete) return;
+    if (!confirmDelete) { setConfirmDelete(true); return; }
     setDeleting(true);
     await onDelete();
-    setDeleting(false);
-    onClose();
+    // onDelete closes modal via parent state — no need to call onClose here
   }
 
   const isRaceType = blockType === "race";
@@ -171,11 +172,23 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
         </div>
 
         <div className="px-5 py-4 border-t border-border flex items-center gap-2">
-          {!isNew && onDelete && (
+          {!isNew && onDelete && !confirmDelete && (
             <button onClick={handleDelete} disabled={deleting}
               className="px-3 py-2 rounded-xl border border-border text-sm text-muted hover:text-error hover:border-error/30 transition flex items-center gap-1.5">
-              {deleting ? <Loader2 size={13} className="animate-spin" /> : "Delete"}
+              Delete
             </button>
+          )}
+          {!isNew && onDelete && confirmDelete && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setConfirmDelete(false)}
+                className="px-3 py-2 rounded-xl border border-border text-sm text-muted hover:bg-surface-2 transition">
+                Avbryt
+              </button>
+              <button onClick={handleDelete} disabled={deleting}
+                className="px-3 py-2 rounded-xl border border-error/30 bg-error/10 text-sm font-semibold text-error hover:bg-error/20 transition flex items-center gap-1.5">
+                {deleting ? <Loader2 size={13} className="animate-spin" /> : "Bekräfta radering"}
+              </button>
+            </div>
           )}
           <div className="flex-1" />
           <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-primary transition">

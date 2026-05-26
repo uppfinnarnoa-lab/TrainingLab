@@ -230,9 +230,11 @@ export function PlannerClient(props: Props) {
 
   async function handleBlockDelete() {
     if (!editingBlock) return;
-    await fetch(`/api/planner/blocks/${editingBlock.id}`, { method: "DELETE" });
-    setBlocks(prev => prev.filter(b => b.id !== editingBlock.id));
+    const id = editingBlock.id;
     setEditingBlock(null);
+    setBlocks(prev => prev.filter(b => b.id !== id));
+    await fetch(`/api/planner/blocks/${id}`, { method: "DELETE" });
+    startTransition(() => router.refresh());
   }
 
   return (
@@ -260,7 +262,7 @@ export function PlannerClient(props: Props) {
         <div className="flex-1 p-4 overflow-auto">
           <PlannerCalendar
             workouts={workouts}
-            blocks={props.blocks}
+            blocks={blocks}
             onDayClick={date => openBuilder(date)}
             onWorkoutClick={handleWorkoutClick}
             onTemplateDrop={(templateId, date) => handleAddTemplateToDate(templateId, date)}
@@ -301,6 +303,7 @@ export function PlannerClient(props: Props) {
           onClose={() => setStatusWorkout(null)}
           onSave={handleOutcomeSave}
           onDelete={id => { handleDeleteWorkout(id); setStatusWorkout(null); }}
+          onEdit={w => { setStatusWorkout(null); setEditWorkout(w); }}
         />
       )}
 

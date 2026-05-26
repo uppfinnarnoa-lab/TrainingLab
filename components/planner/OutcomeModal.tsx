@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Loader2, Trash2 } from "lucide-react";
+import { X, Loader2, Trash2, Pencil } from "lucide-react";
 import type { PlannedWorkout } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
@@ -17,9 +17,10 @@ interface Props {
   onClose: () => void;
   onSave: (id: string, status: string, missedReason?: string, missedNote?: string) => Promise<void>;
   onDelete?: (id: string) => void;
+  onEdit?: (workout: PlannedWorkout) => void;
 }
 
-export function OutcomeModal({ workout, onClose, onSave, onDelete }: Props) {
+export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Props) {
   const [step, setStep]         = useState<"choose" | "missed" | "confirm-delete">("choose");
   const [reason, setReason]     = useState(workout.missedReason ?? "");
   const [note, setNote]         = useState(workout.missedNote ?? "");
@@ -45,9 +46,20 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete }: Props) {
               })}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-muted hover:bg-surface-2 transition">
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1">
+            {onEdit && (
+              <button
+                onClick={() => { onClose(); onEdit(workout); }}
+                title="Redigera pass"
+                className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
+              >
+                <Pencil size={15} />
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg text-muted hover:bg-surface-2 transition">
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="p-5 space-y-3">
