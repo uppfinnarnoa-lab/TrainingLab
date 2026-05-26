@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { getCredentials } from "@/lib/config";
+import { generateOAuthState } from "@/lib/oauth-state";
 
 const STRAVA_BASE = "https://www.strava.com/api/v3";
 const TOKEN_URL   = "https://www.strava.com/oauth/token";
@@ -12,6 +13,7 @@ export async function getStravaAuthUrl(userId: string, redirectUri: string): Pro
     redirect_uri:  redirectUri,
     response_type: "code",
     scope:         "read,activity:read_all",
+    state:         generateOAuthState(userId),
   });
   return `https://www.strava.com/oauth/authorize?${params}`;
 }

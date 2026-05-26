@@ -23,10 +23,11 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const from = searchParams.get("from");
   const to = searchParams.get("to");
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
 
   const where: Record<string, unknown> = { userId: session.user.id };
-  if (from) where.date = { gte: new Date(from) };
-  if (to) where.date = { ...((where.date as Record<string, unknown>) ?? {}), lte: new Date(to) };
+  if (from && dateRe.test(from)) where.date = { gte: new Date(from) };
+  if (to && dateRe.test(to)) where.date = { ...((where.date as Record<string, unknown>) ?? {}), lte: new Date(to) };
 
   const workouts = await prisma.plannedWorkout.findMany({
     where,

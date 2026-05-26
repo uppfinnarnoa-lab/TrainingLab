@@ -13,7 +13,7 @@ const schema = z.object({
   maxHeartRate:    z.coerce.number().min(100).max(230).optional().nullable(),
   restingHeartRate:z.coerce.number().min(20).max(100).optional().nullable(),
   primaryGoal:     z.string().max(200).optional().nullable(),
-  yearsTraining:   z.coerce.number().min(0).max(80).optional().nullable(),
+  yearsTraining:   z.coerce.number().int().min(0).max(80).optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {

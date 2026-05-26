@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   const streamMode = searchParams.get("stream") === "true";
 
   if (!streamMode) {
-    const batchSize = Math.min(50, parseInt(searchParams.get("batch") ?? "30"));
+    const batchSize = Math.min(50, parseInt(searchParams.get("batch") ?? "30", 10) || 30);
     const total = await prisma.activity.count({ where: { userId, splitDetailFetched: false } });
     if (total === 0) return NextResponse.json({ done: true, updated: 0, remaining: 0 });
 

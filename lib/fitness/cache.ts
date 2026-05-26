@@ -106,7 +106,7 @@ export async function updateVO2maxAndPaces(userId: string) {
     maxHR, restHR, racePBs, todayLoad.tsb,
   );
   const paceZones = buildPaceZones(vo2maxResult.vdot);
-  const existingZones = (existingCache?.zones as object | null) ?? buildHRZonesJson(185, 45);
+  const existingZones = (existingCache?.zones as object | null) ?? buildHRZonesJson(maxHR, restHR);
 
   // ── Weekly volumes (last 16 weeks) ─────────────────────────────────────
   const sixteenWeeksAgo = subDays(now, 112);

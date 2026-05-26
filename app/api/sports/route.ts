@@ -53,6 +53,9 @@ export async function POST(req: NextRequest) {
   if (kind === "type") {
     const parsed = typeSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
+    const sport = await prisma.sportCategory.findUnique({ where: { id: parsed.data.sportId } });
+    if (!sport || sport.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
     const type = await prisma.workoutType.create({
       data: { ...parsed.data, userId: session.user.id },
     });

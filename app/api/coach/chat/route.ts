@@ -9,14 +9,21 @@ import { estimateCost } from "@/lib/ai/client";
 import { safeDecrypt } from "@/lib/encrypt";
 import { COACH_TOOLS, toGeminiTools, executeCoachTool, WRITE_TOOLS } from "@/lib/ai/tools";
 import type { AIMessage } from "@/lib/ai/client";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
+
+const TOOL_NAMES = [
+  "create_workout", "get_upcoming_plan", "delete_workout", "update_profile",
+  "search_activities", "get_activities_in_range", "analyze_full_history",
+  "get_fitness_summary", "get_race_history", "get_readiness",
+  "get_training_blocks", "get_activity_detail",
+] as const;
 
 const schema = z.object({
   conversationId: z.string().cuid().optional(),
   message: z.string().min(1).max(4000),
-  // If user approved a pending write-tool action, it's sent here for execution
   approvedAction: z.object({
-    toolName: z.string(),
+    toolName: z.enum(TOOL_NAMES),
     toolInput: z.record(z.unknown()),
   }).optional(),
 });
@@ -25,6 +32,12 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 });
   const userId = session.user.id;
+
+  const rl = checkRateLimit(`chat:${userId}`, 10, 60);
+  if (!rl.allowed) return new Response(
+    JSON.stringify({ error: "rate_limited", retryAfter: rl.resetIn }),
+    { status: 429, headers: { "Content-Type": "application/json" } },
+  );
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

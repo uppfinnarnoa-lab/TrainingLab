@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { exchangeStravaCode } from "@/lib/strava/client";
 import { prisma } from "@/lib/db/prisma";
 import { invalidateCredentialsCache } from "@/lib/config";
+import { verifyOAuthState } from "@/lib/oauth-state";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -10,11 +11,14 @@ export async function GET(req: NextRequest) {
 
   const code  = req.nextUrl.searchParams.get("code");
   const error = req.nextUrl.searchParams.get("error");
+  const state = req.nextUrl.searchParams.get("state");
 
   if (error || !code) return NextResponse.redirect(new URL("/settings?strava=denied", req.url));
+  if (!verifyOAuthState(state, session.user.id))
+    return NextResponse.redirect(new URL("/settings?strava=csrf", req.url));
 
-  // Compute redirect URI from the incoming request origin
-  const redirectUri = `${req.nextUrl.origin}/api/strava/callback`;
+  const baseUrl = process.env.NEXTAUTH_URL ?? req.nextUrl.origin;
+  const redirectUri = `${baseUrl}/api/strava/callback`;
 
   try {
     const data = await exchangeStravaCode(session.user.id, code, redirectUri);

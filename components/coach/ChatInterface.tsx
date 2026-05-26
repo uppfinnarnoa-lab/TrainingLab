@@ -73,7 +73,7 @@ export function ChatInterface({
     await sendWithPayload("Nej, avbryt det.");
   }
 
-  async function sendWithPayload(text: string, approvedAction?: { toolName: string; toolInput: Record<string, unknown> }) {
+  const sendWithPayload = useCallback(async (text: string, approvedAction?: { toolName: string; toolInput: Record<string, unknown> }) => {
     if (streaming) return;
     const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: text };
     setMessages(prev => [...prev, userMsg]);
@@ -91,7 +91,7 @@ export function ChatInterface({
       setStreaming(false);
       textareaRef.current?.focus();
     }
-  }
+  }, [streaming, convId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function processStream(res: Response, assistantId: string) {
     if (!res.ok || !res.body) {
@@ -159,7 +159,7 @@ export function ChatInterface({
     if (!text || streaming) return;
     setInput("");
     await sendWithPayload(text);
-  }, [input, streaming, convId, provider]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [input, streaming, sendWithPayload]);
 
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === "Escape") { setShowToolMenu(false); return; }

@@ -58,6 +58,16 @@ export async function POST(req: NextRequest) {
 
   const { sections, ...templateData } = parsed.data;
 
+  const sport = await prisma.sportCategory.findUnique({ where: { id: templateData.sportId } });
+  if (!sport || sport.userId !== session.user.id)
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  if (templateData.typeId) {
+    const type = await prisma.workoutType.findUnique({ where: { id: templateData.typeId } });
+    if (!type || type.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
   // Compute estimated totals from sections
   const estimated = computeEstimated(sections);
 

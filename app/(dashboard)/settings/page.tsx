@@ -14,11 +14,11 @@ export default async function SettingsPage() {
   const session = await auth();
   const userId  = session!.user!.id!;
 
-  // Detect origin from request headers for dynamic redirect URIs
+  // Prefer explicit NEXTAUTH_URL; fall back to request headers for dynamic origins
   const headersList  = await headers();
   const host         = headersList.get("x-forwarded-host") ?? headersList.get("host") ?? "localhost:3000";
   const proto        = headersList.get("x-forwarded-proto") ?? "http";
-  const origin       = `${proto}://${host}`;
+  const origin       = process.env.NEXTAUTH_URL ?? `${proto}://${host}`;
   const stravaCallback = `${origin}/api/strava/callback`;
   const garminCallback = `${origin}/api/garmin/callback`;
 

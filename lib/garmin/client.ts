@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { getCredentials } from "@/lib/config";
+import { generateOAuthState } from "@/lib/oauth-state";
 
 const GARMIN_TOKEN_URL = "https://connectapi.garmin.com/oauth-service/oauth/token";
 const GARMIN_BASE      = "https://apis.garmin.com/wellness-api/rest";
@@ -12,6 +13,7 @@ export async function getGarminAuthUrl(userId: string, redirectUri: string): Pro
     redirect_uri:  redirectUri,
     response_type: "code",
     scope:         "WELLNESS",
+    state:         generateOAuthState(userId),
   });
   return `https://connect.garmin.com/oauth2Confirm?${params}`;
 }

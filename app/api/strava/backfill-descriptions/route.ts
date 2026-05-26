@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   if (!streamMode) {
     // Non-streaming: do one batch of 30 (legacy mode for the Settings button)
-    const batchSize = Math.min(50, parseInt(searchParams.get("batch") ?? "30"));
+    const batchSize = Math.min(50, parseInt(searchParams.get("batch") ?? "30", 10) || 30);
     const total = await prisma.activity.count({ where: { userId, description: null } });
     if (total === 0) return NextResponse.json({ done: true, updated: 0, remaining: 0 });
 

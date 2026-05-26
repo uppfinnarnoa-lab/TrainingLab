@@ -10,7 +10,7 @@ const updateSchema = z.object({
   notes: z.string().max(1000).optional().nullable(),
   targetDistance: z.number().positive().optional().nullable(),
   targetDuration: z.number().int().positive().optional().nullable(),
-  color: z.string().optional().nullable(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   status: z.enum(["planned", "completed", "missed", "partial"]).optional(),
   missedReason: z.string().optional().nullable(),
   missedNote: z.string().max(500).optional().nullable(),

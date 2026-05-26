@@ -36,10 +36,13 @@ export function decrypt(ciphertext: string): string {
   return decipher.update(encrypted).toString("utf8") + decipher.final("utf8");
 }
 
-// Encrypt only if the value looks like plaintext (not already encrypted)
+// Encrypt only if the value looks like plaintext (not already encrypted).
+// Format: 24-char hex iv : 32-char hex authTag : N-char hex ciphertext
+const ENCRYPTED_RE = /^[0-9a-f]{24}:[0-9a-f]{32}:[0-9a-f]+$/;
+
 export function encryptIfNeeded(value: string | null | undefined): string | null {
   if (!value) return null;
-  if (value.split(":").length === 3) return value; // already encrypted
+  if (ENCRYPTED_RE.test(value)) return value; // already encrypted
   return encrypt(value);
 }
 
