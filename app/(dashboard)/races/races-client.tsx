@@ -44,6 +44,7 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
   const [editRecord, setEditRecord] = useState<RaceRecord | null>(null);
   const [autoLinking, setAutoLinking] = useState(false);
   const [linkResult, setLinkResult] = useState<{ linked: number } | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const distances = useMemo(() => {
     const map = new Map<string, RaceRecord[]>();
@@ -95,7 +96,8 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
   }
 
   async function deleteRecord(id: string) {
-    if (!confirm("Radera detta resultat?")) return;
+    if (confirmDeleteId !== id) { setConfirmDeleteId(id); return; }
+    setConfirmDeleteId(null);
     await fetch(`/api/races/${id}`, { method: "DELETE" });
     setRecords(prev => prev.filter(r => r.id !== id));
   }
@@ -292,9 +294,22 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
                             <button onClick={() => setEditRecord(r)} className="p-1 rounded text-muted hover:text-primary transition">
                               <Edit2 size={13} />
                             </button>
-                            <button onClick={() => deleteRecord(r.id)} className="p-1 rounded text-muted hover:text-error transition">
-                              <Trash2 size={13} />
-                            </button>
+                            {confirmDeleteId === r.id ? (
+                              <div className="flex items-center gap-0.5">
+                                <button onClick={() => setConfirmDeleteId(null)}
+                                  className="px-1.5 py-0.5 rounded text-[10px] text-muted hover:bg-surface-2 transition">
+                                  Nej
+                                </button>
+                                <button onClick={() => deleteRecord(r.id)}
+                                  className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-error bg-error/10 hover:bg-error/20 transition">
+                                  Ja
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => deleteRecord(r.id)} className="p-1 rounded text-muted hover:text-error transition">
+                                <Trash2 size={13} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

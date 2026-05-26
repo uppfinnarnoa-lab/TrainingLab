@@ -35,6 +35,7 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
   const [sports, setSports] = useState(initial);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(initial.map(s => s.id)));
   const [saving, setSaving] = useState(false);
+  const [confirmDeleteSportId, setConfirmDeleteSportId] = useState<string | null>(null);
 
   // New sport form
   const [newSportName, setNewSportName]   = useState("");
@@ -62,7 +63,8 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
   }
 
   async function deleteSport(id: string) {
-    if (!confirm("Delete this sport and all its workout types?")) return;
+    if (confirmDeleteSportId !== id) { setConfirmDeleteSportId(id); return; }
+    setConfirmDeleteSportId(null);
     await fetch(`/api/sports?id=${id}&kind=sport`, { method: "DELETE" });
     setSports(prev => prev.filter(s => s.id !== id));
   }
@@ -112,12 +114,25 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
             <span className="font-semibold text-primary flex-1">{sport.name}</span>
             <span className="text-xs text-muted">{sport.workoutTypes.length} types</span>
             {!sport.isDefault && (
-              <button
-                onClick={e => { e.stopPropagation(); deleteSport(sport.id); }}
-                className="p-1 text-muted hover:text-error transition-colors"
-              >
-                <Trash2 size={14} />
-              </button>
+              confirmDeleteSportId === sport.id ? (
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => setConfirmDeleteSportId(null)}
+                    className="px-2 py-0.5 rounded text-xs text-muted hover:bg-surface-2 transition"
+                  >Avbryt</button>
+                  <button
+                    onClick={e => { e.stopPropagation(); deleteSport(sport.id); }}
+                    className="px-2 py-0.5 rounded text-xs font-semibold text-error bg-error/10 hover:bg-error/20 transition"
+                  >Radera</button>
+                </div>
+              ) : (
+                <button
+                  onClick={e => { e.stopPropagation(); deleteSport(sport.id); }}
+                  className="p-1 text-muted hover:text-error transition-colors"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )
             )}
             {expanded.has(sport.id) ? <ChevronDown size={15} className="text-muted" /> : <ChevronRight size={15} className="text-muted" />}
           </div>

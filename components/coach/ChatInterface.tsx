@@ -55,6 +55,7 @@ export function ChatInterface({
   const [totalSpend, setTotalSpend] = useState(currentSpend);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -182,7 +183,8 @@ export function ChatInterface({
   async function deleteConversation(id: string, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm("Radera denna chatt?")) return;
+    if (confirmDeleteId !== id) { setConfirmDeleteId(id); return; }
+    setConfirmDeleteId(null);
     setDeletingId(id);
     await fetch(`/api/coach/conversations/${id}`, { method: "DELETE" });
     setDeletingId(null);
@@ -263,16 +265,29 @@ export function ChatInterface({
                     {format(parseISO(c.updatedAt), "d MMM")} · {c.messageCount} msg
                   </p>
                 </a>
-                <button
-                  onClick={e => deleteConversation(c.id, e)}
-                  disabled={deletingId === c.id}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted/40 hover:text-error hover:bg-error/10 transition disabled:opacity-50"
-                  title="Radera chatt"
-                >
-                  {deletingId === c.id
-                    ? <Loader2 size={11} className="animate-spin" />
-                    : <Trash2 size={11} />}
-                </button>
+                {confirmDeleteId === c.id ? (
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    <button
+                      onClick={e => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(null); }}
+                      className="px-1.5 py-0.5 rounded text-[10px] text-muted hover:bg-surface-2 transition"
+                    >Nej</button>
+                    <button
+                      onClick={e => deleteConversation(c.id, e)}
+                      className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-error bg-error/10 hover:bg-error/20 transition"
+                    >Ja</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={e => deleteConversation(c.id, e)}
+                    disabled={deletingId === c.id}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted/40 hover:text-error hover:bg-error/10 transition disabled:opacity-50"
+                    title="Radera chatt"
+                  >
+                    {deletingId === c.id
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <Trash2 size={11} />}
+                  </button>
+                )}
               </div>
             ))}
             {conversations.length === 0 && (

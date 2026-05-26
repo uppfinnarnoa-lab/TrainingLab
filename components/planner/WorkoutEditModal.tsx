@@ -21,8 +21,9 @@ export function WorkoutEditModal({ workout, onClose, onSave, onDelete }: Props) 
   const [targetDistance, setDistance] = useState(
     workout.targetDistance ? String(workout.targetDistance / 1000) : ""
   );
-  const [saving, setSaving]   = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [deleting, setDeleting]   = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function handleSave() {
     if (!name.trim()) return;
@@ -39,7 +40,7 @@ export function WorkoutEditModal({ workout, onClose, onSave, onDelete }: Props) 
   }
 
   async function handleDelete() {
-    if (!confirm("Ta bort detta pass från planen?")) return;
+    if (!confirmDelete) { setConfirmDelete(true); return; }
     setDeleting(true);
     await onDelete(workout.id);
     setDeleting(false);
@@ -93,11 +94,25 @@ export function WorkoutEditModal({ workout, onClose, onSave, onDelete }: Props) 
           </div>
 
           <div className="flex items-center gap-2 pt-1">
-            <button onClick={handleDelete} disabled={deleting}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-sm text-muted hover:text-error hover:border-error/30 transition">
-              {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-              Ta bort
-            </button>
+            {!confirmDelete ? (
+              <button onClick={handleDelete} disabled={deleting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-sm text-muted hover:text-error hover:border-error/30 transition">
+                <Trash2 size={14} />
+                Ta bort
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setConfirmDelete(false)}
+                  className="px-3 py-2 rounded-xl border border-border text-sm text-muted hover:bg-surface-2 transition">
+                  Avbryt
+                </button>
+                <button onClick={handleDelete} disabled={deleting}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-error/30 bg-error/10 text-sm font-semibold text-error hover:bg-error/20 transition">
+                  {deleting && <Loader2 size={13} className="animate-spin" />}
+                  Bekräfta
+                </button>
+              </div>
+            )}
             <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-primary transition">
               Avbryt
             </button>
