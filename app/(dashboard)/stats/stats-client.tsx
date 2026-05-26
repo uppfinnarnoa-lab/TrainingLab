@@ -673,8 +673,7 @@ function ZoneCalibrationButton() {
           </p>
           <p>
             {result.lt1HR && result.lt2HR && <>LT1 {result.lt1HR} bpm · LT2 {result.lt2HR} bpm · </>}
-            metod: {result.zonesMethod ?? "—"}
-            {result.rSquared != null && <> · R² {result.rSquared.toFixed(2)}</>}
+            metod: {result.zonesMethod ?? "—"} · R² <span className={result.rSquared != null ? (result.rSquared >= 0.80 ? "text-accent" : "text-warning") : ""}>{result.rSquared != null ? result.rSquared.toFixed(2) : "n/a"}</span>
           </p>
           {result.insights && <p className="italic">{result.insights}</p>}
         </div>
