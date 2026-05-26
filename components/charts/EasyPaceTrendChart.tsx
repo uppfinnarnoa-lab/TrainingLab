@@ -138,13 +138,13 @@ export function EasyPaceTrendChart({ data }: Props) {
   const maxGap = Math.max(...allGaps) + 10;
   const improving = reg ? reg.b < 0 : false;
 
-  // Only show range options that have data
+  // Show a range option if any data falls within that window
   const availableRanges = RANGES.filter(r => {
     if (!r.months) return true;
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - r.months);
     const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}`;
-    return data.some(d => d.month <= cutoffStr);
+    return data.some(d => d.month >= cutoffStr);
   });
 
   return (
