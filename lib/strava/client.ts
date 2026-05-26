@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getCredentials } from "@/lib/config";
 import { generateOAuthState } from "@/lib/oauth-state";
+import { encrypt, safeDecrypt } from "@/lib/encrypt";
 
 const STRAVA_BASE = "https://www.strava.com/api/v3";
 const TOKEN_URL   = "https://www.strava.com/oauth/token";
@@ -42,7 +43,8 @@ export async function refreshStravaToken(userId: string) {
   ]);
   if (!account) throw new Error("No Strava account");
 
-  if (account.expiresAt > new Date(Date.now() + 60_000)) return account.accessToken;
+  if (account.expiresAt > new Date(Date.now() + 60_000))
+    return safeDecrypt(account.accessToken) ?? account.accessToken;
 
   const res = await fetch(TOKEN_URL, {
     method: "POST",
@@ -50,7 +52,7 @@ export async function refreshStravaToken(userId: string) {
     body: JSON.stringify({
       client_id:     creds.stravaClientId,
       client_secret: creds.stravaClientSecret,
-      refresh_token: account.refreshToken,
+      refresh_token: safeDecrypt(account.refreshToken) ?? account.refreshToken,
       grant_type:    "refresh_token",
     }),
   });
@@ -60,8 +62,8 @@ export async function refreshStravaToken(userId: string) {
   await prisma.stravaAccount.update({
     where: { userId },
     data: {
-      accessToken:  data.access_token,
-      refreshToken: data.refresh_token,
+      accessToken:  encrypt(data.access_token),
+      refreshToken: encrypt(data.refresh_token),
       expiresAt:    new Date(data.expires_at * 1000),
     },
   });

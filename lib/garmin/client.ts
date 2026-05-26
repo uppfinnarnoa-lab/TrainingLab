@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { getCredentials } from "@/lib/config";
 import { generateOAuthState } from "@/lib/oauth-state";
+import { encrypt, safeDecrypt } from "@/lib/encrypt";
 
 const GARMIN_TOKEN_URL = "https://connectapi.garmin.com/oauth-service/oauth/token";
 const GARMIN_BASE      = "https://apis.garmin.com/wellness-api/rest";
@@ -37,22 +38,27 @@ async function refreshGarminToken(userId: string): Promise<string> {
     getCredentials(userId),
   ]);
   if (!account) throw new Error("No Garmin account");
-  if (account.expiresAt > new Date(Date.now() + 60_000)) return account.accessToken;
+  if (account.expiresAt > new Date(Date.now() + 60_000))
+    return safeDecrypt(account.accessToken) ?? account.accessToken;
 
   const credentials = Buffer.from(`${creds.garminClientId}:${creds.garminClientSecret}`).toString("base64");
   const res = await fetch(GARMIN_TOKEN_URL, {
     method: "POST",
     headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: account.refreshToken }),
+    body: new URLSearchParams({
+      grant_type:    "refresh_token",
+      refresh_token: safeDecrypt(account.refreshToken) ?? account.refreshToken,
+    }),
   });
   if (!res.ok) throw new Error(`Garmin token refresh failed: ${res.status}`);
   const data = await res.json();
 
+  const newRefresh = data.refresh_token ?? account.refreshToken;
   await prisma.garminAccount.update({
     where: { userId },
     data: {
-      accessToken:  data.access_token,
-      refreshToken: data.refresh_token ?? account.refreshToken,
+      accessToken:  encrypt(data.access_token),
+      refreshToken: encrypt(safeDecrypt(newRefresh) ?? newRefresh),
       expiresAt:    new Date(Date.now() + data.expires_in * 1000),
     },
   });

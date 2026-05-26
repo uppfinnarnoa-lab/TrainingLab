@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options",           value: "SAMEORIGIN" },
           { key: "Referrer-Policy",           value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy",        value: "camera=(), microphone=(), geolocation=()" },
-          { key: "Content-Security-Policy",   value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.anthropic.com https://generativelanguage.googleapis.com; frame-ancestors 'none';" },
+          { key: "Content-Security-Policy",   value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.anthropic.com https://generativelanguage.googleapis.com; frame-ancestors 'none';" },
         ],
       },
     ];

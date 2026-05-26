@@ -4,6 +4,7 @@ import { exchangeStravaCode } from "@/lib/strava/client";
 import { prisma } from "@/lib/db/prisma";
 import { invalidateCredentialsCache } from "@/lib/config";
 import { verifyOAuthState } from "@/lib/oauth-state";
+import { encrypt } from "@/lib/encrypt";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -23,19 +24,22 @@ export async function GET(req: NextRequest) {
   try {
     const data = await exchangeStravaCode(session.user.id, code, redirectUri);
 
+    const encAccess  = encrypt(data.access_token);
+    const encRefresh = encrypt(data.refresh_token);
+
     await prisma.stravaAccount.upsert({
       where:  { userId: session.user.id },
       create: {
         userId:       session.user.id,
         athleteId:    BigInt(data.athlete.id),
-        accessToken:  data.access_token,
-        refreshToken: data.refresh_token,
+        accessToken:  encAccess,
+        refreshToken: encRefresh,
         expiresAt:    new Date(data.expires_at * 1000),
         scope:        data.scope ?? "read,activity:read_all",
       },
       update: {
-        accessToken:  data.access_token,
-        refreshToken: data.refresh_token,
+        accessToken:  encAccess,
+        refreshToken: encRefresh,
         expiresAt:    new Date(data.expires_at * 1000),
       },
     });

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { exchangeGarminCode } from "@/lib/garmin/client";
 import { prisma } from "@/lib/db/prisma";
 import { verifyOAuthState } from "@/lib/oauth-state";
+import { encrypt } from "@/lib/encrypt";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -21,17 +22,20 @@ export async function GET(req: NextRequest) {
   try {
     const data = await exchangeGarminCode(session.user.id, code, redirectUri);
 
+    const encAccess  = encrypt(data.access_token);
+    const encRefresh = encrypt(data.refresh_token);
+
     await prisma.garminAccount.upsert({
       where:  { userId: session.user.id },
       create: {
         userId:       session.user.id,
-        accessToken:  data.access_token,
-        refreshToken: data.refresh_token,
+        accessToken:  encAccess,
+        refreshToken: encRefresh,
         expiresAt:    new Date(Date.now() + data.expires_in * 1000),
       },
       update: {
-        accessToken:  data.access_token,
-        refreshToken: data.refresh_token,
+        accessToken:  encAccess,
+        refreshToken: encRefresh,
         expiresAt:    new Date(Date.now() + data.expires_in * 1000),
       },
     });
