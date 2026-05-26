@@ -1605,7 +1605,7 @@ GOOGLE_AI_API_KEY=""
 - `races-client.tsx`: ExternalLink icon added to PB card when `stravaActivityId` is set; auto-link button and per-row unlink button added
 - `docs/fitness/hr_zones_current.md`: moved from `docs/planning/` to `docs/fitness/`
 
-**Session 2026-05-26:**
+**Session 2026-05-26 (part 1 — fitness + polish):**
 - `settings/account-actions.tsx`: new Account section at bottom of settings — Log out + Delete account with two-step confirm
 - `api/settings/account/route.ts`: `DELETE` endpoint — `prisma.user.delete` with cascade
 - `TrainingLoadChart.tsx`: added 3M/6M/1Y/2Y time range selector; data window extended to 730 days
@@ -1618,6 +1618,21 @@ GOOGLE_AI_API_KEY=""
 - `vo2max.ts`: removed Cooper model (duplicate of Uth-Sørensen); removed HR-pace regression from weighted estimate (unreliable due to warm-up/cool-down noise); added Volume-adjusted Riegel as Model 4 — exponent d = clamp(1.18 − 0.0015 × avgWeeklyKm, 1.05, 1.18), projects best PB to predicted 10K then computes VDOT; fixed "Decay bridge" capitalisation
 - `vo2max.ts`: VDOT base weight reduced (0.35→0.28 with current signals, 0.55→0.45 without); PB age-decay added — factor 1.0 at ≤90 days, linear decay to 0.35 at 540+ days, so stale PBs cannot dominate over TSB/HR/Riegel signals
 - `stats/page.tsx` + `cache.ts`: compute `avgWeeklyRunKm` (8-week rolling window, run/trail only) and pass as 6th arg to `estimateVO2max`
+
+**Session 2026-05-26 (part 2 — 5-feature sprint):**
+- `app/layout.tsx`: added `viewport` export (`width=device-width, initialScale=1`) for correct mobile scaling — separate from `Metadata` as required by Next.js 15
+- `app/(dashboard)/dashboard/page.tsx`: `aggSince()` gains optional `until` param; added `runLyYtd` query (same sport, same day-of-year last year); computed `onPaceKm = (ytdKm / dayOfYear) × 365` and `lyYtdKm`; both passed to `DashboardCards` via `run` prop
+- `app/(dashboard)/dashboard/dashboard-cards.tsx`: `StatCard` gains optional `onPace` and `lyYtd` string props shown as sub-labels under the YTD card value
+- `prisma/schema.prisma`: added `startLat Float?` and `startLng Float?` to `Activity`; applied via `prisma db push` (migrate dev would reset due to schema drift)
+- `lib/strava/sync.ts`: `mapActivity()` now extracts `startLat`/`startLng` from Strava `start_latlng` array; `syncActivities()` fires weather fetch after upsert (fire-and-forget); new `syncSingleActivity(userId, stravaActivityId)` fetches one activity from Strava and upserts+weather; new `deleteStravaActivity(userId, stravaActivityId)` deletes by userId+stravaId
+- `lib/weather/open-meteo.ts`: NEW — `fetchHistoricalWeather(lat, lng, dateUtc)` calls Open-Meteo archive API (`archive-api.open-meteo.com/v1/archive`), picks hourly index closest to activity start hour, returns `WeatherSnapshot { tempC, windKph, precipMm, weatherCode, condition }`; `fetchAndSaveWeather(activityId, lat, lng, dateUtc)` fetches and persists to DB; no API key required
+- `app/api/strava/webhook/route.ts`: NEW — `GET` verifies Strava hub challenge (`hub.mode=subscribe` + `hub.verify_token` env var check); `POST` receives activity events, looks up user by `StravaAccount.athleteId`, dispatches `create`/`update` to `syncSingleActivity` or `delete` to `deleteStravaActivity` (fire-and-forget); requires `STRAVA_WEBHOOK_VERIFY_TOKEN` env var; see `docs/api/strava.md` for activation steps
+- `app/api/strava/backfill-weather/route.ts`: NEW — `POST`, auth-required; fetches up to 200 activities with `weatherTemp: null` and non-null coords; calls `fetchAndSaveWeather` with 300ms throttle; returns `{ processed, updated, skipped }`
+- `app/(dashboard)/activities/[id]/page.tsx`: added `workoutType` to Prisma select; renders `<WorkoutAnalysis>` conditionally for `workoutType === 3` (Strava "workout" type — intervals/tempo)
+- `app/(dashboard)/activities/[id]/workout-analysis.tsx`: NEW client component; `computeRating(splits, activity)` returns `{ score: 1-5, intensityIndex, consistencyPct, hrResponsePct, bullets }`; intensity index = `meanLapSpeed / overallSpeed`; consistency = `1 - stddev(speeds)/mean*5` clamped 0–100; `StarRating` uses lucide `Star` with fill-warning; "Analyze with AI" button streams from `/api/activities/[id]/analyze`; shows AI prose below rating
+- `app/api/activities/[id]/analyze/route.ts`: NEW streaming endpoint — `POST`, auth-required, validates `workoutType === 3`; fetches activity + fitnessCache + aiSettings; builds compact prompt with lap breakdown, TSB, VDOT, weather; streams via Claude Haiku (`claude-haiku-4-5-20251001`) or Gemini Flash (`gemini-2.0-flash-lite`); returns `text/plain; charset=utf-8` `ReadableStream`; see `docs/api/activities.md`
+- `app/(dashboard)/stats/page.tsx`: new `computeWeatherStats(acts)` — temp bands (<5, 5–10, 10–15, 15–20, >20°C) and wind bands (Calm <10, Light 10–20, Moderate 20–30, Strong >30 km/h); per band: count + avg pace sec/km; runs across all time (no date limit); result passed to client as `weatherStats: WeatherStats | null`
+- `app/(dashboard)/stats/stats-client.tsx`: `WeatherProfileCard` renders two bar sections (byTemp, byWind); bar width relative to session count; pace color-coded (accent = fastest, error = 15+ s/km slower); wrapped in `<>...</>` fragment alongside analytics grid to support multiple JSX roots inside `{analytics && (}`
 
 **VO2max weighted model configuration (as of 2026-05-26):**
 | Model | With TSB+HR signals | No current signals |
@@ -1633,10 +1648,11 @@ Age-decay: ≤90d → factor 1.0, 540+d → factor 0.35, linear between. All wei
 
 ### Documentation Written
 - `docs/api/auth.md` — auth + settings endpoints
-- `docs/api/strava.md` — sync endpoint
+- `docs/api/strava.md` — sync + webhook endpoints
 - `docs/api/planner.md` — workouts, templates, sports CRUD
 - `docs/api/coach.md` — streaming chat, context strategy, plan-action spec
 - `docs/api/races.md` — race records CRUD
+- `docs/api/activities.md` — activity analyze streaming endpoint + backfill-weather
 - `docs/schemas/ai-context.md` — full spec of what gets sent to AI
 - `TESTING_GUIDE.md` — step-by-step local setup and feature testing checklist
 
@@ -1721,14 +1737,14 @@ Every internal API endpoint and cross-module function that crosses a boundary (H
 ## 12. Open Questions / Future Ideas
 
 - **Garmin / Polar integration** — alternative to Strava for raw data
-- **Strava webhook** — real-time sync instead of polling (requires public URL, already have it)
+- **Strava webhook activation** — implemented; needs `STRAVA_WEBHOOK_VERIFY_TOKEN` env var + registration via Strava API once deployed to public domain
 - **Export** — PDF training report, CSV data export
 - **Notifications** — daily training summary email, recovery alerts
-- **Mobile** — PWA wrapper or React Native in future
+- **Mobile** — PWA wrapper or React Native in future; viewport meta tag added, further responsive audit deferred
 - **Multi-user** — just enable registration + add user isolation middleware
-- **Interval analysis** — detect and parse structured workouts automatically from GPS data
-- **Weather data** — correlate performance with conditions
+- **Drag-and-drop planner** — template library → calendar day (using @dnd-kit, deferred)
+- **Activity → Planned workout auto-matching** — deferred
 
 ---
 
-*Last updated: 2026-05-26 (vo2max model reweight + PB age-decay)*
+*Last updated: 2026-05-26 (5-feature sprint: mobile viewport, webhook, interval analysis, weather stats, on-pace dashboard)*

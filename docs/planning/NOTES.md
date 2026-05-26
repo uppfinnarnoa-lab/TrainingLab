@@ -17,5 +17,3 @@ _Datum-format: ÅÅÅÅ-MM-DD. En rad per post. Flytta till archive när löst._
 ---
 
 ## Övrigt
-
-<!-- lösa tankar, hypoteser, saker att kolla upp -->
