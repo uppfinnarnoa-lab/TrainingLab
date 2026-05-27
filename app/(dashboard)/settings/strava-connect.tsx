@@ -78,7 +78,13 @@ export function StravaConnectSection({
     setBackfillStatus("Connecting...");
     setBackfillProgress(null);
     try {
-      const res = await fetch("/api/strava/backfill-history", { method: "POST" });
+      let res: Response;
+      try {
+        res = await fetch("/api/strava/backfill-history", { method: "POST" });
+      } catch {
+        setBackfillStatus("Error — could not connect to server");
+        return;
+      }
       if (!res.ok || !res.body) { setBackfillStatus("Error — check console"); return; }
 
       const reader = res.body.getReader();
@@ -128,7 +134,13 @@ export function StravaConnectSection({
     setWeatherStatus("Connecting...");
     setWeatherProgress(null);
     try {
-      const res = await fetch("/api/strava/backfill-weather", { method: "POST" });
+      let res: Response;
+      try {
+        res = await fetch("/api/strava/backfill-weather", { method: "POST" });
+      } catch {
+        setWeatherStatus("Error — could not connect to server");
+        return;
+      }
       if (!res.ok || !res.body) { setWeatherStatus("Error — check console"); return; }
 
       const reader = res.body.getReader();
@@ -155,7 +167,7 @@ export function StravaConnectSection({
             }
             if (d.type === "done") {
               setWeatherStatus(`✓ Done — ${d.done} activities updated${d.errors > 0 ? `, ${d.errors} skipped` : ""}.`);
-              setWeatherProgress({ done: d.done, total: d.total });
+              setWeatherProgress({ done: d.total, total: d.total });
             }
             if (d.type === "error") setWeatherStatus(`Error: ${d.message}`);
           } catch { /* skip malformed */ }
