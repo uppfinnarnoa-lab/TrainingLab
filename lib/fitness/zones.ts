@@ -367,13 +367,7 @@ export function estimateZonesFromStatisticalAnalysis(
 
   if (points.length < 40) return null;
 
-  // ── 2. Freedman-Diaconis bin width ─────────────────────────────────────
-  const paces = points.map(p => p.gap).sort((a, b) => a - b);
-  const n = paces.length;
-  const q1 = paces[Math.floor(n * 0.25)];
-  const q3 = paces[Math.floor(n * 0.75)];
-  const iqr = q3 - q1;
-  const binWidth = Math.max(12, Math.min(30, Math.round(2 * iqr * Math.pow(n, -1 / 3))));
+  const binWidth = 15; // fixed 15 s/km bins: ~13 buckets in 200–391 range, better LT resolution than adaptive FD
 
   // ── 3. Build buckets with weighted median HR ────────────────────────────
   const bucketMap = new Map<number, Array<{ hr: number; w: number }>>();
