@@ -131,7 +131,7 @@ cd /var/www/traininglab
 ## 5. Environment Variables
 
 ```bash
-cp .env.example /var/www/traininglab/.env.local
+cp deployment/env.example /var/www/traininglab/.env.local
 nano /var/www/traininglab/.env.local
 ```
 
@@ -254,9 +254,17 @@ sudo systemctl reload nginx
 
 ## 11. Updates (after first deploy)
 
-```bash
-# From your Windows machine:
-ssh user@training.helgars.se "/var/www/traininglab/deployment/deploy.sh"
+> **Use SSH keys, never passwords in scripts.** Set up key-based auth:
+> ```bash
+> # On Windows (PowerShell):
+> ssh-keygen -t ed25519 -C "windows-deploy"
+> type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh noa@training.helgars.se "cat >> ~/.ssh/authorized_keys"
+> ```
+> Then deploy without any password:
+
+```powershell
+# From Windows:
+ssh noa@training.helgars.se "/var/www/traininglab/deployment/deploy.sh"
 ```
 
 Or on the server directly:
@@ -294,7 +302,55 @@ sudo certbot renew --dry-run           # test renewal manually
 
 ---
 
-## 14. Useful Commands
+## 14. First-Run App Setup
+
+After the server is up and you can reach https://training.helgars.se:
+
+```
+[ ] Log in as admin user (created by seed script)
+[ ] Settings → Change your password
+[ ] Settings → Strava → enter Client ID + Secret → Save
+[ ] Settings → Strava → Connect with Strava → authorize
+[ ] Settings → Strava → Sync new activities
+[ ] Settings → Strava → Backfill all historical activities (auto-resumes nightly)
+[ ] Settings → Strava → Backfill weather data
+[ ] Settings → Profile → fill in name, weight, height, experience
+[ ] Settings → HR Zones → enter max HR and resting HR
+[ ] Settings → Sports → verify/add sport types and workout types
+[ ] Settings → AI Coach → enter Anthropic or Google API key → test in Coach tab
+[ ] Stats page loads with data
+[ ] Dashboard shows recent activities
+```
+
+---
+
+## 15. Database Backup
+
+```bash
+# Manual dump
+pg_dump -U traininglab traininglab | gzip > ~/traininglab-$(date +%F).sql.gz
+
+# Automated daily at 02:00 — add to crontab (crontab -e):
+0 2 * * * pg_dump -U traininglab traininglab | gzip > /var/backups/traininglab-$(date +\%F).sql.gz
+```
+
+---
+
+## 16. Rollback
+
+```bash
+cd /var/www/traininglab
+git log --oneline -10
+git checkout <commit-hash>
+pnpm exec next build --no-lint
+pm2 reload traininglab
+```
+
+For DB rollback: restore from backup — never use `prisma migrate reset` in production.
+
+---
+
+## 17. Useful Commands
 
 ```bash
 pm2 restart traininglab

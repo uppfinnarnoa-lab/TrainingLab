@@ -1,35 +1,36 @@
-#!/bin/bash
-# TrainingLab deploy script — runs on the Ubuntu server
-# Usage: ./deployment/deploy.sh
-# Remote: ssh user@server "/var/www/traininglab/deployment/deploy.sh"
+#!/usr/bin/env bash
+# TrainingLab — Production deploy/update script
+# Run on the server to pull latest code and restart the app.
+#
+# Usage:
+#   chmod +x /var/www/traininglab/deployment/deploy.sh   # once, after first deploy
+#   /var/www/traininglab/deployment/deploy.sh
+#
+# From Windows (SSH key, no password):
+#   ssh noa@training.helgars.se "/var/www/traininglab/deployment/deploy.sh"
 
-set -e
+set -euo pipefail
 
 # Project root is one level up from this script
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="$APP_DIR/deploy.log"
+PM2_APP="traininglab"
 
-log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
-
-log "=== Deploy started ==="
+echo "▶ TrainingLab deploy — $(date '+%Y-%m-%d %H:%M:%S')"
 cd "$APP_DIR"
 
-log "[1/6] Pulling from git..."
-git pull origin main
+echo "→ Pulling latest code..."
+git pull --ff-only
 
-log "[2/6] Installing dependencies..."
-pnpm install --frozen-lockfile
+echo "→ Installing dependencies..."
+pnpm install --frozen-lockfile --prod=false
 
-log "[3/6] Generating Prisma client..."
-pnpm prisma generate
+echo "→ Running database migrations..."
+pnpm exec prisma migrate deploy
 
-log "[4/6] Running DB migrations..."
-pnpm prisma migrate deploy
-
-log "[5/6] Building Next.js..."
+echo "→ Building app..."
 pnpm exec next build --no-lint
 
-log "[6/6] Reloading PM2 (zero-downtime)..."
-pm2 reload traininglab || pm2 start deployment/ecosystem.config.js
+echo "→ Reloading PM2..."
+pm2 reload "$PM2_APP" --update-env || pm2 start deployment/ecosystem.config.js
 
-log "=== Deploy complete ==="
+echo "✓ Deploy complete"
