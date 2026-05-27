@@ -21,6 +21,62 @@ grep -r "ssl_certificate" /etc/nginx/sites-enabled/
 
 ---
 
+## ⚠ 1b. Fix Cert Renewal Before Deploying
+
+**The wildcard cert expires in ~19 days (15 June 2026). Sort this out first.**
+
+### Step A — Check if auto-renewal works at all
+
+```bash
+sudo certbot renew --dry-run
+```
+
+- If it says **"Congratulations, all renewals succeeded"** → auto-renewal works, nothing to do.
+- If it says **"Challenge failed"** or similar error → continue to Step B.
+
+### Step B — Find out what DNS challenge method is used
+
+Wildcard certs (`*.helgars.se`) require DNS-01 challenge — certbot must create a TXT record
+`_acme-challenge.helgars.se` in DNS to prove you own the domain.
+
+Check what certbot is configured to do:
+```bash
+sudo cat /etc/letsencrypt/renewal/helgars.se.conf
+# (folder name may differ — check: ls /etc/letsencrypt/renewal/)
+```
+
+Look for the `authenticator =` line:
+- `authenticator = dns-...` → certbot has a DNS plugin configured, should work automatically
+- `authenticator = manual` → renewal requires manual action (see Step C)
+- `authenticator = standalone` or `webroot` → this won't work for wildcards, cert was likely obtained manually
+
+### Step C — If renewal is manual or broken: check FortDDNS
+
+The key question is: **who controls the authoritative DNS for `helgars.se`?**
+
+```bash
+dig NS helgars.se
+```
+
+- **If the nameservers belong to your domain registrar** (e.g. Loopia, One.com): FortDDNS only
+  updates the A record, not the nameservers. Cert renewal needs a plugin for that registrar,
+  or a manual DNS edit at the registrar each time.
+- **If the nameservers belong to FortDDNS**: FortDDNS controls DNS entirely. Check if FortDDNS
+  has an API — if yes, there may be a certbot plugin for it. Contact FortDDNS support to ask
+  how other users handle Let's Encrypt wildcard cert renewal.
+
+### Step D — Worst case: manual renewal (once per 90 days)
+
+If no automatic method is available, renew manually:
+```bash
+sudo certbot certonly --manual --preferred-challenges dns -d "*.helgars.se"
+```
+Certbot prints a TXT value to add as `_acme-challenge.helgars.se` in DNS.
+Add it at your registrar or FortDDNS panel, wait a minute, then press Enter.
+Set a calendar reminder for 60 days from now so you don't forget.
+
+---
+
 ## 2. System Packages
 
 ```bash
