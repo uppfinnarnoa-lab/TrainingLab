@@ -1,51 +1,49 @@
-# TrainingLab — Deployment Guide (Ubuntu + Apache)
+# TrainingLab — Deployment Guide (Ubuntu + nginx)
 
-> **Target:** Ubuntu 22.04 LTS · Apache · PM2 · PostgreSQL · Let's Encrypt  
-> **Domain example:** `trainer.yourdomain.com` (replace throughout)
+> **Target:** Ubuntu 22.04 LTS · nginx · PM2 · PostgreSQL · Let's Encrypt wildcard cert  
+> **Domain:** `training.helgars.se` — existing `*.helgars.se` cert reused from `theodal.helgars.se`
 
 ---
 
-## 1. Initial Server Setup
+## 1. Prerequisites (already in place)
 
-### 1.1 System packages
+The following are already configured on the server — no action needed:
+
+- nginx running with `theodal.helgars.se`
+- Wildcard cert `*.helgars.se` (Let's Encrypt, auto-renewing via certbot)
+- DNS A record `training.helgars.se` → server IP
+- Port 443 forwarded to this server
+
+Find the existing cert path (needed for Step 6):
+```bash
+grep -r "ssl_certificate" /etc/nginx/sites-enabled/
+```
+
+---
+
+## 2. System Packages
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y git curl wget unzip apache2 certbot python3-certbot-apache
-```
 
-### 1.2 Node.js 20 (via NodeSource)
-
-```bash
+# Node.js 20
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
-node --version  # should be v20.x
-```
+node --version   # should be v20.x
 
-### 1.3 pnpm
+# pnpm + PM2
+sudo npm install -g pnpm pm2
 
-```bash
-npm install -g pnpm
-pnpm --version
-```
-
-### 1.4 PM2 (process manager)
-
-```bash
-npm install -g pm2
-pm2 startup  # run the command it outputs (adds PM2 to systemd)
+# PostgreSQL
+sudo apt install -y postgresql postgresql-contrib
+sudo systemctl enable postgresql
 ```
 
 ---
 
-## 2. PostgreSQL
+## 3. PostgreSQL
 
 ```bash
-sudo apt install -y postgresql postgresql-contrib
-sudo systemctl enable postgresql
-sudo systemctl start postgresql
-
-# Create DB and user
 sudo -u postgres psql <<'SQL'
 CREATE DATABASE traininglab;
 CREATE USER traininglab WITH PASSWORD 'CHOOSE_A_STRONG_PASSWORD';
@@ -54,50 +52,48 @@ ALTER DATABASE traininglab OWNER TO traininglab;
 SQL
 ```
 
-Test connection:
+Test:
 ```bash
 psql -U traininglab -h localhost -d traininglab
 ```
 
 ---
 
-## 3. Clone the Repository
+## 4. Clone the Repository
 
 ```bash
-# Create app directory
 sudo mkdir -p /var/www/traininglab
 sudo chown $USER:$USER /var/www/traininglab
 
-# Clone
+# Add server SSH key to GitHub first:
+ssh-keygen -t ed25519 -C "server@traininglab"
+cat ~/.ssh/id_ed25519.pub   # paste into GitHub → Settings → SSH Keys
+
 git clone git@github.com:uppfinnarnoa-lab/TrainingLab.git /var/www/traininglab
 cd /var/www/traininglab
 ```
 
-> **SSH key:** Add the server's public key (`~/.ssh/id_ed25519.pub`) to GitHub → Settings → SSH Keys.
-> Generate with: `ssh-keygen -t ed25519 -C "server@traininglab"`
-
 ---
 
-## 4. Environment Variables
+## 5. Environment Variables
 
 ```bash
 cp .env.example /var/www/traininglab/.env.local
 nano /var/www/traininglab/.env.local
 ```
 
-Fill in all values:
-
 ```env
 # Database
 DATABASE_URL="postgresql://traininglab:YOUR_PASSWORD@localhost:5432/traininglab"
 
 # NextAuth
-AUTH_SECRET="generate with: openssl rand -base64 32"
-NEXTAUTH_URL="https://trainer.yourdomain.com"
+AUTH_SECRET="run: openssl rand -base64 32"
+NEXTAUTH_URL="https://training.helgars.se"
 
 # Strava (from https://www.strava.com/settings/api)
 STRAVA_CLIENT_ID="your_client_id"
 STRAVA_CLIENT_SECRET="your_client_secret"
+STRAVA_REDIRECT_URI="https://training.helgars.se/api/strava/callback"
 
 # AI (optional — users can also enter via Settings UI)
 ANTHROPIC_API_KEY=""
@@ -106,34 +102,23 @@ GOOGLE_AI_API_KEY=""
 
 ---
 
-## 5. First Deploy
+## 6. First Deploy
 
 ```bash
 cd /var/www/traininglab
 
-# Install dependencies
 pnpm install --frozen-lockfile
-
-# Generate Prisma client
 pnpm prisma generate
-
-# Run database migrations
 pnpm prisma migrate deploy
-
-# Seed first user (run once)
-pnpm tsx scripts/seed-user.ts
-
-# Build
+pnpm tsx scripts/seed-user.ts    # creates admin user — run once only
 pnpm build
-
-# Start with PM2
-pm2 start ecosystem.config.js
-pm2 save  # persist across reboots
 ```
 
-### ecosystem.config.js (already in repo)
+---
 
-If it doesn't exist, create it:
+## 7. PM2
+
+`ecosystem.config.js` is already in the repo. If missing, create it:
 
 ```js
 module.exports = {
@@ -151,89 +136,92 @@ module.exports = {
 };
 ```
 
----
-
-## 6. Apache Reverse Proxy
-
-### Enable required modules
-
 ```bash
-sudo a2enmod proxy proxy_http proxy_wstunnel headers rewrite ssl
-sudo systemctl restart apache2
-```
-
-### Create virtual host
-
-```bash
-sudo nano /etc/apache2/sites-available/traininglab.conf
-```
-
-```apache
-<VirtualHost *:80>
-  ServerName trainer.yourdomain.com
-  # Redirect all HTTP → HTTPS (Let's Encrypt fills this in automatically)
-  RewriteEngine On
-  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-</VirtualHost>
-
-<VirtualHost *:443>
-  ServerName trainer.yourdomain.com
-
-  # SSL — filled in by certbot
-  SSLEngine on
-  SSLCertificateFile    /etc/letsencrypt/live/trainer.yourdomain.com/fullchain.pem
-  SSLCertificateKeyFile /etc/letsencrypt/live/trainer.yourdomain.com/privkey.pem
-
-  # Proxy all traffic to Next.js
-  ProxyPreserveHost On
-  ProxyPass        / http://localhost:3000/
-  ProxyPassReverse / http://localhost:3000/
-
-  # Required for streaming SSE (AI coach responses)
-  ProxyPass        /api/coach/chat http://localhost:3000/api/coach/chat
-  ProxyPassReverse /api/coach/chat http://localhost:3000/api/coach/chat
-  SetEnv proxy-sendchunked 1
-
-  # Security headers
-  Header always set X-Frame-Options "SAMEORIGIN"
-  Header always set X-Content-Type-Options "nosniff"
-</VirtualHost>
-```
-
-```bash
-sudo a2ensite traininglab.conf
-sudo a2dissite 000-default.conf
-sudo apache2ctl configtest  # should say "Syntax OK"
-sudo systemctl reload apache2
-```
-
-### SSL with Let's Encrypt
-
-```bash
-sudo certbot --apache -d trainer.yourdomain.com
-# Follow the prompts — certbot auto-fills the SSL section above
-```
-
-Auto-renewal (runs twice daily via systemd):
-```bash
-sudo systemctl status certbot.timer  # should be active
-# Test renewal manually:
-sudo certbot renew --dry-run
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup   # run the sudo command it prints
 ```
 
 ---
 
-## 7. Deploy Script
+## 8. nginx Server Block
 
-Save this as `/var/www/traininglab/deploy.sh` and make it executable:
+Create `/etc/nginx/sites-available/traininglab.conf`.
+**Replace the cert paths** with whatever `grep ssl_certificate` showed in Step 1.
 
-```bash
-chmod +x /var/www/traininglab/deploy.sh
+```nginx
+server {
+    listen 443 ssl;
+    server_name training.helgars.se;
+
+    # Reuse existing wildcard cert (same as theodal.helgars.se)
+    ssl_certificate     /etc/letsencrypt/live/helgars.se/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/helgars.se/privkey.pem;
+
+    # SSE streaming — buffering must be disabled for these endpoints
+    location ~ ^/api/(coach/chat|strava/backfill-history|strava/backfill-weather) {
+        proxy_pass          http://localhost:3000;
+        proxy_http_version  1.1;
+        proxy_buffering     off;
+        proxy_cache         off;
+        proxy_set_header    Connection '';
+        proxy_set_header    Host $host;
+        proxy_read_timeout  3600s;
+    }
+
+    # Everything else
+    location / {
+        proxy_pass          http://localhost:3000;
+        proxy_http_version  1.1;
+        proxy_set_header    Upgrade $http_upgrade;
+        proxy_set_header    Connection 'upgrade';
+        proxy_set_header    Host $host;
+        proxy_cache_bypass  $http_upgrade;
+    }
+}
 ```
+
+Enable and reload:
+```bash
+sudo ln -s /etc/nginx/sites-available/traininglab.conf /etc/nginx/sites-enabled/
+sudo nginx -t                   # must say "syntax is ok"
+sudo systemctl reload nginx
+```
+
+---
+
+## 9. Strava OAuth
+
+1. Go to [strava.com/settings/api](https://www.strava.com/settings/api)
+2. Set **Authorization Callback Domain** to: `training.helgars.se`
+3. Open the app → Settings → enter Client ID + Client Secret → Save
+
+---
+
+## 10. Post-Deploy Checklist
+
+```
+[ ] https://training.helgars.se — padlock green, no browser warning
+[ ] Log in as admin user
+[ ] Settings → Strava Client ID + Secret → Save
+[ ] Settings → Connect with Strava → authorize
+[ ] Settings → Sync new activities → confirm count
+[ ] Settings → Backfill all historical activities
+      (runs until Strava daily limit, auto-resumes nightly 00:30 UTC)
+[ ] Settings → Backfill weather data
+[ ] Stats page loads with data
+[ ] PM2 survives reboot: sudo reboot → pm2 list
+```
+
+---
+
+## 11. Deploy Script
+
+Save as `/var/www/traininglab/deploy.sh` and `chmod +x`:
 
 ```bash
 #!/bin/bash
-set -e  # exit on any error
+set -e
 
 APP_DIR="/var/www/traininglab"
 LOG="$APP_DIR/deploy.log"
@@ -241,141 +229,79 @@ LOG="$APP_DIR/deploy.log"
 echo "=== Deploy started: $(date) ===" | tee -a "$LOG"
 cd "$APP_DIR"
 
-# 1. Pull latest code
-echo "[1/5] Pulling from git..." | tee -a "$LOG"
+echo "[1/5] Pulling..." | tee -a "$LOG"
 git pull origin main 2>&1 | tee -a "$LOG"
 
-# 2. Install/update dependencies
 echo "[2/5] Installing dependencies..." | tee -a "$LOG"
 pnpm install --frozen-lockfile 2>&1 | tee -a "$LOG"
 
-# 3. Generate Prisma client (picks up schema changes)
 echo "[3/5] Generating Prisma client..." | tee -a "$LOG"
 pnpm prisma generate 2>&1 | tee -a "$LOG"
 
-# 4. Run any pending DB migrations
 echo "[4/5] Running DB migrations..." | tee -a "$LOG"
 pnpm prisma migrate deploy 2>&1 | tee -a "$LOG"
 
-# 5. Build
-echo "[5/5] Building Next.js..." | tee -a "$LOG"
+echo "[5/5] Building..." | tee -a "$LOG"
 pnpm build 2>&1 | tee -a "$LOG"
 
-# 6. Reload PM2 (zero-downtime reload)
 echo "[6/6] Reloading PM2..." | tee -a "$LOG"
 pm2 reload traininglab 2>&1 | tee -a "$LOG"
 
 echo "=== Deploy complete: $(date) ===" | tee -a "$LOG"
 ```
 
-### Usage
-
-```bash
-# From your dev machine (push first):
-git push origin main
-
-# On the server — run deploy:
-ssh user@yourserver.com "cd /var/www/traininglab && ./deploy.sh"
-
-# Or with a one-liner from your dev machine:
-ssh user@yourserver.com "/var/www/traininglab/deploy.sh"
-```
-
----
-
-## 8. Optional: SSH Alias (run deploy from dev machine in one command)
-
-Add to `~/.ssh/config` on your local machine:
-
-```
-Host traininglab
-  HostName yourserver.com
-  User ubuntu
-  IdentityFile ~/.ssh/your_key
-```
-
-Then deploy from your Windows machine:
-
+Run from your Windows machine:
 ```powershell
-# From PowerShell or Git Bash:
-ssh traininglab "/var/www/traininglab/deploy.sh"
+ssh user@training.helgars.se "/var/www/traininglab/deploy.sh"
 ```
-
-Or add to your local `package.json`:
-
-```json
-"scripts": {
-  "deploy": "ssh traininglab '/var/www/traininglab/deploy.sh'"
-}
-```
-
-Then: `pnpm deploy`
 
 ---
 
-## 9. Monitoring & Logs
+## 12. Monitoring & Logs
 
 ```bash
-# PM2 status
 pm2 status
-pm2 monit          # live CPU/memory dashboard
-
-# Application logs
 pm2 logs traininglab
 pm2 logs traininglab --lines 100
 
-# Deploy log
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+
 tail -f /var/www/traininglab/deploy.log
-
-# Apache access/error logs
-sudo tail -f /var/log/apache2/access.log
-sudo tail -f /var/log/apache2/error.log
 ```
 
 ---
 
-## 10. Useful Commands
+## 13. Cert Renewal
+
+The wildcard cert auto-renews via certbot's systemd timer (~30 days before expiry).
+No action needed — it covers all `*.helgars.se` subdomains including `training`.
 
 ```bash
-# Restart app manually
+sudo systemctl status certbot.timer    # should be active
+sudo certbot renew --dry-run           # test renewal manually
+```
+
+> **Note:** Wildcard certs use DNS-01 challenge. If renewal fails, check how theodal's
+> cert renews (certbot hooks or manual DNS update) and apply the same method.
+
+---
+
+## 14. Useful Commands
+
+```bash
 pm2 restart traininglab
-
-# Stop/start
+pm2 reload traininglab         # zero-downtime reload
 pm2 stop traininglab
-pm2 start traininglab
 
-# Check what's running on port 3000
-ss -tlnp | grep 3000
+sudo nginx -t                  # validate config syntax
+sudo systemctl reload nginx
 
-# PostgreSQL
-sudo systemctl status postgresql
-sudo -u postgres psql -d traininglab -c "SELECT COUNT(*) FROM \"Activity\";"
-
-# Check disk space
+ss -tlnp | grep 3000           # confirm Next.js is listening
+sudo -u postgres psql -d traininglab -c 'SELECT COUNT(*) FROM "Activity";'
 df -h
-
-# Check app memory
-pm2 status
 ```
 
 ---
 
-## 11. Rollback
-
-If a deploy breaks something:
-
-```bash
-cd /var/www/traininglab
-
-# Rollback to previous commit
-git log --oneline -5          # find the commit hash to go back to
-git checkout <commit-hash>     # OR:
-git revert HEAD               # create a revert commit (safer)
-
-# Rebuild and restart
-pnpm build && pm2 reload traininglab
-```
-
----
-
-*Last updated: 2026-05-20*
+*Last updated: 2026-05-27*

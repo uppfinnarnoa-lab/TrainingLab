@@ -1371,24 +1371,23 @@ traininglab/
 
 ---
 
-## 9. Deployment (Ubuntu + Apache + helgars.se)
+## 9. Deployment (Ubuntu + nginx + helgars.se)
 
-**Target setup:** Ubuntu server (SSH-only), existing Apache server with `theodal.helgars.se` already running. Wildcard cert `*.helgars.se` (Let's Encrypt) already in place. DNS A record for `training.helgars.se` and port forwarding already configured. Just add a new VirtualHost using the existing cert.
+**Target setup:** Ubuntu server (SSH-only), existing nginx server with `theodal.helgars.se` already running. Wildcard cert `*.helgars.se` (Let's Encrypt) already in place. DNS A record for `training.helgars.se` and port forwarding already configured. Just add a new nginx server block using the existing cert.
 
 ---
 
 ### Step 1 — Find the Existing Cert Path
 
-Check the existing `theodal.helgars.se` Apache config to find the exact cert file paths:
+Check the existing theodal nginx config for the exact cert paths:
 ```bash
-grep -r "SSLCertificateFile" /etc/apache2/sites-enabled/
+grep -r "ssl_certificate" /etc/nginx/sites-enabled/
 ```
-The wildcard cert `*.helgars.se` covers `training.helgars.se` — no new cert needed. The path will look like:
+The wildcard cert `*.helgars.se` covers `training.helgars.se` — no new cert needed. Path will look like:
 ```
 /etc/letsencrypt/live/helgars.se/fullchain.pem
 /etc/letsencrypt/live/helgars.se/privkey.pem
 ```
-(or possibly `theodal.helgars.se` as the folder name — use whatever the grep shows)
 
 ---
 
@@ -1404,12 +1403,6 @@ sudo npm install -g pnpm pm2
 
 # PostgreSQL (if not already installed)
 sudo apt install -y postgresql postgresql-contrib
-```
-
-Ensure required Apache modules are enabled (likely already on since theodal works):
-```bash
-sudo a2enmod proxy proxy_http ssl headers
-sudo systemctl restart apache2
 ```
 
 ---
@@ -1429,39 +1422,29 @@ SQL
 ### Step 4 — Application
 
 ```bash
-# Clone into web root
 sudo mkdir -p /var/www/traininglab
 sudo chown $USER:$USER /var/www/traininglab
-git clone https://github.com/YOUR_REPO /var/www/traininglab
+git clone git@github.com:uppfinnarnoa-lab/TrainingLab.git /var/www/traininglab
 cd /var/www/traininglab
-
-# Install dependencies
 pnpm install --frozen-lockfile
 ```
 
 Create `/var/www/traininglab/.env.local`:
 ```env
-# Database
 DATABASE_URL="postgresql://traininglab:CHOOSE_A_STRONG_PASSWORD@localhost:5432/traininglab"
-
-# NextAuth — must match the public URL exactly
-NEXTAUTH_SECRET="run: openssl rand -base64 32"
+AUTH_SECRET="run: openssl rand -base64 32"
 NEXTAUTH_URL="https://training.helgars.se"
-
-# Strava
 STRAVA_CLIENT_ID="your_client_id"
 STRAVA_CLIENT_SECRET="your_client_secret"
 STRAVA_REDIRECT_URI="https://training.helgars.se/api/strava/callback"
-
-# AI (stored per-user in DB, set defaults here)
 ANTHROPIC_API_KEY=""
 GOOGLE_AI_API_KEY=""
 ```
 
 Apply migrations and build:
 ```bash
-pnpm exec prisma migrate deploy
-pnpm exec prisma db seed            # creates admin user
+pnpm prisma migrate deploy
+pnpm tsx scripts/seed-user.ts       # creates admin user (run once)
 pnpm build
 ```
 
@@ -1469,66 +1452,56 @@ pnpm build
 
 ### Step 5 — PM2
 
-Create `/var/www/traininglab/ecosystem.config.js`:
-```js
-module.exports = {
-  apps: [{
-    name: "traininglab",
-    script: "node_modules/.bin/next",
-    args: "start",
-    cwd: "/var/www/traininglab",
-    env: {
-      PORT: "3000",
-      NODE_ENV: "production",
-    },
-  }],
-};
-```
-
+`ecosystem.config.js` is already in the repo. Start and persist:
 ```bash
 pm2 start ecosystem.config.js
 pm2 save
-pm2 startup   # follow the printed sudo command it outputs
+pm2 startup   # follow the printed sudo command
 ```
 
 ---
 
-### Step 6 — Apache Virtual Host
+### Step 6 — nginx Server Block
 
-Create `/etc/apache2/sites-available/traininglab.conf`.
-Replace the cert paths with whatever Step 1 showed:
+Create `/etc/nginx/sites-available/traininglab.conf`.
+Replace cert paths with whatever Step 1 showed:
 
-```apache
-<VirtualHost *:443>
-  ServerName training.helgars.se
+```nginx
+server {
+    listen 443 ssl;
+    server_name training.helgars.se;
 
-  SSLEngine on
-  # Use the existing wildcard *.helgars.se cert (same as theodal.helgars.se)
-  SSLCertificateFile    /etc/letsencrypt/live/helgars.se/fullchain.pem
-  SSLCertificateKeyFile /etc/letsencrypt/live/helgars.se/privkey.pem
+    # Existing wildcard cert — same as theodal.helgars.se
+    ssl_certificate     /etc/letsencrypt/live/helgars.se/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/helgars.se/privkey.pem;
 
-  # Required for SSE streaming (AI chat, backfill progress)
-  SetEnv proxy-sendchunked 1
+    # SSE streaming endpoints — buffering must be off
+    location ~ ^/api/(coach/chat|strava/backfill-history|strava/backfill-weather) {
+        proxy_pass         http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_buffering    off;
+        proxy_cache        off;
+        proxy_set_header   Connection '';
+        proxy_set_header   Host $host;
+        proxy_read_timeout 3600s;
+    }
 
-  # SSE endpoints — must be listed BEFORE the catch-all ProxyPass
-  ProxyPass        /api/coach/chat              http://localhost:3000/api/coach/chat
-  ProxyPassReverse /api/coach/chat              http://localhost:3000/api/coach/chat
-  ProxyPass        /api/strava/backfill-history http://localhost:3000/api/strava/backfill-history
-  ProxyPassReverse /api/strava/backfill-history http://localhost:3000/api/strava/backfill-history
-  ProxyPass        /api/strava/backfill-weather http://localhost:3000/api/strava/backfill-weather
-  ProxyPassReverse /api/strava/backfill-weather http://localhost:3000/api/strava/backfill-weather
-
-  # Catch-all
-  ProxyPreserveHost On
-  ProxyPass        / http://localhost:3000/
-  ProxyPassReverse / http://localhost:3000/
-</VirtualHost>
+    # All other traffic
+    location / {
+        proxy_pass         http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection 'upgrade';
+        proxy_set_header   Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
 ```
 
 ```bash
-sudo a2ensite traininglab
-sudo apache2ctl configtest        # must say "Syntax OK"
-sudo systemctl reload apache2
+sudo ln -s /etc/nginx/sites-available/traininglab.conf /etc/nginx/sites-enabled/
+sudo nginx -t                    # must say "syntax is ok"
+sudo systemctl reload nginx
 ```
 
 ---
@@ -1537,22 +1510,22 @@ sudo systemctl reload apache2
 
 1. Go to [strava.com/settings/api](https://www.strava.com/settings/api)
 2. Set **Authorization Callback Domain** to: `training.helgars.se`
-3. Enter Client ID and Secret in the app's Settings page (admin panel)
+3. Enter Client ID and Secret in the app's Settings page
 
 ---
 
 ### Step 8 — Post-Deploy Checklist
 
 ```
-[ ] Visit https://training.helgars.se — padlock green, no browser warning
-[ ] Log in as admin user (seeded by prisma db seed)
+[ ] https://training.helgars.se loads — padlock green, no warning
+[ ] Log in as admin user
 [ ] Settings → enter Strava Client ID + Secret → Save
 [ ] Settings → Connect with Strava → authorize
 [ ] Settings → Sync new activities → confirm count
-[ ] Settings → Backfill all historical activities (auto-resumes nightly at 00:30 UTC)
+[ ] Settings → Backfill all historical activities (auto-resumes nightly 00:30 UTC)
 [ ] Settings → Backfill weather data
 [ ] Stats page loads with real data
-[ ] PM2 survives reboot: sudo reboot, then pm2 list
+[ ] PM2 survives reboot: sudo reboot → pm2 list
 ```
 
 ---
@@ -1561,11 +1534,12 @@ sudo systemctl reload apache2
 
 | Task | Command |
 |------|---------|
-| View app logs | `pm2 logs traininglab` |
+| App logs | `pm2 logs traininglab` |
+| nginx logs | `sudo tail -f /var/log/nginx/error.log` |
 | Restart app | `pm2 restart traininglab` |
-| Deploy update | `git pull && pnpm install && pnpm build && pm2 restart traininglab` |
-| Run DB migrations | `pnpm exec prisma migrate deploy` |
-| Check cert (auto-renews) | `sudo certbot renew --dry-run` |
+| Deploy update | `git pull && pnpm install && pnpm build && pm2 reload traininglab` |
+| DB migrations | `pnpm prisma migrate deploy` |
+| Check cert renewal | `sudo certbot renew --dry-run` |
 
 ---
 
