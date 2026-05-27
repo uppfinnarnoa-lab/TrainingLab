@@ -19,14 +19,22 @@ export async function POST(req: NextRequest) {
   try {
     let result;
     if (resync) {
-      // Smart resync: fetch last 3 days, re-fetch individual activities if description changed
       result = await resyncRecentActivities(userId, 3);
     } else {
       const since = full ? undefined : (account.lastSyncAt ?? undefined);
       result = await syncActivities(userId, { full, since });
     }
 
-    // Auto-update VO2max + paces after sync (not HR zones — only on button press)
+    if ("rateLimited" in result && result.rateLimited) {
+      const isDaily = result.rateLimited === "STRAVA_DAILY_LIMIT";
+      return NextResponse.json({
+        error: isDaily
+          ? "Strava daily limit reached — try again tomorrow."
+          : "Strava rate limit reached — try again in 15 minutes.",
+        synced: result.synced,
+      });
+    }
+
     updateVO2maxAndPaces(userId).catch(e => console.error("Fitness cache error:", e));
     return NextResponse.json({ ...result, lastSyncAt: new Date() });
   } catch (e) {

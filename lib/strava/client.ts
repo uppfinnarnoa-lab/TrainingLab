@@ -79,7 +79,14 @@ export async function stravaFetch(userId: string, path: string, params?: Record<
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (res.status === 429) throw new Error("STRAVA_RATE_LIMIT");
+  if (res.status === 429) {
+    const usage = res.headers.get("X-RateLimit-Usage") ?? "";
+    const limit = res.headers.get("X-RateLimit-Limit") ?? "";
+    const [, dailyUsage] = usage.split(",").map(Number);
+    const [, dailyLimit] = limit.split(",").map(Number);
+    if (dailyLimit > 0 && dailyUsage >= dailyLimit) throw new Error("STRAVA_DAILY_LIMIT");
+    throw new Error("STRAVA_RATE_LIMIT");
+  }
   if (!res.ok) throw new Error(`Strava API error: ${res.status} ${path}`);
   return res.json();
 }

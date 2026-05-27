@@ -71,6 +71,8 @@ export default async function SettingsPage() {
           hasClientId={hasStravaClientId}
           hasClientSecret={hasStravaClientSecret}
           isAdmin={isAdmin}
+          syncMode={(appConfig?.stravaAutoSyncMode ?? "manual") as "manual" | "webhook" | "cron"}
+          webhookSubscriptionId={appConfig?.stravaWebhookSubscriptionId ?? null}
         />
       </IntegrationCard>
 

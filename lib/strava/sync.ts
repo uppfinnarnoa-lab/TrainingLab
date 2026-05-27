@@ -42,7 +42,7 @@ function mapActivity(raw: any, userId: string) {
 export async function syncActivities(
   userId: string,
   options: { full?: boolean; since?: Date } = {}
-): Promise<{ synced: number; errors: number }> {
+): Promise<{ synced: number; errors: number; rateLimited?: "STRAVA_RATE_LIMIT" | "STRAVA_DAILY_LIMIT" }> {
   let page = 1;
   let synced = 0;
   let errors = 0;
@@ -61,9 +61,9 @@ export async function syncActivities(
     try {
       activities = await stravaFetch(userId, "/athlete/activities", params);
     } catch (e) {
-      if (e instanceof Error && e.message === "STRAVA_RATE_LIMIT") {
-        console.warn("Strava rate limit hit, stopping sync");
-        break;
+      if (e instanceof Error && (e.message === "STRAVA_RATE_LIMIT" || e.message === "STRAVA_DAILY_LIMIT")) {
+        console.warn("Strava rate limit hit during sync:", e.message);
+        return { synced, errors, rateLimited: e.message as "STRAVA_RATE_LIMIT" | "STRAVA_DAILY_LIMIT" };
       }
       throw e;
     }

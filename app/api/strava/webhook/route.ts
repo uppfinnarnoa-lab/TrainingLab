@@ -22,9 +22,13 @@ export async function GET(req: NextRequest) {
   const token     = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  if (mode !== "subscribe" || token !== process.env.STRAVA_WEBHOOK_VERIFY_TOKEN) {
-    return new Response("Forbidden", { status: 403 });
-  }
+  if (mode !== "subscribe") return new Response("Forbidden", { status: 403 });
+
+  // Check against DB token (set when registering) or env fallback
+  const config = await prisma.appConfig.findFirst({ select: { stravaWebhookToken: true } });
+  const validToken = config?.stravaWebhookToken ?? process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
+  if (!validToken || token !== validToken) return new Response("Forbidden", { status: 403 });
+
   return Response.json({ "hub.challenge": challenge });
 }
 

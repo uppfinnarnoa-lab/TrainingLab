@@ -379,5 +379,9 @@ model AppConfig {
   stravaClientSecret  String?
   garminClientId      String?
   garminClientSecret  String?
+  // Webhook & auto-sync
+  stravaWebhookSubscriptionId  Int?     // set when Strava webhook subscription is active
+  stravaWebhookToken           String?  // verify_token used when registering the subscription
+  stravaAutoSyncMode           String   @default("manual") // "manual" | "webhook" | "cron"
   user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
