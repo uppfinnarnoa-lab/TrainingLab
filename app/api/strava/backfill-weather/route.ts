@@ -1,48 +1,72 @@
-/**
- * POST /api/strava/backfill-weather
- *
- * Backfills Open-Meteo weather data for activities that have coordinates
- * but no weatherTemp. Processes in batches with rate-limiting delays.
- * Returns { processed, updated, skipped }.
- */
-
-import { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { fetchAndSaveWeather } from "@/lib/weather/open-meteo";
 
-export async function POST(_req: NextRequest) {
+/** GET — how many activities are missing weather data */
+export async function GET() {
   const session = await auth();
-  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 });
+  if (!session?.user?.id) return Response.json({ error: "unauthorized" }, { status: 401 });
   const userId = session.user.id;
 
-  // Fetch up to 200 activities missing weather but having coordinates
-  const activities = await prisma.activity.findMany({
-    where: {
-      userId,
-      weatherTemp: null,
-      startLat: { not: null },
-      startLng: { not: null },
+  const [total, done] = await Promise.all([
+    prisma.activity.count({ where: { userId, startLat: { not: null } } }),
+    prisma.activity.count({ where: { userId, startLat: { not: null }, weatherTemp: { not: null } } }),
+  ]);
+
+  return Response.json({ total, done, remaining: total - done });
+}
+
+/** POST — SSE stream: fetch weather for all activities missing it */
+export async function POST() {
+  const session = await auth();
+  if (!session?.user?.id) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const userId = session.user.id;
+
+  const encoder = new TextEncoder();
+  const send = (data: object) => encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        const pending = await prisma.activity.findMany({
+          where: { userId, weatherTemp: null, startLat: { not: null }, startLng: { not: null } },
+          orderBy: { startDate: "asc" },
+          select: { id: true, startLat: true, startLng: true, startDate: true },
+        });
+
+        const total = pending.length;
+        controller.enqueue(send({ type: "start", total }));
+
+        let done = 0, errors = 0;
+
+        for (const act of pending) {
+          try {
+            await fetchAndSaveWeather(act.id, act.startLat!, act.startLng!, act.startDate);
+            done++;
+            if (done % 20 === 0 || done === total) {
+              controller.enqueue(send({ type: "progress", done, total, errors }));
+            }
+            // Open-Meteo: ~10k req/day free — 200ms between requests is safe
+            await new Promise(r => setTimeout(r, 200));
+          } catch {
+            errors++;
+          }
+        }
+
+        controller.enqueue(send({ type: "done", done, total, errors }));
+        controller.close();
+      } catch (e) {
+        controller.enqueue(send({ type: "error", message: String(e) }));
+        controller.close();
+      }
     },
-    select: { id: true, startLat: true, startLng: true, startDate: true },
-    orderBy: { startDate: "desc" },
-    take: 200,
   });
 
-  let updated = 0;
-  const skipped = 0;
-
-  for (const act of activities) {
-    if (act.startLat == null || act.startLng == null) continue;
-    try {
-      await fetchAndSaveWeather(act.id, act.startLat, act.startLng, act.startDate);
-      updated++;
-      // Open-Meteo free tier: no strict rate limit, but be polite
-      await new Promise(r => setTimeout(r, 300));
-    } catch {
-      // Silently skip — individual fetch failures don't abort the batch
-    }
-  }
-
-  return Response.json({ processed: activities.length, updated, skipped });
+  return new Response(stream, {
+    headers: {
+      "Content-Type":  "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection":    "keep-alive",
+    },
+  });
 }

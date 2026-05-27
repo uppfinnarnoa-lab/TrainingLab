@@ -31,6 +31,9 @@ export function StravaConnectSection({
   const [backfilling,     setBackfilling]     = useState(false);
   const [backfillStatus,  setBackfillStatus]  = useState<string | null>(null);
   const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(null);
+  const [weatherFilling,     setWeatherFilling]     = useState(false);
+  const [weatherStatus,      setWeatherStatus]      = useState<string | null>(null);
+  const [weatherProgress,    setWeatherProgress]    = useState<{ done: number; total: number } | null>(null);
 
   const credentialsSet = hasClientId && hasClientSecret;
 
@@ -117,6 +120,49 @@ export function StravaConnectSection({
       }
     } finally {
       setBackfilling(false);
+    }
+  }
+
+  async function handleWeatherBackfill() {
+    setWeatherFilling(true);
+    setWeatherStatus("Connecting...");
+    setWeatherProgress(null);
+    try {
+      const res = await fetch("/api/strava/backfill-weather", { method: "POST" });
+      if (!res.ok || !res.body) { setWeatherStatus("Error — check console"); return; }
+
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += dec.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const d = JSON.parse(line.slice(6));
+            if (d.type === "start") {
+              setWeatherStatus(`Fetching weather for ${d.total} activities...`);
+              setWeatherProgress({ done: 0, total: d.total });
+            }
+            if (d.type === "progress") {
+              setWeatherStatus(`${d.done}/${d.total}${d.errors > 0 ? ` (${d.errors} errors)` : ""}...`);
+              setWeatherProgress({ done: d.done, total: d.total });
+            }
+            if (d.type === "done") {
+              setWeatherStatus(`✓ Done — ${d.done} activities updated${d.errors > 0 ? `, ${d.errors} skipped` : ""}.`);
+              setWeatherProgress({ done: d.done, total: d.total });
+            }
+            if (d.type === "error") setWeatherStatus(`Error: ${d.message}`);
+          } catch { /* skip malformed */ }
+        }
+      }
+    } finally {
+      setWeatherFilling(false);
     }
   }
 
@@ -292,6 +338,42 @@ export function StravaConnectSection({
                 {backfillStatus && (
                   <p className={`text-xs ${backfillStatus.startsWith("✓") ? "text-accent" : backfillStatus.includes("daily limit") ? "text-warning" : backfillStatus.startsWith("Error") ? "text-error" : "text-muted"}`}>
                     {backfillStatus}
+                  </p>
+                )}
+              </div>
+
+              {/* Weather backfill */}
+              <div className="pt-3 border-t border-border space-y-2">
+                <p className="text-xs font-medium text-muted">Weather data backfill</p>
+                <p className="text-xs text-muted">
+                  Fetches temperature, wind and precipitation from Open-Meteo for all activities
+                  that have GPS coordinates but no weather data. Required for the weather profile
+                  chart in Stats.
+                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={handleWeatherBackfill}
+                    disabled={weatherFilling}
+                    className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 py-2 text-sm font-medium text-primary hover:bg-surface transition disabled:opacity-50"
+                  >
+                    {weatherFilling ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                    {weatherFilling ? "Running…" : "Backfill weather data"}
+                  </button>
+                  {weatherProgress && (
+                    <div className="flex-1 min-w-[140px]">
+                      <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-accent transition-all"
+                          style={{ width: `${Math.round((weatherProgress.done / weatherProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted mt-0.5">{weatherProgress.done} / {weatherProgress.total}</p>
+                    </div>
+                  )}
+                </div>
+                {weatherStatus && (
+                  <p className={`text-xs ${weatherStatus.startsWith("✓") ? "text-accent" : weatherStatus.startsWith("Error") ? "text-error" : "text-muted"}`}>
+                    {weatherStatus}
                   </p>
                 )}
               </div>
