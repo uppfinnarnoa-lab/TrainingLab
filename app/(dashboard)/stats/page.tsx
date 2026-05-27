@@ -303,7 +303,7 @@ export default async function StatsPage() {
       id: true, sportType: true, startDate: true, name: true,
       distance: true, movingTime: true, totalElevationGain: true,
       averageHeartrate: true, maxHeartrate: true,
-      averageSpeed: true, isRace: true, weatherTemp: true,
+      averageSpeed: true, isRace: true, weatherTemp: true, laps: true,
       // bestEfforts + splitsMetric intentionally omitted — saves 2-5x query time
     },
   });
@@ -700,20 +700,28 @@ export default async function StatsPage() {
   }
   perfByDistYear.sort((a, b) => a.period.localeCompare(b.period));
 
-  // Statistical zone estimation from all running data
+  // Statistical zone estimation from all running data (activity-level + lap-level)
+  type SlowLapRow = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
+  type SlowAct = A & { laps?: unknown };
+  const olRaceFilterSlow = (a: A) =>
+    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
+    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 330));
+  const statActRuns = (activities as SlowAct[])
+    .filter(a => /run|trail/i.test(a.sportType) && a.averageHeartrate && olRaceFilterSlow(a))
+    .map(a => ({ avgHR: a.averageHeartrate!, distanceM: a.distance, movingTimeSec: a.movingTime, totalElevationGain: a.totalElevationGain, startDate: a.startDate }));
+  const statLapRuns = (activities as SlowAct[])
+    .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterSlow(a) && Array.isArray(a.laps))
+    .flatMap(a => (a.laps as SlowLapRow[]).filter(l =>
+      l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
+    ).map(l => ({
+      avgHR: l.average_heartrate!,
+      distanceM: l.distance,
+      movingTimeSec: l.moving_time,
+      totalElevationGain: l.total_elevation_gain ?? 0,
+      startDate: (a as A).startDate,
+    })));
   const statZones = estimateZonesFromStatisticalAnalysis(
-    activities.filter((a: A) =>
-      /run|trail/i.test(a.sportType) &&
-      a.averageHeartrate &&
-      !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
-      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 255))
-    ).map((a: A) => ({
-      avgHR: a.averageHeartrate!,
-      distanceM: a.distance,
-      movingTimeSec: a.movingTime,
-      totalElevationGain: a.totalElevationGain,
-      startDate: a.startDate,
-    })),
+    [...statActRuns, ...statLapRuns],
     computedMaxHR, restHR,
   );
 

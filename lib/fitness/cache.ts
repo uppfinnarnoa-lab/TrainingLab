@@ -39,6 +39,7 @@ async function loadActivities(userId: string) {
       sportType: true, name: true, distance: true, movingTime: true,
       averageHeartrate: true, maxHeartrate: true, totalElevationGain: true,
       averageSpeed: true, isRace: true, bestEfforts: true, startDate: true,
+      laps: true,
     },
   });
 }
@@ -298,19 +299,29 @@ export async function updateVO2maxAndPaces(userId: string) {
     };
   })();
 
+  const olRaceFilter = (a: { name: string; isRace: boolean; averageSpeed: number | null }) =>
+    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
+    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 330));
+
+  type LapRow = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
+  const statActRuns = (activities as (Act & { laps?: unknown })[])
+    .filter(a => /run|trail/i.test(a.sportType) && a.averageHeartrate && olRaceFilter(a))
+    .map(a => ({ avgHR: a.averageHeartrate!, distanceM: a.distance, movingTimeSec: a.movingTime, totalElevationGain: a.totalElevationGain, startDate: a.startDate }));
+
+  const statLapRuns = (activities as (Act & { laps?: unknown })[])
+    .filter(a => /run|trail/i.test(a.sportType) && olRaceFilter(a) && Array.isArray(a.laps))
+    .flatMap(a => (a.laps as LapRow[]).filter(l =>
+      l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
+    ).map(l => ({
+      avgHR: l.average_heartrate!,
+      distanceM: l.distance,
+      movingTimeSec: l.moving_time,
+      totalElevationGain: l.total_elevation_gain ?? 0,
+      startDate: (a as Act).startDate,
+    })));
+
   const statZonesResult = estimateZonesFromStatisticalAnalysis(
-    (activities as Act[]).filter(a =>
-      /run|trail/i.test(a.sportType) &&
-      a.averageHeartrate &&
-      !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
-      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 255))
-    ).map(a => ({
-      avgHR: a.averageHeartrate!,
-      distanceM: a.distance,
-      movingTimeSec: a.movingTime,
-      totalElevationGain: a.totalElevationGain,
-      startDate: a.startDate,
-    })),
+    [...statActRuns, ...statLapRuns],
     maxHR, restHR,
   );
 
@@ -450,7 +461,7 @@ export async function updateHRZones(userId: string) {
       /run|trail/i.test(a.sportType) &&
       a.distance >= 4000 && a.movingTime >= 900 &&
       !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
-      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 255))
+      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 330))
     )
     .map(a => ({
       avgHR: a.averageHeartrate!,

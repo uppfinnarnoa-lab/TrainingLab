@@ -42,3 +42,5 @@ _Datum-format: ÅÅÅÅ-MM-DD. En rad per post. Flytta till archive när löst._
 ---
 
 ## Övrigt
+Väderstatistik
+Backfill - Hr estimat och kurva going back

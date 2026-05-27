@@ -336,8 +336,8 @@ export function estimateZonesFromStatisticalAnalysis(
   restHR: number,
 ): StatisticalZoneResult | null {
   // ── 1. Filter and compute GAP ──────────────────────────────────────────
-  const MIN_DIST = 4000;
-  const MIN_DURATION_SEC = 1800; // 30 min — shorter runs dominated by HR transients, not steady-state
+  const MIN_DIST = 800;          // allows 1km lap splits from activities
+  const MIN_DURATION_SEC = 180;  // 3 min — laps are pre-warmed from the surrounding run
 
   const points = runs
     .filter(r =>
@@ -392,7 +392,7 @@ export function estimateZonesFromStatisticalAnalysis(
   // Enforce non-increasing HR with increasing pace via pool-adjacent-violators.
   // Noise inversions between adjacent buckets corrupt R² and misplace breakpoints.
   const mono = poolAdjacentViolators(buckets);
-  if (mono.length < 7) return null;
+  if (mono.length < 6) return null;
 
   // ── 4. Exhaustive piecewise linear search for two breakpoints ──────────
   const nb = mono.length;
