@@ -1371,73 +1371,233 @@ traininglab/
 
 ---
 
-## 9. Deployment (Ubuntu + Apache)
+## 9. Deployment (Ubuntu + Apache + helgars.se)
 
-### Server Setup
+**Target setup:** Ubuntu server (SSH-only), dynamic IP managed by FortDDNS, subdomain `training.helgars.se`, HTTPS via Let's Encrypt.
+
+---
+
+### Step 1 — DNS & Port Forwarding
+
+1. **helgars.se DNS:** Add an A record `training.helgars.se → <your current home IP>` at your DNS provider.
+2. **FortDDNS:** Configure FortDDNS to keep that A record updated when your IP changes. Install ddclient on the Ubuntu server to push updates automatically:
+   ```bash
+   sudo apt install -y ddclient
+   ```
+   Edit `/etc/ddclient.conf` with your FortDDNS credentials and host `training.helgars.se`. Then:
+   ```bash
+   sudo systemctl enable ddclient && sudo systemctl start ddclient
+   ```
+3. **Router port forwarding:** Forward TCP ports **80** and **443** on your router to the Ubuntu server's local IP. Port 80 is required for Let's Encrypt HTTP-01 challenge.
+
+---
+
+### Step 2 — Ubuntu Server Packages
+
 ```bash
-# Install Node.js 20, pnpm, PostgreSQL
+# Node.js 20 via NodeSource
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs postgresql postgresql-contrib
-npm install -g pnpm pm2
+sudo apt install -y nodejs
 
-# Database setup
-sudo -u postgres psql
+# pnpm and PM2 globally
+sudo npm install -g pnpm pm2
+
+# Apache, Certbot, PostgreSQL
+sudo apt install -y apache2 certbot python3-certbot-apache \
+                    postgresql postgresql-contrib
+```
+
+Enable required Apache modules:
+```bash
+sudo a2enmod proxy proxy_http proxy_http2 ssl headers rewrite
+sudo systemctl restart apache2
+```
+
+---
+
+### Step 3 — Database
+
+```bash
+sudo -u postgres psql <<'SQL'
 CREATE DATABASE traininglab;
-CREATE USER traininglab WITH PASSWORD 'yourpassword';
+CREATE USER traininglab WITH PASSWORD 'CHOOSE_A_STRONG_PASSWORD';
 GRANT ALL PRIVILEGES ON DATABASE traininglab TO traininglab;
+SQL
 ```
 
-### PM2 Configuration
-```json
-// ecosystem.config.js
-{
-  "apps": [{
-    "name": "traininglab",
-    "script": "node_modules/.bin/next",
-    "args": "start",
-    "cwd": "/var/www/traininglab",
-    "env": { "PORT": "3000", "NODE_ENV": "production" }
-  }]
-}
+---
+
+### Step 4 — Application
+
+```bash
+# Clone into web root
+sudo mkdir -p /var/www/traininglab
+sudo chown $USER:$USER /var/www/traininglab
+git clone https://github.com/YOUR_REPO /var/www/traininglab
+cd /var/www/traininglab
+
+# Install dependencies and build
+pnpm install --frozen-lockfile
 ```
 
-### Apache Virtual Host
-```apache
-<VirtualHost *:443>
-  ServerName trainer.yourdomain.com
-  SSLEngine on
-  SSLCertificateFile /etc/letsencrypt/live/trainer.yourdomain.com/fullchain.pem
-  SSLCertificateKeyFile /etc/letsencrypt/live/trainer.yourdomain.com/privkey.pem
-
-  ProxyPreserveHost On
-  ProxyPass / http://localhost:3000/
-  ProxyPassReverse / http://localhost:3000/
-
-  # Required for streaming AI responses (SSE)
-  ProxyPass /api/coach/chat http://localhost:3000/api/coach/chat
-  ProxyPassReverse /api/coach/chat http://localhost:3000/api/coach/chat
-  SetEnv proxy-sendchunked 1
-</VirtualHost>
-```
-
-### Environment Variables (.env.local)
+Create `/var/www/traininglab/.env.local`:
 ```env
 # Database
-DATABASE_URL="postgresql://traininglab:password@localhost:5432/traininglab"
+DATABASE_URL="postgresql://traininglab:CHOOSE_A_STRONG_PASSWORD@localhost:5432/traininglab"
 
-# NextAuth
-NEXTAUTH_SECRET="generate-with-openssl-rand-base64-32"
-NEXTAUTH_URL="https://trainer.yourdomain.com"
+# NextAuth — must match the public URL exactly
+NEXTAUTH_SECRET="run: openssl rand -base64 32"
+NEXTAUTH_URL="https://training.helgars.se"
 
 # Strava
 STRAVA_CLIENT_ID="your_client_id"
 STRAVA_CLIENT_SECRET="your_client_secret"
-STRAVA_REDIRECT_URI="https://trainer.yourdomain.com/api/strava/callback"
+STRAVA_REDIRECT_URI="https://training.helgars.se/api/strava/callback"
 
-# AI (stored per-user in DB, but can set defaults here)
+# AI (stored per-user in DB, set defaults here)
 ANTHROPIC_API_KEY=""
 GOOGLE_AI_API_KEY=""
 ```
+
+Then apply migrations and build:
+```bash
+pnpm exec prisma migrate deploy
+pnpm exec prisma db seed            # creates admin user
+pnpm build
+```
+
+---
+
+### Step 5 — PM2
+
+Create `/var/www/traininglab/ecosystem.config.js`:
+```js
+module.exports = {
+  apps: [{
+    name: "traininglab",
+    script: "node_modules/.bin/next",
+    args: "start",
+    cwd: "/var/www/traininglab",
+    env: {
+      PORT: "3000",
+      NODE_ENV: "production",
+    },
+  }],
+};
+```
+
+```bash
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup   # follow the printed command to enable auto-start on boot
+```
+
+---
+
+### Step 6 — Apache Virtual Host (HTTP only first)
+
+Create `/etc/apache2/sites-available/traininglab.conf`:
+```apache
+<VirtualHost *:80>
+  ServerName training.helgars.se
+  # Certbot will add HTTPS redirect here automatically
+</VirtualHost>
+```
+
+```bash
+sudo a2ensite traininglab
+sudo systemctl reload apache2
+```
+
+---
+
+### Step 7 — Let's Encrypt Certificate
+
+```bash
+sudo certbot --apache -d training.helgars.se
+```
+
+Certbot rewrites the Apache config to add port 443 and the HTTP→HTTPS redirect automatically. The certificate auto-renews via the certbot systemd timer (`systemctl status certbot.timer`).
+
+---
+
+### Step 8 — Apache Virtual Host (final, after Certbot)
+
+Certbot modifies the config. Then **add the proxy and SSE settings** to the 443 block. Edit `/etc/apache2/sites-available/traininglab-le-ssl.conf` (or wherever certbot put it):
+
+```apache
+<VirtualHost *:443>
+  ServerName training.helgars.se
+
+  SSLEngine on
+  SSLCertificateFile    /etc/letsencrypt/live/training.helgars.se/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/training.helgars.se/privkey.pem
+
+  # Required for SSE streaming (AI chat, backfill progress)
+  SetEnv proxy-sendchunked 1
+
+  # SSE endpoints — must be listed BEFORE the catch-all ProxyPass
+  ProxyPass        /api/coach/chat                    http://localhost:3000/api/coach/chat
+  ProxyPassReverse /api/coach/chat                    http://localhost:3000/api/coach/chat
+  ProxyPass        /api/strava/backfill-history       http://localhost:3000/api/strava/backfill-history
+  ProxyPassReverse /api/strava/backfill-history       http://localhost:3000/api/strava/backfill-history
+  ProxyPass        /api/strava/backfill-weather       http://localhost:3000/api/strava/backfill-weather
+  ProxyPassReverse /api/strava/backfill-weather       http://localhost:3000/api/strava/backfill-weather
+
+  # Catch-all
+  ProxyPreserveHost On
+  ProxyPass        / http://localhost:3000/
+  ProxyPassReverse / http://localhost:3000/
+</VirtualHost>
+
+<VirtualHost *:80>
+  ServerName training.helgars.se
+  RewriteEngine on
+  RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+</VirtualHost>
+```
+
+```bash
+sudo systemctl reload apache2
+```
+
+---
+
+### Step 9 — Strava OAuth Update
+
+1. Go to [strava.com/settings/api](https://www.strava.com/settings/api)
+2. Set **Authorization Callback Domain** to: `training.helgars.se`
+3. Enter Client ID and Secret in the app's Settings page (admin panel)
+
+---
+
+### Step 10 — Post-Deploy Checklist
+
+```
+[ ] Visit https://training.helgars.se — no browser warnings (padlock green)
+[ ] Log in as admin user
+[ ] Settings → enter Strava Client ID + Secret → Save
+[ ] Settings → Connect with Strava → authorize
+[ ] Settings → Sync new activities → confirm count
+[ ] Settings → Backfill all historical activities (runs until Strava daily limit, auto-resumes nightly at 00:30 UTC)
+[ ] Settings → Backfill weather data
+[ ] Stats page loads with real data
+[ ] ddclient updating DNS: sudo ddclient -query (check IP matches)
+[ ] PM2 survives reboot: sudo reboot, then pm2 list
+```
+
+---
+
+### Maintenance
+
+| Task | Command |
+|------|---------|
+| View app logs | `pm2 logs traininglab` |
+| Restart app | `pm2 restart traininglab` |
+| Deploy update | `git pull && pnpm install && pnpm build && pm2 restart traininglab` |
+| Run DB migrations | `pnpm exec prisma migrate deploy` |
+| Check cert renewal | `sudo certbot renew --dry-run` |
+| Check DDNS status | `sudo systemctl status ddclient` |
 
 ---
 
