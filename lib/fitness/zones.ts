@@ -362,7 +362,7 @@ export function estimateZonesFromStatisticalAnalysis(
       return { gap, hr: r.avgHR, weight: tempWeight * recency };
     })
     .filter((p): p is { gap: number; hr: number; weight: number } =>
-      p !== null && p.gap > 200 && p.gap < 600 // 3:20–10:00/km
+      p !== null && p.gap > 200 && p.gap < 391 // 3:20–6:31/km (OL paces excluded upstream)
     );
 
   if (points.length < 40) return null;
@@ -415,7 +415,7 @@ export function estimateZonesFromStatisticalAnalysis(
   const totalVar = hrArr.reduce((s, v) => s + (v - meanHR) ** 2, 0);
   const rSquared = Math.max(0, Math.round((1 - bestErr / totalVar) * 100) / 100);
 
-  if (rSquared < 0.72) return null; // raised threshold — require clearer HR-pace signal
+  if (rSquared < 0.62) return null;
 
   const lt1PaceSecPerKm = paceArr[bp1];
   const lt2PaceSecPerKm = paceArr[bp2];
@@ -427,7 +427,7 @@ export function estimateZonesFromStatisticalAnalysis(
   if (lt2HR >= maxHR * 0.98) return null;
   if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70) return null; // thresholds too low — bad data
   // Breakpoints must be in physiologically plausible pace ranges
-  if (lt1PaceSecPerKm < 240 || lt1PaceSecPerKm > 500) return null; // LT1 at 4:00–8:20/km
+  if (lt1PaceSecPerKm < 240 || lt1PaceSecPerKm > 380) return null; // LT1 at 4:00–6:20/km
   if (lt2PaceSecPerKm < 200 || lt2PaceSecPerKm > 420) return null; // LT2 at 3:20–7:00/km
   if (lt2PaceSecPerKm >= lt1PaceSecPerKm) return null; // LT2 must be faster than LT1
 

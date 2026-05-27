@@ -39,7 +39,7 @@ export function Sidebar() {
     <>
       {/* Logo */}
       <div className="flex h-16 items-end px-4 pb-3 border-b border-border justify-between">
-        <LogoWordmark size={28} />
+        <LogoWordmark size={34} />
         <button onClick={close} className="md:hidden p-1.5 rounded-lg text-muted hover:text-primary transition">
           <X size={18} />
         </button>

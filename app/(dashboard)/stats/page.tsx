@@ -110,7 +110,7 @@ export default async function StatsPage() {
   const cacheAge = fitnessCache?.computedAt
     ? now.getTime() - new Date(fitnessCache.computedAt).getTime()
     : Infinity;
-  const cacheReady = cacheAge < CACHE_TTL_MS && !!fitnessCache?.weeklyVolumeJson;
+  const cacheReady = cacheAge < CACHE_TTL_MS && !!fitnessCache?.weeklyVolumeJson && !!fitnessCache?.extraVizJson;
 
   // ── HR zones — prefer calibrated zones from cache, fall back to default formula ──
   const restHR = profile?.restingHeartRate ?? garminRecent.at(-1)?.restingHR ?? 50;
@@ -702,7 +702,12 @@ export default async function StatsPage() {
 
   // Statistical zone estimation from all running data
   const statZones = estimateZonesFromStatisticalAnalysis(
-    activities.filter((a: A) => /run|trail/i.test(a.sportType) && a.averageHeartrate).map((a: A) => ({
+    activities.filter((a: A) =>
+      /run|trail/i.test(a.sportType) &&
+      a.averageHeartrate &&
+      !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer/i.test(a.name ?? "") &&
+      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 255))
+    ).map((a: A) => ({
       avgHR: a.averageHeartrate!,
       distanceM: a.distance,
       movingTimeSec: a.movingTime,

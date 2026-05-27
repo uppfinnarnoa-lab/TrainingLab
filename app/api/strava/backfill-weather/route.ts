@@ -2,6 +2,22 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { fetchAndSaveWeather } from "@/lib/weather/open-meteo";
 
+function decodeFirstPoint(polyline: string): [number, number] | null {
+  if (polyline.length < 2) return null;
+  let index = 0, lat = 0, lon = 0;
+  for (const isLat of [true, false]) {
+    let result = 0, shift = 0, b: number;
+    do {
+      b = polyline.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const delta = result & 1 ? ~(result >> 1) : result >> 1;
+    if (isLat) lat += delta; else lon += delta;
+  }
+  return [lat / 1e5, lon / 1e5];
+}
+
 /** GET — how many activities are missing weather data */
 export async function GET() {
   const session = await auth();
@@ -9,8 +25,12 @@ export async function GET() {
   const userId = session.user.id;
 
   const [total, done] = await Promise.all([
-    prisma.activity.count({ where: { userId, startLat: { not: null } } }),
-    prisma.activity.count({ where: { userId, startLat: { not: null }, weatherTemp: { not: null } } }),
+    prisma.activity.count({
+      where: { userId, OR: [{ startLat: { not: null } }, { mapPolyline: { not: null } }] },
+    }),
+    prisma.activity.count({
+      where: { userId, weatherTemp: { not: null }, OR: [{ startLat: { not: null } }, { mapPolyline: { not: null } }] },
+    }),
   ]);
 
   return Response.json({ total, done, remaining: total - done });
@@ -29,9 +49,16 @@ export async function POST() {
     async start(controller) {
       try {
         const pending = await prisma.activity.findMany({
-          where: { userId, weatherTemp: null, startLat: { not: null }, startLng: { not: null } },
+          where: {
+            userId,
+            weatherTemp: null,
+            OR: [
+              { startLat: { not: null }, startLng: { not: null } },
+              { mapPolyline: { not: null } },
+            ],
+          },
           orderBy: { startDate: "asc" },
-          select: { id: true, startLat: true, startLng: true, startDate: true },
+          select: { id: true, startLat: true, startLng: true, startDate: true, mapPolyline: true },
         });
 
         const total = pending.length;
@@ -40,8 +67,18 @@ export async function POST() {
         let done = 0, errors = 0;
 
         for (const act of pending) {
+          let lat = act.startLat;
+          let lng = act.startLng;
+
+          if ((lat == null || lng == null) && act.mapPolyline) {
+            const pt = decodeFirstPoint(act.mapPolyline);
+            if (pt) { lat = pt[0]; lng = pt[1]; }
+          }
+
+          if (lat == null || lng == null) { errors++; continue; }
+
           try {
-            await fetchAndSaveWeather(act.id, act.startLat!, act.startLng!, act.startDate);
+            await fetchAndSaveWeather(act.id, lat, lng, act.startDate);
             done++;
             if (done % 20 === 0 || done === total) {
               controller.enqueue(send({ type: "progress", done, total, errors }));

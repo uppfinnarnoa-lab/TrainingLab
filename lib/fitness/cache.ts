@@ -4,7 +4,8 @@
  * AUTO (after every Strava sync):
  *   updateVO2maxAndPaces() — computes and caches everything:
  *   VO2max, VDOT, paces, ATL/CTL/TSB, ACWR, weekly volumes,
- *   zone seconds, polarisation, race predictions.
+ *   zone seconds, polarisation, race predictions, extraViz (VDOT trend,
+ *   heatmap, monthly overlay, intensity profile, terrain factor), statZones.
  *   Stats page reads from this cache instead of recomputing on every load.
  *
  * MANUAL (button press only):
@@ -207,6 +208,114 @@ export async function updateVO2maxAndPaces(userId: string) {
     return { label, meters, peak, today: tsbAdjustedRaceTime(peak, todayLoad.tsb), riegel, rangeLo: range.lo, rangeHi: range.hi };
   });
 
+  // ── Extra visualizations — derived from activity data, updated every sync ──
+  type ZM = { z3: [number, number]; z4: [number, number] };
+  const ezHz = existingZones as ZM | null;
+  const evLt1 = ezHz?.z3?.[0] ?? Math.round(maxHR * 0.78);
+  const evLt2 = ezHz?.z4?.[0] ?? Math.round(maxHR * 0.88);
+
+  const heatmapData: { week: string; km: number }[] = [];
+  {
+    const wm = new Map<string, number>();
+    const threeYearsAgo = subDays(now, 3 * 365);
+    for (const a of activities as Act[]) {
+      if (a.startDate < threeYearsAgo) continue;
+      const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      wm.set(wk, (wm.get(wk) ?? 0) + a.distance / 1000);
+    }
+    for (const [week, km] of wm) heatmapData.push({ week, km: Math.round(km * 10) / 10 });
+    heatmapData.sort((a, b) => a.week.localeCompare(b.week));
+  }
+
+  const monthlyOverlay: { month: string; year: number; km: number }[] = [];
+  {
+    const mm = new Map<string, number>();
+    for (const a of activities as Act[]) {
+      const key = `${a.startDate.getFullYear()}-${format(a.startDate, "MM")}`;
+      mm.set(key, (mm.get(key) ?? 0) + a.distance / 1000);
+    }
+    const yr = now.getFullYear();
+    for (let y = yr - 2; y <= yr; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const mo = String(m).padStart(2, "0");
+        monthlyOverlay.push({ month: mo, year: y, km: Math.round(mm.get(`${y}-${mo}`) ?? 0) });
+      }
+    }
+  }
+
+  const intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[] = [];
+  {
+    const mm = new Map<string, { easy: number; tempo: number; hard: number }>();
+    for (const a of activities as Act[]) {
+      if (!a.averageHeartrate || a.distance < 2000) continue;
+      const key = format(a.startDate, "yyyy-MM");
+      if (!mm.has(key)) mm.set(key, { easy: 0, tempo: 0, hard: 0 });
+      const e = mm.get(key)!;
+      const min = a.movingTime / 60;
+      if (a.averageHeartrate < evLt1) e.easy += min;
+      else if (a.averageHeartrate < evLt2) e.tempo += min;
+      else e.hard += min;
+    }
+    for (const [month, d] of [...mm.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-24)) {
+      intensityProfile.push({ month, easyMin: Math.round(d.easy), tempoMin: Math.round(d.tempo), hardMin: Math.round(d.hard) });
+    }
+  }
+
+  const vdotTrend: { month: string; vdot: number }[] = [];
+  {
+    for (let i = 0; i < 30; i++) {
+      const windowEnd = subDays(now, i * 30);
+      const windowStart = subDays(windowEnd, 90);
+      const windowActs = (activities as Act[]).filter(a => a.startDate >= windowStart && a.startDate <= windowEnd);
+      if (windowActs.length < 5) continue;
+      const v = estimateVO2max(
+        windowActs.map(a => ({ distanceM: a.distance, timeSec: a.movingTime, avgHR: a.averageHeartrate, isRace: a.isRace, sportType: a.sportType, name: a.name, startDate: a.startDate })),
+        maxHR, restHR,
+      );
+      const month = format(windowEnd, "yyyy-MM");
+      if (!vdotTrend.find(x => x.month === month)) vdotTrend.push({ month, vdot: Math.round(v.vdot * 10) / 10 });
+    }
+    vdotTrend.sort((a, b) => a.month.localeCompare(b.month));
+  }
+
+  const terrainFactor = (() => {
+    const olRuns = (activities as Act[]).filter(a =>
+      /orienteer|ol\b|ol-|olpass/i.test(a.sportType) || /\bol\b|\borienteringsl|\bskogsl/i.test(a.name ?? "")
+    );
+    const roadRuns = (activities as Act[]).filter(a =>
+      /run|trail/i.test(a.sportType) && a.averageSpeed && a.averageHeartrate &&
+      a.averageHeartrate > evLt1 * 0.9 && a.averageHeartrate < evLt2 &&
+      !/orienteer|ol\b/i.test(a.sportType) && !/\bol\b/i.test(a.name ?? "")
+    );
+    const olWithSpeed = olRuns.filter(a => a.averageSpeed);
+    const roadWithSpeed = roadRuns.filter(a => a.averageSpeed);
+    if (olWithSpeed.length < 5 || roadWithSpeed.length < 10) return null;
+    return {
+      olPaceSecPerKm: Math.round(olWithSpeed.reduce((s, a) => s + 1000 / a.averageSpeed!, 0) / olWithSpeed.length),
+      roadPaceSecPerKm: Math.round(roadWithSpeed.reduce((s, a) => s + 1000 / a.averageSpeed!, 0) / roadWithSpeed.length),
+      olSessions: olRuns.length,
+      roadSessions: roadRuns.length,
+    };
+  })();
+
+  const statZonesResult = estimateZonesFromStatisticalAnalysis(
+    (activities as Act[]).filter(a =>
+      /run|trail/i.test(a.sportType) &&
+      a.averageHeartrate &&
+      !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer/i.test(a.name ?? "") &&
+      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 255))
+    ).map(a => ({
+      avgHR: a.averageHeartrate!,
+      distanceM: a.distance,
+      movingTimeSec: a.movingTime,
+      totalElevationGain: a.totalElevationGain,
+      startDate: a.startDate,
+    })),
+    maxHR, restHR,
+  );
+
+  const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear: [] };
+
   // ── Persist to cache ───────────────────────────────────────────────────
   const sharedFields = {
     vo2max:     vo2maxResult.value,
@@ -227,6 +336,8 @@ export async function updateVO2maxAndPaces(userId: string) {
     decouplingRunsUsed: decouplingResult?.runsUsed ?? undefined,
     criticalSpeedMs:   csResult?.csMetersPerSec   ?? undefined,
     wPrimeMeters:      csResult?.wPrimeMeters      ?? undefined,
+    extraVizJson:   extraVizJson as object,
+    statZonesJson:  (statZonesResult ?? null) as object | null,
   };
 
   await prisma.fitnessCache.upsert({
@@ -334,8 +445,13 @@ export async function updateHRZones(userId: string) {
   // Uses all running activities, finds LT1/LT2 as deflection points in the
   // HR-pace curve. Applied directly when R² ≥ 0.80 (high confidence).
   const statRuns = acts
-    .filter(a => a.averageHeartrate && /run|trail/i.test(a.sportType)
-      && a.distance >= 4000 && a.movingTime >= 900)
+    .filter(a =>
+      a.averageHeartrate &&
+      /run|trail/i.test(a.sportType) &&
+      a.distance >= 4000 && a.movingTime >= 900 &&
+      !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer/i.test(a.name ?? "") &&
+      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 255))
+    )
     .map(a => ({
       avgHR: a.averageHeartrate!,
       distanceM: a.distance,
