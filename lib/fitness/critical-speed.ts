@@ -17,11 +17,14 @@ export function estimateCriticalSpeed(
   bestEfforts: Array<{ distance: number; elapsed_time: number }>,
   racePBs?: Array<{ distanceM: number; timeSec: number }>,
 ): CriticalSpeedResult | null {
-  // Merge both sources; race PBs take priority for the same distance
+  // Merge both sources; race PBs take priority for the same distance.
+  // Upper bound is 15 000 m (≈15K): distances above that are run below CS pace
+  // (HM, marathon) and would pull the linear fit toward an underestimate.
+  const CS_MAX_DIST = 15_000;
   const merged = new Map<number, number>(); // distance → best time
 
   for (const e of bestEfforts) {
-    if (e.distance >= 200 && e.distance <= 10000 && e.elapsed_time > 0) {
+    if (e.distance >= 200 && e.distance <= CS_MAX_DIST && e.elapsed_time > 0) {
       const d = Math.round(e.distance);
       if (!merged.has(d) || merged.get(d)! > e.elapsed_time) merged.set(d, e.elapsed_time);
     }
@@ -29,7 +32,7 @@ export function estimateCriticalSpeed(
 
   if (racePBs) {
     for (const r of racePBs) {
-      if (r.distanceM >= 200 && r.distanceM <= 10000 && r.timeSec > 0) {
+      if (r.distanceM >= 200 && r.distanceM <= CS_MAX_DIST && r.timeSec > 0) {
         const d = Math.round(r.distanceM);
         // Race PBs override activity best-efforts for the same distance
         if (!merged.has(d) || merged.get(d)! > r.timeSec) merged.set(d, r.timeSec);
@@ -38,7 +41,8 @@ export function estimateCriticalSpeed(
   }
 
   const usable = [...merged.entries()].map(([distance, elapsed_time]) => ({ distance, elapsed_time }));
-  if (usable.length < 3) return null;
+  // 2 points are enough for a linear regression (5K + 10K is a common and valid pair)
+  if (usable.length < 2) return null;
 
   // Linear regression: time/distance = CS_inv + W'/distance
   // i.e. y = a + b*x  where  y = time/distance, x = 1/distance

@@ -871,7 +871,7 @@ function HRZoneTable({ hrZones, ltBounds, decouplingLt1HR, criticalSpeedMs, manu
             <span className="text-xs text-muted">
               Critical Speed
               {criticalSpeedMs == null && (
-                <span className="ml-1 text-[10px] text-warning">(requires best efforts via backfill)</span>
+                <span className="ml-1 text-[10px] text-warning">(needs ≥ 2 PBs in 200–15 000 m range)</span>
               )}
             </span>
             <span className={`font-mono text-sm font-semibold ${criticalSpeedMs != null ? "text-primary" : "text-muted"}`}>
