@@ -8,6 +8,7 @@ import { WeeklyVolumeChart } from "@/components/charts/WeeklyVolumeChart";
 import { TrainingLoadChart } from "@/components/charts/TrainingLoadChart";
 import { HRZonesChart } from "@/components/charts/HRZonesChart";
 import { EasyPaceTrendChart } from "@/components/charts/EasyPaceTrendChart";
+import { HRZoneHistoryChart } from "@/components/charts/HRZoneHistoryChart";
 import { MetricTooltip } from "@/components/stats/metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
@@ -69,6 +70,7 @@ interface Props {
     monthlyOverlay: { month: string; year: number; km: number }[];
     intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
     vdotTrend: { month: string; vdot: number }[];
+    hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];
   } | null;
@@ -248,7 +250,7 @@ export function StatsClient(props: Props) {
           <PolarisationCard pol={polarisation} zoneSeconds={zoneSeconds} />
 
           {/* HR zone table with LT/AT boundaries */}
-          <HRZoneTable hrZones={hrZones} ltBounds={ltBounds} decouplingLt1HR={decouplingLt1HR} criticalSpeedMs={criticalSpeedMs} criticalSpeedRSq={criticalSpeedRSq} manualMaxHR={manualMaxHR} manualRestHR={manualRestHR} />
+          <HRZoneTable hrZones={hrZones} ltBounds={ltBounds} decouplingLt1HR={decouplingLt1HR} criticalSpeedMs={criticalSpeedMs} criticalSpeedRSq={criticalSpeedRSq} manualMaxHR={manualMaxHR} manualRestHR={manualRestHR} lt1PaceSecPerKm={statZones?.lt1PaceSecPerKm ?? 0} />
         </div>
       )}
 
@@ -392,6 +394,13 @@ export function StatsClient(props: Props) {
 
           {/* VDOT trend over time */}
           <VdotTrendCard data={extraViz?.vdotTrend ?? []} />
+
+          {/* LT1/LT2/maxHR history */}
+          <div className="rounded-xl border border-border p-4 space-y-3">
+            <p className="text-sm font-semibold text-primary">HR threshold history (6-month rolling windows)</p>
+            <HRZoneHistoryChart data={extraViz?.hrZoneHistory ?? []} />
+            <p className="text-[10px] text-muted">LT1 rising relative to maxHR indicates improving aerobic base.</p>
+          </div>
 
           {/* OL terrain factor */}
           <TerrainFactorCard tf={extraViz?.terrainFactor ?? null} />
@@ -760,7 +769,7 @@ const ZONE_META = [
   { key: "z5", label: "Z5", name: "VO2max",    color: "#EF4444", purpose: "Above LT2 — develops top-end aerobic power" },
 ];
 
-function HRZoneTable({ hrZones, ltBounds, decouplingLt1HR, criticalSpeedMs, criticalSpeedRSq, manualMaxHR, manualRestHR }: {
+function HRZoneTable({ hrZones, ltBounds, decouplingLt1HR, criticalSpeedMs, criticalSpeedRSq, manualMaxHR, manualRestHR, lt1PaceSecPerKm }: {
   hrZones: HRZones;
   ltBounds: { lt1: number; lt2: number; ltTrainingRange: [number, number]; atTrainingRange: [number, number] };
   decouplingLt1HR?: number | null;
@@ -768,6 +777,7 @@ function HRZoneTable({ hrZones, ltBounds, decouplingLt1HR, criticalSpeedMs, crit
   criticalSpeedRSq?: number | null;
   manualMaxHR?: number | null;
   manualRestHR?: number | null;
+  lt1PaceSecPerKm?: number;
 }) {
   const zones: Record<string, [number, number]> = {
     z1: hrZones.z1, z2: hrZones.z2, z3: hrZones.z3, z4: hrZones.z4, z5: hrZones.z5,
@@ -871,6 +881,18 @@ function HRZoneTable({ hrZones, ltBounds, decouplingLt1HR, criticalSpeedMs, crit
                 : "Large divergence — run backfill for more training data."}
             </p>
           )}
+          {(() => {
+            if (!criticalSpeedMs || !lt1PaceSecPerKm || lt1PaceSecPerKm <= 0) return null;
+            const csPace = 1000 / criticalSpeedMs;
+            const lo = csPace * 1.10, hi = csPace * 1.30;
+            if (lt1PaceSecPerKm >= lo && lt1PaceSecPerKm <= hi) return null;
+            const tooSlow = lt1PaceSecPerKm > hi;
+            return (
+              <p className="text-[10px] text-warning pt-0.5">
+                ⚠ LT1 pace ({Math.floor(lt1PaceSecPerKm/60)}:{String(Math.round(lt1PaceSecPerKm)%60).padStart(2,"0")}/km) is {tooSlow ? "slower" : "faster"} than the CS-derived range ({Math.floor(lo/60)}:{String(Math.round(lo)%60).padStart(2,"0")}–{Math.floor(hi/60)}:{String(Math.round(hi)%60).padStart(2,"0")}/km). Consider manual calibration.
+              </p>
+            );
+          })()}
         </div>
       </div>
 

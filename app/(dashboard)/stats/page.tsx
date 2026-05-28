@@ -154,6 +154,7 @@ export default async function StatsPage() {
       monthlyOverlay: { month: string; year: number; km: number }[];
       intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
       vdotTrend: { month: string; vdot: number }[];
+      hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[];
       terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
       perfByDistYear: { distance: string; period: string; time: number }[];
     } | null;
@@ -725,16 +726,21 @@ export default async function StatsPage() {
     .map(a => ({ avgHR: a.averageHeartrate!, distanceM: a.distance, movingTimeSec: a.movingTime, totalElevationGain: a.totalElevationGain, startDate: a.startDate, isRace: a.isRace }));
   const statLapRuns = (activities as SlowAct[])
     .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterSlow(a) && Array.isArray(a.laps))
-    .flatMap(a => (a.laps as SlowLapRow[]).filter(l =>
-      l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
-    ).map(l => ({
-      avgHR: l.average_heartrate!,
-      distanceM: l.distance,
-      movingTimeSec: l.moving_time,
-      totalElevationGain: l.total_elevation_gain ?? 0,
-      startDate: (a as A).startDate,
-      isRace: (a as A).isRace,
-    })));
+    .flatMap(a => {
+      const actMaxHR = (a as A).maxHeartrate ?? 0;
+      const isHardActivity = actMaxHR > computedMaxHR * 0.87;
+      return (a.laps as SlowLapRow[]).filter(l =>
+        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
+        (!isHardActivity || l.average_heartrate > computedMaxHR * 0.80)
+      ).map(l => ({
+        avgHR: l.average_heartrate!,
+        distanceM: l.distance,
+        movingTimeSec: l.moving_time,
+        totalElevationGain: l.total_elevation_gain ?? 0,
+        startDate: (a as A).startDate,
+        isRace: (a as A).isRace,
+      }));
+    });
   const statZones = estimateZonesFromStatisticalAnalysis(
     [...statActRuns, ...statLapRuns],
     computedMaxHR, restHR,
@@ -746,11 +752,43 @@ export default async function StatsPage() {
 
   const easyPaceTrend = computeEasyPaceTrend(activities as EasyPaceAct[], computedHrZones.z3[0]);
 
+  const hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[] = [];
+  for (let i = 9; i >= 0; i--) {
+    const windowEnd = subDays(now, i * 90);
+    const windowStart = subDays(windowEnd, 180);
+    const windowActs = (activities as SlowAct[]).filter(a => a.startDate >= windowStart && a.startDate <= windowEnd);
+    const winActRuns = windowActs
+      .filter(a => /run|trail/i.test(a.sportType) && a.averageHeartrate && olRaceFilterSlow(a))
+      .map(a => ({ avgHR: (a as A).averageHeartrate!, distanceM: a.distance, movingTimeSec: (a as A).movingTime, totalElevationGain: (a as A).totalElevationGain, startDate: a.startDate, isRace: (a as A).isRace }));
+    const winLapRuns = windowActs
+      .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterSlow(a) && Array.isArray(a.laps))
+      .flatMap(a => {
+        const actMaxHR = (a as A).maxHeartrate ?? 0;
+        const isHardActivity = actMaxHR > computedMaxHR * 0.87;
+        return (a.laps as SlowLapRow[]).filter(l =>
+          l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
+          (!isHardActivity || l.average_heartrate > computedMaxHR * 0.80)
+        ).map(l => ({
+          avgHR: l.average_heartrate!,
+          distanceM: l.distance,
+          movingTimeSec: l.moving_time,
+          totalElevationGain: l.total_elevation_gain ?? 0,
+          startDate: (a as A).startDate,
+          isRace: (a as A).isRace,
+        }));
+      });
+    const winResult = estimateZonesFromStatisticalAnalysis([...winActRuns, ...winLapRuns], computedMaxHR, restHR);
+    if (!winResult) continue;
+    const month = format(windowEnd, "yyyy-MM");
+    if (!hrZoneHistory.find(x => x.month === month))
+      hrZoneHistory.push({ month, lt1HR: winResult.lt1HR, lt2HR: winResult.lt2HR, maxHR: computedMaxHR });
+  }
+
   // Save extraViz + statZones to cache for fast-path reads (fire-and-forget)
   prisma.fitnessCache.update({
     where: { userId },
     data: {
-      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear } as Prisma.InputJsonValue,
+      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, hrZoneHistory, terrainFactor: terrainFactor ?? null, perfByDistYear } as Prisma.InputJsonValue,
       statZonesJson:    (statZones     ?? null) as unknown as Prisma.InputJsonValue,
       statZonesLapsJson:(statZonesLaps ?? null) as unknown as Prisma.InputJsonValue,
     },
@@ -760,7 +798,7 @@ export default async function StatsPage() {
     zoneSeconds, computedHrZones, vo2max, effectivePaceZones, predictions, polarisation, acwr, statZones, overviewRun,
     { aeiByWeek, reByWeek, rampRate, injuryRisk, activeStreak, tempSensitivity }, paceZoneSeconds,
     modelPredictions, modelVdots,
-    { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear },
+    { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, hrZoneHistory, terrainFactor, perfByDistYear },
     fitnessCache?.decouplingLt1HR ?? null, liveCriticalSpeedMs, liveCsRSq,
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
     easyPaceTrend, statZonesLaps);
@@ -803,6 +841,7 @@ function renderStats(
     monthlyOverlay: { month: string; year: number; km: number }[];
     intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
     vdotTrend: { month: string; vdot: number }[];
+    hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];
   } | null,

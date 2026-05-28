@@ -423,15 +423,23 @@ export function estimateZonesFromStatisticalAnalysis(
   // to the dense easy-run buckets, preventing regression bias toward the easy end
   const bucketWeights = mono.map(b => 1 / Math.sqrt(b.count));
 
-  let bestErr = Infinity, bp1 = 2, bp2 = 4;
-  for (let i = 1; i < nb - 3; i++) {
-    for (let j = i + 2; j < nb - 1; j++) {
-      const err = segErr(paceArr, hrArr, 0, i, bucketWeights) +
-                  segErr(paceArr, hrArr, i, j, bucketWeights) +
-                  segErr(paceArr, hrArr, j, nb - 1, bucketWeights);
-      if (err < bestErr) { bestErr = err; bp1 = i; bp2 = j; }
-    }
+  // LT2 (bp1): 2-segment LS search — large slope change makes LS reliable here
+  let lt2Err = Infinity, bp1 = 2;
+  for (let i = 1; i < nb - 2; i++) {
+    const err = segErr(paceArr, hrArr, 0, i, bucketWeights) +
+                segErr(paceArr, hrArr, i, nb - 1, bucketWeights);
+    if (err < lt2Err) { lt2Err = err; bp1 = i; }
   }
+
+  // LT1 (bp2): D-max on the easy-zone sub-curve [bp1..nb-1].
+  // LS is biased for subtle slope changes (Baek 2018); D-max is geometry-based and unbiased.
+  let bp2 = Math.min(bp1 + 2, nb - 2);
+  const dMaxIdx = dMaxLT1(paceArr, hrArr, bp1, nb);
+  if (dMaxIdx !== null) bp2 = dMaxIdx;
+
+  const bestErr = segErr(paceArr, hrArr, 0, bp1, bucketWeights) +
+                  segErr(paceArr, hrArr, bp1, bp2, bucketWeights) +
+                  segErr(paceArr, hrArr, bp2, nb - 1, bucketWeights);
 
   // Weighted R² — consistent with the weighted fit
   const totalBW = bucketWeights.reduce((s, w) => s + w, 0);
@@ -475,6 +483,39 @@ export function estimateZonesFromStatisticalAnalysis(
   if (!ensureValidZones(zones)) return null;
 
   return { lt1HR, lt2HR, lt1PaceSecPerKm, lt2PaceSecPerKm, rSquared, bucketCount: buckets.length, zones };
+}
+
+/**
+ * D-max method for LT1: finds the index in pace[lt2Idx..n-1] with maximum positive
+ * deviation above the chord from (pace[lt2Idx], hr[lt2Idx]) to (pace[n-1], hr[n-1]).
+ *
+ * Physiological basis: the threshold zone (LT2→LT1) has a shallower HR:pace slope than
+ * the easy zone (LT1→slowest). The chord lies between these two slopes, so the threshold
+ * zone sits above the chord and the easy zone below. LT1 = the point of maximum deviation
+ * above the chord (the transition from above-chord to below-chord).
+ *
+ * Superior to LS for LT1 because LS is biased toward the data-dense easy zone for subtle
+ * slope changes (Baek 2018, arxiv:1811.03720).
+ */
+function dMaxLT1(pace: number[], hr: number[], lt2Idx: number, n: number): number | null {
+  if (n - lt2Idx < 3) return null;
+  const ax = pace[lt2Idx], ay = hr[lt2Idx]; // LT2 anchor
+  const bx = pace[n - 1],  by = hr[n - 1];  // slowest anchor
+  const pRange = bx - ax;
+  const hRange = ay - by;
+  if (pRange <= 0 || hRange <= 0) return null;
+
+  let maxDev = 0, maxIdx = -1;
+  for (let i = lt2Idx + 1; i < n - 1; i++) {
+    const px = (pace[i] - ax) / pRange;
+    const py = (hr[i]   - by) / hRange;
+    // Deviation above the diagonal chord (0,1)→(1,0) in normalised space
+    const dev = py - (1 - px);
+    if (dev > maxDev) { maxDev = dev; maxIdx = i; }
+  }
+
+  // Require ≥ 3% normalised deviation — if curve is nearly linear there is no LT1 signal
+  return maxDev >= 0.03 && maxIdx !== -1 ? maxIdx : null;
 }
 
 function poolAdjacentViolators(buckets: BucketPoint[]): BucketPoint[] {

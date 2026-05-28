@@ -25,18 +25,6 @@ _Datum-format: ÅÅÅÅ-MM-DD. Flytta till archive när implementerat._
 
 ---
 
-### 2026-05-28 · Tanaka-formel som UI-hint i Settings
-
-**Vad**: När `dateOfBirth` är satt i AthleteProfile, visa `208 − 0.7 × ålder` som informationstext bredvid maxHR-fältet i Settings.
-
-**Exempel**: "Åldersformel (Tanaka): 183 bpm" i muted text under inputfältet.
-
-**Varför inte automatisk korrigering**: Tanaka ±18 bpm 95% CI — för stor individuell variation. Se arkiverad `bucket-estimator-improvements.md` Item D för fullständig analys.
-
-**Fil**: `app/(dashboard)/settings/page.tsx` — beräkna och rendera som hjälptext, ingen logikändring.
-
----
-
 ### 2026-05-28 · CS som valideringssignal för LT1
 
 **Vad**: Critical Speed (CS) ligger nära LT2/MLSS. Eftersom VT1/VT2-hastighetskvot ≈ 0.844, bör LT1-hastigheten ligga i [CS × 0.77, CS × 0.91]. Om bucket-estimatorn returnerar ett LT1 utanför detta intervall → visa varning i kalibreringspanelen.
