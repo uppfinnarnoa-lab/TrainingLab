@@ -437,15 +437,18 @@ export function estimateZonesFromStatisticalAnalysis(
   const dMaxIdx = dMaxLT1(paceArr, hrArr, bp1, nb);
   if (dMaxIdx !== null) bp2 = dMaxIdx;
 
-  // R² uses the optimal 3-segment LS fit as a data-quality metric (independent of LT1 method).
-  // D-max gives a physiologically better LT1 but higher LS error — computing R² from the
-  // D-max fit would artificially lower it and cause false rejections.
+  // R² uses the jointly-optimal 3-segment LS fit as a data-quality metric.
+  // D-max gives a physiologically better LT1 but the 2-segment-derived bp1 may
+  // differ from the joint-optimal bp1 — fixing bp1 first and searching bp2 alone
+  // underestimates fit quality. Full nested search matches original LS behaviour.
   let bestLSErr = Infinity;
-  for (let j = bp1 + 1; j < nb - 1; j++) {
-    const err = segErr(paceArr, hrArr, 0, bp1, bucketWeights) +
-                segErr(paceArr, hrArr, bp1, j, bucketWeights) +
-                segErr(paceArr, hrArr, j, nb - 1, bucketWeights);
-    if (err < bestLSErr) bestLSErr = err;
+  for (let i = 1; i < nb - 2; i++) {
+    for (let j = i + 1; j < nb - 1; j++) {
+      const err = segErr(paceArr, hrArr, 0, i, bucketWeights) +
+                  segErr(paceArr, hrArr, i, j, bucketWeights) +
+                  segErr(paceArr, hrArr, j, nb - 1, bucketWeights);
+      if (err < bestLSErr) bestLSErr = err;
+    }
   }
 
   // Weighted R² — consistent with the weighted fit
