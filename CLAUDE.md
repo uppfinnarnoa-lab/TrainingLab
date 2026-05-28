@@ -59,6 +59,7 @@ All project documentation lives in `docs/`. Determine which files apply to your 
 | [docs/fitness/](docs/fitness/) | VO2max models, HR zone research, analytics roadmap |
 
 ## Hard Rules
+- All newly created markdown files that are improvement analyses, implementation plans, bug audits, or research documents **must** be placed in `docs/planning/` — not in `docs/fitness/` or project root
 - Write I/O docs in `docs/` **before** implementing endpoints — see `GlobalDoc/documentation-rules.md`
 - AI context is always summarized — never send raw bulk activity data to the model
 - Strava is the sole source for activities (descriptions are AI context); Garmin only for HRV/sleep
