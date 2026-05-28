@@ -7,7 +7,6 @@ import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces
 import { computeTSS, buildLoadCurve, computeACWR } from "@/lib/fitness/training-load";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace } from "@/lib/fitness/vo2max";
 import { RACE_DISTANCES } from "@/lib/fitness/paces";
-import { estimateCriticalSpeed } from "@/lib/fitness/critical-speed";
 import { subDays, format, startOfWeek, startOfYear } from "date-fns";
 
 type A = {
@@ -59,13 +58,6 @@ export default async function StatsPage() {
       bestPerDist.set(d, { distanceM: r.distanceM, timeSec: r.time, date: r.date });
   }
   const racePBs = [...bestPerDist.values()];
-
-  // Compute CS live from racePBs so it shows immediately without waiting for a sync.
-  // The cache value wins if present; fallback to live calculation.
-  const liveCsResult = estimateCriticalSpeed([], racePBs);
-  const liveCriticalSpeedMs = fitnessCache?.criticalSpeedMs ?? liveCsResult?.csMetersPerSec ?? null;
-  // rSquared === 0 means empirical HM/marathon estimate (no regression possible)
-  const liveCsRSq = fitnessCache?.criticalSpeedMs != null ? null : (liveCsResult?.rSquared ?? null);
 
   // ── Overview: always-fresh aggregates (fast queries, no activity rows needed) ──
   const weekStart  = startOfWeek(now, { weekStartsOn: 1 });
@@ -154,7 +146,6 @@ export default async function StatsPage() {
       monthlyOverlay: { month: string; year: number; km: number }[];
       intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
       vdotTrend: { month: string; vdot: number }[];
-      hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[];
       terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
       perfByDistYear: { distance: string; period: string; time: number }[];
     } | null;
@@ -300,7 +291,6 @@ export default async function StatsPage() {
     return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
       fastZoneSeconds, hrZones, vo2max, effectivePaceZones, predictions, fastPolarisation, acwr,
       fastStatZones, overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraViz,
-      fitnessCache.decouplingLt1HR ?? null, liveCriticalSpeedMs, liveCsRSq,
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
       fpEasyPaceTrend, fastStatZonesLaps);
   }
@@ -752,43 +742,11 @@ export default async function StatsPage() {
 
   const easyPaceTrend = computeEasyPaceTrend(activities as EasyPaceAct[], computedHrZones.z3[0]);
 
-  const hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[] = [];
-  for (let i = 9; i >= 0; i--) {
-    const windowEnd = subDays(now, i * 90);
-    const windowStart = subDays(windowEnd, 180);
-    const windowActs = (activities as SlowAct[]).filter(a => a.startDate >= windowStart && a.startDate <= windowEnd);
-    const winActRuns = windowActs
-      .filter(a => /run|trail/i.test(a.sportType) && a.averageHeartrate && olRaceFilterSlow(a))
-      .map(a => ({ avgHR: (a as A).averageHeartrate!, distanceM: a.distance, movingTimeSec: (a as A).movingTime, totalElevationGain: (a as A).totalElevationGain, startDate: a.startDate, isRace: (a as A).isRace }));
-    const winLapRuns = windowActs
-      .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterSlow(a) && Array.isArray(a.laps))
-      .flatMap(a => {
-        const actMaxHR = (a as A).maxHeartrate ?? 0;
-        const isHardActivity = actMaxHR > computedMaxHR * 0.87;
-        return (a.laps as SlowLapRow[]).filter(l =>
-          l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
-          (!isHardActivity || l.average_heartrate > computedMaxHR * 0.80)
-        ).map(l => ({
-          avgHR: l.average_heartrate!,
-          distanceM: l.distance,
-          movingTimeSec: l.moving_time,
-          totalElevationGain: l.total_elevation_gain ?? 0,
-          startDate: (a as A).startDate,
-          isRace: (a as A).isRace,
-        }));
-      });
-    const winResult = estimateZonesFromStatisticalAnalysis([...winActRuns, ...winLapRuns], computedMaxHR, restHR);
-    if (!winResult) continue;
-    const month = format(windowEnd, "yyyy-MM");
-    if (!hrZoneHistory.find(x => x.month === month))
-      hrZoneHistory.push({ month, lt1HR: winResult.lt1HR, lt2HR: winResult.lt2HR, maxHR: computedMaxHR });
-  }
-
   // Save extraViz + statZones to cache for fast-path reads (fire-and-forget)
   prisma.fitnessCache.update({
     where: { userId },
     data: {
-      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, hrZoneHistory, terrainFactor: terrainFactor ?? null, perfByDistYear } as Prisma.InputJsonValue,
+      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear } as Prisma.InputJsonValue,
       statZonesJson:    (statZones     ?? null) as unknown as Prisma.InputJsonValue,
       statZonesLapsJson:(statZonesLaps ?? null) as unknown as Prisma.InputJsonValue,
     },
@@ -798,8 +756,7 @@ export default async function StatsPage() {
     zoneSeconds, computedHrZones, vo2max, effectivePaceZones, predictions, polarisation, acwr, statZones, overviewRun,
     { aeiByWeek, reByWeek, rampRate, injuryRisk, activeStreak, tempSensitivity }, paceZoneSeconds,
     modelPredictions, modelVdots,
-    { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, hrZoneHistory, terrainFactor, perfByDistYear },
-    fitnessCache?.decouplingLt1HR ?? null, liveCriticalSpeedMs, liveCsRSq,
+    { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear },
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
     easyPaceTrend, statZonesLaps);
 }
@@ -841,13 +798,9 @@ function renderStats(
     monthlyOverlay: { month: string; year: number; km: number }[];
     intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
     vdotTrend: { month: string; vdot: number }[];
-    hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];
   } | null,
-  decouplingLt1HR?: number | null,
-  criticalSpeedMs?: number | null,
-  criticalSpeedRSq?: number | null,
   manualMaxHR?: number | null,
   manualRestHR?: number | null,
   weatherStats?: WeatherStats,
@@ -882,9 +835,6 @@ function renderStats(
         modelPredictions={modelPredictions ?? {}}
         modelVdots={modelVdots ?? {}}
         extraViz={extraViz ?? null}
-        decouplingLt1HR={decouplingLt1HR ?? null}
-        criticalSpeedMs={criticalSpeedMs ?? null}
-        criticalSpeedRSq={criticalSpeedRSq ?? null}
         manualMaxHR={manualMaxHR ?? null}
         manualRestHR={manualRestHR ?? null}
         weatherStats={weatherStats ?? null}

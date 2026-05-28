@@ -8,7 +8,6 @@ import { WeeklyVolumeChart } from "@/components/charts/WeeklyVolumeChart";
 import { TrainingLoadChart } from "@/components/charts/TrainingLoadChart";
 import { HRZonesChart } from "@/components/charts/HRZonesChart";
 import { EasyPaceTrendChart } from "@/components/charts/EasyPaceTrendChart";
-import { HRZoneHistoryChart } from "@/components/charts/HRZoneHistoryChart";
 import { MetricTooltip } from "@/components/stats/metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
@@ -57,9 +56,6 @@ interface Props {
   paceZoneSeconds: Record<string, number>;
   modelPredictions: Record<string, { label: string; meters: number; peak: number }[]>;
   modelVdots: Record<string, number>;
-  decouplingLt1HR: number | null;
-  criticalSpeedMs: number | null;
-  criticalSpeedRSq: number | null;
   manualMaxHR: number | null;
   manualRestHR: number | null;
   weatherStats: WeatherStats | null;
@@ -70,7 +66,6 @@ interface Props {
     monthlyOverlay: { month: string; year: number; km: number }[];
     intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
     vdotTrend: { month: string; vdot: number }[];
-    hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];
   } | null;
@@ -89,7 +84,7 @@ export function StatsClient(props: Props) {
   const o = sportMode === "run" ? props.overviewRun : props.overview;
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZones, statZonesLaps, analytics, paceZoneSeconds,
-    modelPredictions, modelVdots, extraViz, decouplingLt1HR, criticalSpeedMs, criticalSpeedRSq, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend } = props;
+    modelPredictions, modelVdots, extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -250,7 +245,7 @@ export function StatsClient(props: Props) {
           <PolarisationCard pol={polarisation} zoneSeconds={zoneSeconds} />
 
           {/* HR zone table with LT/AT boundaries */}
-          <HRZoneTable hrZones={hrZones} ltBounds={ltBounds} decouplingLt1HR={decouplingLt1HR} criticalSpeedMs={criticalSpeedMs} criticalSpeedRSq={criticalSpeedRSq} manualMaxHR={manualMaxHR} manualRestHR={manualRestHR} lt1PaceSecPerKm={statZones?.lt1PaceSecPerKm ?? 0} />
+          <HRZoneTable hrZones={hrZones} ltBounds={ltBounds} manualMaxHR={manualMaxHR} manualRestHR={manualRestHR} />
         </div>
       )}
 
@@ -394,13 +389,6 @@ export function StatsClient(props: Props) {
 
           {/* VDOT trend over time */}
           <VdotTrendCard data={extraViz?.vdotTrend ?? []} />
-
-          {/* LT1/LT2/maxHR history */}
-          <div className="rounded-xl border border-border p-4 space-y-3">
-            <p className="text-sm font-semibold text-primary">HR threshold history (6-month rolling windows)</p>
-            <HRZoneHistoryChart data={extraViz?.hrZoneHistory ?? []} />
-            <p className="text-[10px] text-muted">LT1 rising relative to maxHR indicates improving aerobic base.</p>
-          </div>
 
           {/* OL terrain factor */}
           <TerrainFactorCard tf={extraViz?.terrainFactor ?? null} />
@@ -769,15 +757,11 @@ const ZONE_META = [
   { key: "z5", label: "Z5", name: "VO2max",    color: "#EF4444", purpose: "Above LT2 — develops top-end aerobic power" },
 ];
 
-function HRZoneTable({ hrZones, ltBounds, decouplingLt1HR, criticalSpeedMs, criticalSpeedRSq, manualMaxHR, manualRestHR, lt1PaceSecPerKm }: {
+function HRZoneTable({ hrZones, ltBounds, manualMaxHR, manualRestHR }: {
   hrZones: HRZones;
   ltBounds: { lt1: number; lt2: number; ltTrainingRange: [number, number]; atTrainingRange: [number, number] };
-  decouplingLt1HR?: number | null;
-  criticalSpeedMs?: number | null;
-  criticalSpeedRSq?: number | null;
   manualMaxHR?: number | null;
   manualRestHR?: number | null;
-  lt1PaceSecPerKm?: number;
 }) {
   const zones: Record<string, [number, number]> = {
     z1: hrZones.z1, z2: hrZones.z2, z3: hrZones.z3, z4: hrZones.z4, z5: hrZones.z5,
@@ -851,77 +835,6 @@ function HRZoneTable({ hrZones, ltBounds, decouplingLt1HR, criticalSpeedMs, crit
         </div>
       </div>
 
-      {/* Parallel LT1 estimates — model comparison */}
-      <div className="border-t border-border px-4 py-3">
-        <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">LT1 — parallel estimates</p>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">HR-pace regression (active)</span>
-            <span className="font-mono text-sm font-semibold text-primary">{ltBounds.lt1} bpm</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">
-              Aerobic decoupling
-              {decouplingLt1HR === null && (
-                <span className="ml-1 text-[10px] text-warning">(requires backfill)</span>
-              )}
-            </span>
-            <span className={`font-mono text-sm font-semibold ${decouplingLt1HR !== null ? "text-primary" : "text-muted"}`}>
-              {decouplingLt1HR !== null ? `${decouplingLt1HR} bpm` : "—"}
-            </span>
-          </div>
-          {decouplingLt1HR != null && (
-            <p className="text-[10px] text-muted pt-0.5">
-              Difference: {decouplingLt1HR - ltBounds.lt1 > 0 ? "+" : ""}{decouplingLt1HR - ltBounds.lt1} bpm
-              {" · "}
-              {Math.abs(decouplingLt1HR - ltBounds.lt1) <= 3
-                ? "Methods agree well."
-                : Math.abs(decouplingLt1HR - ltBounds.lt1) <= 7
-                ? "Small divergence — more data will improve agreement."
-                : "Large divergence — run backfill for more training data."}
-            </p>
-          )}
-          {(() => {
-            if (!criticalSpeedMs || !lt1PaceSecPerKm || lt1PaceSecPerKm <= 0) return null;
-            const csPace = 1000 / criticalSpeedMs;
-            const lo = csPace * 1.10, hi = csPace * 1.30;
-            if (lt1PaceSecPerKm >= lo && lt1PaceSecPerKm <= hi) return null;
-            const tooSlow = lt1PaceSecPerKm > hi;
-            return (
-              <p className="text-[10px] text-warning pt-0.5">
-                ⚠ LT1 pace ({Math.floor(lt1PaceSecPerKm/60)}:{String(Math.round(lt1PaceSecPerKm)%60).padStart(2,"0")}/km) is {tooSlow ? "slower" : "faster"} than the CS-derived range ({Math.floor(lo/60)}:{String(Math.round(lo)%60).padStart(2,"0")}–{Math.floor(hi/60)}:{String(Math.round(hi)%60).padStart(2,"0")}/km). Consider manual calibration.
-              </p>
-            );
-          })()}
-        </div>
-      </div>
-
-      {/* Parallel LT2 estimates */}
-      <div className="border-t border-border px-4 py-3">
-        <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">LT2 — parallel estimates</p>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">HR-pace regression (active)</span>
-            <span className="font-mono text-sm font-semibold text-primary">{ltBounds.lt2} bpm</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">
-              Critical Speed
-              {criticalSpeedMs == null && (
-                <span className="ml-1 text-[10px] text-warning">(needs ≥ 2 PBs in 200–15 000 m range)</span>
-              )}
-              {criticalSpeedMs != null && criticalSpeedRSq === 0 && (
-                <span className="ml-1 text-[10px] text-warning">~estimated from HM/marathon PB</span>
-              )}
-            </span>
-            <span className={`font-mono text-sm font-semibold ${criticalSpeedMs != null ? "text-primary" : "text-muted"}`}>
-              {criticalSpeedMs != null
-                ? `${Math.round(1000 / criticalSpeedMs / 60)}:${String(Math.round(1000 / criticalSpeedMs) % 60).padStart(2, "0")} /km`
-                : "—"}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

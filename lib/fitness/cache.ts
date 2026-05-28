@@ -280,52 +280,6 @@ export async function updateVO2maxAndPaces(userId: string) {
     vdotTrend.sort((a, b) => a.month.localeCompare(b.month));
   }
 
-  const hrZoneHistory: { month: string; lt1HR: number; lt2HR: number; maxHR: number }[] = [];
-  {
-    for (let i = 9; i >= 0; i--) {
-      const windowEnd = subDays(now, i * 90);
-      const windowStart = subDays(windowEnd, 180);
-      const windowActs = (activities as (Act & { laps?: unknown })[])
-        .filter(a => a.startDate >= windowStart && a.startDate <= windowEnd);
-
-      const winActRuns = windowActs
-        .filter(a => /run|trail/i.test(a.sportType) && a.averageHeartrate && olRaceFilter(a))
-        .map(a => ({
-          avgHR: (a as Act).averageHeartrate!,
-          distanceM: a.distance,
-          movingTimeSec: (a as Act).movingTime,
-          totalElevationGain: (a as Act).totalElevationGain,
-          startDate: a.startDate,
-          isRace: (a as Act).isRace,
-        }));
-
-      const winLapRuns = windowActs
-        .filter(a => /run|trail/i.test(a.sportType) && olRaceFilter(a) && Array.isArray(a.laps))
-        .flatMap(a => {
-          const actMaxHR = (a as Act).maxHeartrate ?? 0;
-          const isHardActivity = actMaxHR > maxHR * 0.87;
-          return (a.laps as LapRow[]).filter(l =>
-            l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
-            (!isHardActivity || l.average_heartrate > maxHR * 0.80)
-          ).map(l => ({
-            avgHR: l.average_heartrate!,
-            distanceM: l.distance,
-            movingTimeSec: l.moving_time,
-            totalElevationGain: l.total_elevation_gain ?? 0,
-            startDate: (a as Act).startDate,
-            isRace: (a as Act).isRace,
-          }));
-        });
-
-      const result = estimateZonesFromStatisticalAnalysis([...winActRuns, ...winLapRuns], maxHR, restHR);
-      if (!result) continue;
-
-      const month = format(windowEnd, "yyyy-MM");
-      if (!hrZoneHistory.find(x => x.month === month))
-        hrZoneHistory.push({ month, lt1HR: result.lt1HR, lt2HR: result.lt2HR, maxHR });
-    }
-  }
-
   const terrainFactor = (() => {
     const olRuns = (activities as Act[]).filter(a =>
       /orienteer|ol\b|ol-|olpass/i.test(a.sportType) || /\bol\b|\borienteringsl|\bskogsl/i.test(a.name ?? "")
@@ -385,7 +339,7 @@ export async function updateVO2maxAndPaces(userId: string) {
     maxHR, restHR,
   );
 
-  const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, hrZoneHistory, terrainFactor: terrainFactor ?? null, perfByDistYear: [] };
+  const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear: [] };
 
   // ── Persist to cache ───────────────────────────────────────────────────
   const sharedFields = {
@@ -564,9 +518,10 @@ export async function updateHRZones(userId: string) {
 
   const statResult = estimateZonesFromStatisticalAnalysis([...statRuns, ...statLapRunsZones], maxHR, restHR);
 
-  let zonesMethod: "statistical" | "race-pbs" | "fallback" | "manual" =
-    lt.source === "race-pbs" ? "race-pbs" : "fallback";
+  let zonesMethod: "statistical" | "race-pbs" | "fallback" | "manual" = "fallback";
   let rSquared: number | undefined;
+  // Default to formula-based zones (standard percentages) when statistical is unavailable
+  hrZones = buildHRZones(maxHR, restHR);
   let calibLT1HR: number = hrZones.z2[1];
   let calibLT2HR: number = hrZones.z4[0];
 
@@ -577,9 +532,9 @@ export async function updateHRZones(userId: string) {
     calibLT1HR = statResult.lt1HR;
     calibLT2HR = statResult.lt2HR;
     console.log(`[zones] Statistical analysis applied: LT1=${statResult.lt1HR}bpm LT2=${statResult.lt2HR}bpm R²=${statResult.rSquared} (${statResult.bucketCount} buckets)`);
-  } else if (statResult) {
-    rSquared = statResult.rSquared;
-    console.log(`[zones] Statistical analysis insufficient: R²=${statResult.rSquared} (${statResult.bucketCount} buckets) — using race-PB method`);
+  } else {
+    if (statResult) rSquared = statResult.rSquared;
+    console.log(`[zones] Statistical analysis insufficient (R²=${statResult?.rSquared ?? "n/a"}) — using formula defaults`);
   }
 
   // Manual LT1/LT2 override — wins over all estimation if both are set.

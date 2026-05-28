@@ -437,15 +437,22 @@ export function estimateZonesFromStatisticalAnalysis(
   const dMaxIdx = dMaxLT1(paceArr, hrArr, bp1, nb);
   if (dMaxIdx !== null) bp2 = dMaxIdx;
 
-  const bestErr = segErr(paceArr, hrArr, 0, bp1, bucketWeights) +
-                  segErr(paceArr, hrArr, bp1, bp2, bucketWeights) +
-                  segErr(paceArr, hrArr, bp2, nb - 1, bucketWeights);
+  // R² uses the optimal 3-segment LS fit as a data-quality metric (independent of LT1 method).
+  // D-max gives a physiologically better LT1 but higher LS error — computing R² from the
+  // D-max fit would artificially lower it and cause false rejections.
+  let bestLSErr = Infinity;
+  for (let j = bp1 + 1; j < nb - 1; j++) {
+    const err = segErr(paceArr, hrArr, 0, bp1, bucketWeights) +
+                segErr(paceArr, hrArr, bp1, j, bucketWeights) +
+                segErr(paceArr, hrArr, j, nb - 1, bucketWeights);
+    if (err < bestLSErr) bestLSErr = err;
+  }
 
   // Weighted R² — consistent with the weighted fit
   const totalBW = bucketWeights.reduce((s, w) => s + w, 0);
   const meanHR = hrArr.reduce((s, v, i) => s + v * bucketWeights[i], 0) / totalBW;
   const totalVar = hrArr.reduce((s, v, i) => s + bucketWeights[i] * (v - meanHR) ** 2, 0);
-  const rSquared = Math.max(0, Math.round((1 - bestErr / totalVar) * 100) / 100);
+  const rSquared = Math.max(0, Math.round((1 - bestLSErr / totalVar) * 100) / 100);
 
   if (rSquared < 0.62) return null;
 
