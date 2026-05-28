@@ -717,11 +717,8 @@ export default async function StatsPage() {
   const statLapRuns = (activities as SlowAct[])
     .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterSlow(a) && Array.isArray(a.laps))
     .flatMap(a => {
-      const actMaxHR = (a as A).maxHeartrate ?? 0;
-      const isHardActivity = actMaxHR > computedMaxHR * 0.87;
       return (a.laps as SlowLapRow[]).filter(l =>
-        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
-        (!isHardActivity || l.average_heartrate > computedMaxHR * 0.80)
+        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
       ).map(l => ({
         avgHR: l.average_heartrate!,
         distanceM: l.distance,
