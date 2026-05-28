@@ -1,7 +1,7 @@
 
 # Bucket Estimator HR Zone Model — Improvement Research
 
-> **Status:** 2026-05-28 — Items 1, 2, 4, 7 implemented. Items 3 and 6 declined. Items 5, 8, 9 under investigation.
+> **Status:** 2026-05-28 — Items 1, 2, 4, 5, 7 implemented. Items 3 and 6 declined. Items 8 and 9 under investigation.
 > **Problem:** LT1 and LT2 estimated systematically too low (zones shifted downward)  
 > **Model file:** `lib/fitness/zones.ts` → `estimateZonesFromStatisticalAnalysis()`
 
@@ -44,26 +44,29 @@ Addressed by 90-day half-life with 180-day fallback.
 
 ---
 
-### 5. Use Race PBs as Anchors for LT2 ⭐⭐⭐⭐⭐
+### 5. Multi-PB weighted-best for LT2 estimation ✅ Implemented
 
-**What:** After the statistical estimate, apply a hard anchor: LT2 must lie within ±10 bpm
-of the HR observed in the athlete's best half-marathon (LT2 ≈ HM race pace ≈ LT2 HR).
-If the statistical estimate is outside this range, bias toward the race-derived estimate.
+**What was changed:** `estimateLTFromRaces()` in `zones.ts` now uses all available PBs instead
+of a single-winner priority waterfall.
 
-**Why it helps:** Race data gives ground-truth LT2. A 1:32 half-marathon is run *at* LT2
-pace. The average HR in that race is the LT2 HR. This is the most direct measurement available.
+**Old behaviour:** HM wins → else 10K wins → else 5K wins → else Riegel extrapolation.
+A conservative old HM PB would permanently suppress the estimate even with a recent max-effort 10K.
 
-**Investigation findings (2026-05-28):**
-- `estimateLTFromRaces()` already computes race-derived LT1/LT2 (via HM → 10K → 5K priority)
-- In `updateHRZones()`, the statistical result COMPLETELY replaces race-PB zones at R² ≥ 0.80 (no blending)
-- If statistical is biased low (R² 0.80–0.90 but systematically underestimating), there is no race-PB backstop
-- Fix: constrained blend — statistical result wins but LT2 cannot be more than 8 bpm below the race-PB estimate:
-  ```ts
-  const floorLT2 = lt.source === "race-pbs" ? lt.lt2HR - 8 : 0;
-  const finalLT2 = Math.max(statResult.lt2HR, floorLT2);
-  ```
-- Risk: Race PBs can be stale (up to 5 years used). A stale PB underestimates current LT, pulling the blend down instead of up. Mitigation: only apply floor from PBs < 18 months old.
-- Conclusion: **Recommended.** Add an 8 bpm floor from recent race-PBs as a safeguard when statistical result succeeds. Low implementation effort, medium-high impact.
+**New behaviour:** All PBs in the 800m–marathon range are converted to implied LT2 pace using
+per-distance calibration factors (HM=×1.00, 10K=×1.065, 5K=×1.135, etc.).
+Each estimate is weighted by:
+- **Reliability** (HM=1.0, 10K=0.85, 5K=0.70, 3K=0.45, 800m=0.20, marathon=0.45)
+- **Recency** (18-month half-life — a 2-year-old PB gets ~26% weight)
+
+Candidates are sorted fastest-first. The weighted mean of the fastest candidates covering ≥35%
+of total reliability weight is used. This ensures:
+- A max-effort recent 10K overrides a conservative old HM (10K gets high enough weight to clear threshold alone)
+- A single noisy 3K PB (low reliability) can't dominate — it needs to accumulate to 35% with other PBs
+
+**Why not use actual race HR?**  
+`RaceRecord` stores no HR field. Even if we joined to `Activity.averageHeartrate`, a conservative
+race would have genuinely lower HR — this would anchor LT2 *lower*, not higher. Pace-derived LT2 is
+more robust because we can cross-validate via multiple distances and apply appropriate calibration factors.
 
 ---
 
@@ -131,8 +134,8 @@ similar signal without relying on label coverage. Revisit only if labels are con
 
 | # | Idea | Expected Impact | Implementation Effort | Status |
 |---|---|---|---|---|
-| 5 | Race PB anchoring floor (8 bpm) | High | Low | Investigate → implement |
-| 8 | Adaptive bin width (FD, clamped) | Low-Medium | Medium | Wait — validate 1/2/4/7 first |
+| 5 | Multi-PB weighted-best for LT2 | High | Medium | ✅ Implemented |
+| 8 | Adaptive bin width (FD, clamped) | Low-Medium | Medium | Wait — validate 1/2/4/5/7 first |
 | 9 | BIC segment-count selection | Low | High | Not recommended |
 | 10 | Strava workout type labels | Low-Medium | Low | Low priority |
 

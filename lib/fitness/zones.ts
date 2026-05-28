@@ -131,42 +131,39 @@ export interface LTBoundaries {
 }
 
 /**
- * Estimate LT1 and LT2 from stored race PBs.
- *
- * Priority: HM → 10K → 5K for LT2.
- * LT2 pace scaling factors from research:
- *   HM pace ≈ LT2 pace (direct, most accurate)
- *   10K pace × 1.065 ≈ LT2 pace
- *   5K pace × 1.135 ≈ LT2 pace
- *
- * Convert pace → HR via linear regression if available.
- * Falls back to % of maxHR if no regression.
+ * Per-distance LT2 conversion: race pace × factor = LT2 pace.
+ * Shorter races are faster than LT2 → factor > 1; marathon is slower → factor < 1.
+ * Reliability reflects how directly the distance maps to LT2 (HM = 1.0, extremes lower).
  */
-/**
- * Extrapolate a PB to 10K equivalent pace using Riegel formula.
- * Reliability falls with extrapolation distance — PBs far from 10K are weighted lower.
- */
-function extrapolateTo10KPaceSecPerKm(
-  pbs: Array<{ distanceM: number; timeSec: number }>,
-): number | null {
-  const usable = pbs.filter(p => p.distanceM >= 800 && p.distanceM <= 42200);
-  if (usable.length === 0) return null;
-  // Riegel: T2 = T1 × (D2/D1)^1.06
-  const candidates = usable.map(p => {
-    const t10K = p.timeSec * Math.pow(10000 / p.distanceM, 1.06);
-    const pace10K = t10K / 10; // sec/km
-    // Weight: closest distances to 10K are most reliable
-    const ratio = Math.min(p.distanceM, 10000) / Math.max(p.distanceM, 10000);
-    const w = ratio ** 2; // quadratic — falls off sharply for very short/long PBs
-    return { pace10K, w };
-  });
-  const totalW = candidates.reduce((s, c) => s + c.w, 0);
-  if (totalW < 0.01) return null;
-  return candidates.reduce((s, c) => s + c.pace10K * c.w, 0) / totalW;
-}
+const LT2_CONVERSIONS: Array<{ lo: number; hi: number; factor: number; rel: number }> = [
+  { lo: 700,   hi: 1200,  factor: 1.30,  rel: 0.20 }, // ~800m — high anaerobic, noisy
+  { lo: 1200,  hi: 2000,  factor: 1.25,  rel: 0.30 }, // ~1500m/mile
+  { lo: 2000,  hi: 4500,  factor: 1.19,  rel: 0.45 }, // ~3K
+  { lo: 4500,  hi: 7000,  factor: 1.135, rel: 0.70 }, // ~5K
+  { lo: 7000,  hi: 12000, factor: 1.065, rel: 0.85 }, // ~10K
+  { lo: 12000, hi: 23000, factor: 1.00,  rel: 1.00 }, // half-marathon (most direct)
+  { lo: 38000, hi: 44000, factor: 0.95,  rel: 0.45 }, // marathon (pacing strategy varies)
+];
 
+/**
+ * Estimate LT1 and LT2 from stored race PBs using a multi-PB weighted-best algorithm.
+ *
+ * All available PBs are converted to an implied LT2 pace using distance-specific
+ * calibration factors, then weighted by:
+ *   - Distance reliability (HM = 1.0 most direct; short/marathon races lower)
+ *   - Recency (18-month half-life — a PB from 2 years ago gets ~26% weight)
+ *
+ * Candidates are sorted fastest-first and the weighted mean of the top-35% fastest
+ * by reliability weight is returned. This naturally handles:
+ *   - "Not max effort" PBs: another distance's harder effort takes over
+ *   - Stale fitness: recent PBs dominate older ones
+ *   - Noisy short-race PBs: low reliability prevents a single 3K from dominating
+ *
+ * LT2 HR is then derived via the HR-pace regression (not from actual race HR, which
+ * would be lower for any non-max-effort race and therefore less reliable as an anchor).
+ */
 export function estimateLTFromRaces(
-  racePBs: Array<{ distanceM: number; timeSec: number }>,
+  racePBs: Array<{ distanceM: number; timeSec: number; date?: Date }>,
   maxHR: number,
   restHR: number,
   regression?: { slope: number; intercept: number } | null,
@@ -178,37 +175,43 @@ export function estimateLTFromRaces(
     };
   }
 
-  const byDist = [...racePBs].sort((a, b) => a.distanceM - b.distanceM);
+  const now = Date.now();
 
-  function paceOf(distM: number): number | null {
-    const match = byDist.find(r => Math.abs(r.distanceM - distM) / distM < 0.08);
-    return match ? match.timeSec / (match.distanceM / 1000) : null;
-  }
+  // Convert each PB to an implied LT2 pace with combined reliability × recency weight
+  const candidates = racePBs
+    .map(pb => {
+      const conv = LT2_CONVERSIONS.find(c => pb.distanceM >= c.lo && pb.distanceM < c.hi);
+      if (!conv) return null;
+      const racePaceSecPerKm = pb.timeSec / (pb.distanceM / 1000);
+      const lt2Pace = racePaceSecPerKm * conv.factor;
+      const monthsOld = pb.date ? (now - pb.date.getTime()) / (1000 * 60 * 60 * 24 * 30) : 24;
+      const recency = Math.exp(-monthsOld / 18); // 18-month half-life
+      return { lt2Pace, weight: conv.rel * recency };
+    })
+    .filter((c): c is { lt2Pace: number; weight: number } => c !== null && c.weight > 0.01);
 
-  const hmPace    = paceOf(21097);
-  const tenKPace  = paceOf(10000);
-  const fiveKPace = paceOf(5000);
-
-  let lt2PaceSecPerKm: number | null = null;
-
-  if (hmPace) {
-    lt2PaceSecPerKm = hmPace;                  // HM pace ≈ LT2 (most accurate)
-  } else if (tenKPace) {
-    lt2PaceSecPerKm = tenKPace * 1.065;        // 10K + 6.5%
-  } else if (fiveKPace) {
-    lt2PaceSecPerKm = fiveKPace * 1.135;       // 5K + 13.5%
-  } else {
-    // No standard-distance PBs — extrapolate from any available PB via Riegel to 10K equivalent
-    const extrapolated10KPace = extrapolateTo10KPaceSecPerKm(racePBs);
-    if (extrapolated10KPace) lt2PaceSecPerKm = extrapolated10KPace * 1.065;
-  }
-
-  if (!lt2PaceSecPerKm) {
+  // Fallback when all PBs are outside the calibrated distance range
+  if (candidates.length === 0) {
     return {
       lt1HR: Math.round(maxHR * 0.82), lt2HR: Math.round(maxHR * 0.88),
       lt1PaceSecPerKm: 0, lt2PaceSecPerKm: 0, source: "default",
     };
   }
+
+  // Sort fastest-first and accumulate until ≥35% of total weight is covered.
+  // This prefers the fastest (highest-fitness) estimates while requiring enough
+  // reliability support to prevent a single noisy PB from dominating.
+  candidates.sort((a, b) => a.lt2Pace - b.lt2Pace);
+  const totalW = candidates.reduce((s, c) => s + c.weight, 0);
+  const threshold = totalW * 0.35;
+  let cumW = 0, sumPaceW = 0;
+  for (const c of candidates) {
+    cumW += c.weight;
+    sumPaceW += c.lt2Pace * c.weight;
+    if (cumW >= threshold) break;
+  }
+
+  const lt2PaceSecPerKm = sumPaceW / cumW;
 
   const lt1PaceSecPerKm = lt2PaceSecPerKm * 1.10; // LT1 ≈ 10% slower than LT2
 
