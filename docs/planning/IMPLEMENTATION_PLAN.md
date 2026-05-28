@@ -1777,11 +1777,42 @@ The cascade checks against the *fast* (lower sec/km) boundary: if `pace >= easy[
 | VDOT race PBs | 0.28 × age-decay (floor ~0.10) | 0.45 × age-decay (floor ~0.16) |
 | TSB-adjusted VDOT | 0.25 | — |
 | HR-form signal | 0.20 | — |
-| Volume-adj. Riegel | 0.12 | 0.18 |
+| Volume-Adjusted Riegel | 0.12 | 0.18 |
 | Critical Speed | 0.05 | 0.08 |
 | Uth-Sørensen | 0.05 | 0.12 |
 | Decay bridge | 0.01 | 0.05 |
 Age-decay: ≤90d → factor 1.0, 540+d → factor 0.35, linear between. All weights renormalized over available models.
+Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riegel" (2026-05-29) to match page.tsx explicit entry and avoid a duplicate model selector button.
+
+**Session 2026-05-29 (zone estimator overhaul + bug fixes):**
+
+**Statistical zone estimator — root cause fixes (zones.ts, cache.ts, page.tsx):**
+- `zones.ts` `estimateZonesFromStatisticalAnalysis`: removed `zoneProximity` weight (`hrFrac 0.62–0.85 → 1.5, else 0.75`) — was applied inside weighted P80 computation and systematically pulled all bucket HR values down by 10–20 bpm, causing LT1/LT2 to be proportionally too low. This was the primary bug.
+- `zones.ts`: changed bucket P80 from cumulative-weighted to count-based (`sortedHR[floor(n×0.80)]`) — weighted P80 produced a different percentile than intended when weights vary.
+- `zones.ts`: replaced sequential 2-segment LS + D-max LT1 with **joint 3-segment LS** — double loop finds globally optimal (bp1, bp2) simultaneously; bp1 is LT2, bp2 is the upper anchor. More robust, no D-max instability.
+- `zones.ts`: LT1 now derived via **VT1/VT2 pace ratio = 0.844** (PMC12845794, n=1411) — lt1Pace = lt2Pace / 0.844, lt1HR interpolated linearly from bucket array. Replaces D-max which was noisy on small datasets.
+- `zones.ts`: Z2 width formula fixed from `max(4, round((lt2-lt1)×0.12))` → `max(8, round(lt1HR×0.07))`, matching `buildHRZonesFromLT`.
+- `zones.ts` `estimateLTFromRaces`: removed HR-pace regression parameter; LT2 = `round(maxHR×0.88)`, LT1 = `round(maxHR×0.83)`. Regression was extrapolating to unrealistic HR values (LT2 ≈ 97% maxHR).
+- `cache.ts` `updateVO2maxAndPaces`: removed cooldown filter (`isHardActivity = actMaxHR > maxHR×0.87`) from `statLapRuns` — was excluding easy laps from hard-day activities, exactly the data most informative for LT1.
+- `cache.ts` `updateHRZones`: same cooldown filter removal from `statLapRunsZones`; added `statLapOnlyResult` computation; now writes both `statZonesJson` and `statZonesLapsJson` to cache upsert (was missing).
+- `page.tsx` slow path: removed identical cooldown filter from `statLapRuns` (was still present after cache.ts fix; triggers when cache > 1h stale).
+
+**Result:** Statistical estimator now gives LT1=151, LT2=162, R²=0.99–1.00 (12–13 buckets) — physiologically expected values (LT2 ≈ 88% maxHR for trained runners; the match validates the estimator, it is not a formula output).
+
+**UI — StatisticalZonesCard:**
+- Removed Combined/Laps toggle — card now displays only lap-split statistical result (laps-only gives higher precision than activity-level combined data).
+- Renamed card from "Statistisk zonanalys — HR vs tempo" → "Statistisk tröskelestimering".
+- Removed `statZones` (combined) from Props interface, renderStats signature, and StatsClient props. Cache still writes `statZonesJson` for calibration use.
+- Fixed display bug: pace showed "4:36/km/km (GAP)" — `secPerKmToPaceStr` already includes `/km`, so the suffix was doubled.
+
+**Bug fixes:**
+- `lib/fitness/vo2max.ts`: renamed breakdown key from `"Volume-adj. Riegel"` → `"Volume-Adjusted Riegel"` to match the explicit entry added in page.tsx. Previously two different keys produced two separate model selector buttons.
+- `app/api/races/activities-near/route.ts`: changed `contains` → `startsWith` for all WU/CD/warm/cool/uppvärmning/nedvarvning filters. `contains: "CD"` was falsely excluding "5k TT vs. Elias + CD!" — an activity whose name ends with a reference to its cool-down section, not a dedicated cool-down activity.
+
+**Docs / cleanup:**
+- `docs/planning/statistical-zone-estimator.md`: concise write-up of how the estimator works, how it differs from % of maxHR, and the five bugs that were fixed (archived after merge into IMPLEMENTATION_PLAN).
+- `docs/planning/zone-estimator-overhaul.md` archived to `docs/planning/archive/`.
+- `docs/planning/IDEAS.md` archived (superseded by NOTES.md + IMPLEMENTATION_PLAN.md section 12).
 
 ### Documentation Written
 - `docs/api/auth.md` — auth + settings endpoints
@@ -1884,4 +1915,4 @@ Every internal API endpoint and cross-module function that crosses a boundary (H
 
 ---
 
-*Last updated: 2026-05-26 (5-feature sprint: mobile viewport, webhook, interval analysis, weather stats, on-pace dashboard)*
+*Last updated: 2026-05-29 (zone estimator overhaul: zoneProximity fix, joint 3-segment LS, VT1/VT2 LT1, laps-only UI, duplicate model button fix, CD filter false positive fix)*
