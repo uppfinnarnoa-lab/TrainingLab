@@ -471,6 +471,7 @@ export async function updateHRZones(userId: string) {
       !/indoor|inomhus/i.test(a.name ?? "") &&
       a.distance >= 4000 && a.movingTime >= 900 &&
       !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
+      !/^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i.test(a.name ?? "") &&
       (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 330))
     )
     .map(a => ({
