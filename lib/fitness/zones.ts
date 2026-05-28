@@ -167,7 +167,6 @@ export function estimateLTFromRaces(
   racePBs: Array<{ distanceM: number; timeSec: number; date?: Date }>,
   maxHR: number,
   restHR: number,
-  regression?: { slope: number; intercept: number } | null,
 ): LTBoundaries {
   if (racePBs.length === 0) {
     return {
@@ -217,32 +216,10 @@ export function estimateLTFromRaces(
   // PMC12845794 (n=1,411): VT1/VT2 speed ratio = 0.844 → LT1 pace ≈ LT2/0.844 ≈ ×1.185
   const lt1PaceSecPerKm = lt2PaceSecPerKm / 0.844;
 
-  // Convert pace → HR via regression; returns null when regression is unavailable or out of range
-  function paceToHR(paceSecPerKm: number): number | null {
-    if (!regression) return null;
-    const vMin = (1000 / paceSecPerKm) * 60;
-    const vo2AtPace = -4.60 + 0.182258 * vMin + 0.000104 * vMin * vMin;
-    const hr = (vo2AtPace - regression.intercept) / regression.slope;
-    return hr > maxHR * 0.65 && hr < maxHR * 0.99 ? Math.round(hr) : null;
-  }
-
-  const lt2HRFromRegression = paceToHR(lt2PaceSecPerKm);
-  const lt1HRFromRegression = paceToHR(lt1PaceSecPerKm);
-
-  // Never mix sources: if either regression HR is unavailable, use percentages for BOTH.
-  // Mixed sources (one from regression, one from fixed %) can invert lt1/lt2.
-  const bothValid = lt1HRFromRegression !== null && lt2HRFromRegression !== null;
-  const lt1HR = bothValid ? lt1HRFromRegression! : Math.round(maxHR * 0.82);
-  const lt2HR = bothValid ? lt2HRFromRegression! : Math.round(maxHR * 0.88);
-
-  // Final sanity: regression could theoretically invert values with unusual data
-  if (lt1HR >= lt2HR) {
-    return {
-      lt1HR: Math.round(maxHR * 0.78), lt2HR: Math.round(maxHR * 0.88),
-      lt1PaceSecPerKm: Math.round(lt1PaceSecPerKm), lt2PaceSecPerKm: Math.round(lt2PaceSecPerKm),
-      source: "race-pbs",
-    };
-  }
+  // HR derived from fixed physiological percentages (Seiler 2010):
+  // HR-pace regression extrapolation to threshold paces inflates LT2 HR to 95-97% maxHR.
+  const lt2HR = Math.round(maxHR * 0.88);
+  const lt1HR = Math.round(maxHR * 0.83);
 
   return {
     lt1HR,
@@ -373,12 +350,9 @@ export function estimateZonesFromStatisticalAnalysis(
         ? (Date.now() - r.startDate.getTime()) / 86_400_000
         : halfLife;
       const recency = Math.exp(-daysAgo / halfLife);
-      // Aerobic zone (62–85% maxHR) has clearest LT signal; down-weight extremes
-      const hrFrac = r.avgHR / maxHR;
-      const zoneProximity = hrFrac >= 0.62 && hrFrac <= 0.85 ? 1.5 : 0.75;
       // Race activities are max-effort steady-state at known pace — most informative for LT2
       const raceBoost = r.isRace ? 3.0 : 1.0;
-      return { gap, hr: r.avgHR, weight: tempWeight * recency * zoneProximity * raceBoost };
+      return { gap, hr: r.avgHR, weight: tempWeight * recency * raceBoost };
     })
     .filter((p): p is { gap: number; hr: number; weight: number } =>
       p !== null && p.gap > 200 && p.gap < 391 // 3:20–6:31/km (OL paces excluded upstream)
@@ -400,12 +374,9 @@ export function estimateZonesFromStatisticalAnalysis(
   const buckets: BucketPoint[] = [...bucketMap.entries()]
     .filter(([, pts]) => pts.length >= MIN_COUNT)
     .map(([pace, pts]) => {
-      const sorted = pts.sort((a, b) => a.hr - b.hr);
-      const totalW = sorted.reduce((s, p) => s + p.w, 0);
-      // 80th-percentile HR per bucket: tracks the near-ceiling effort at each pace,
-      // not the average — median is pulled down by easy/tired days at that pace
-      let cum = 0, pct80HR = sorted[0].hr;
-      for (const p of sorted) { cum += p.w; if (cum >= totalW * 0.80) { pct80HR = p.hr; break; } }
+      const sortedHR = pts.map(p => p.hr).sort((a, b) => a - b);
+      // Unweighted (count-based) P80: biased weights must not warp the bucket HR estimate
+      const pct80HR = sortedHR[Math.min(Math.floor(sortedHR.length * 0.80), sortedHR.length - 1)];
       return { pace, medianHR: pct80HR, count: pts.length };
     })
     .sort((a, b) => a.pace - b.pace);
@@ -423,31 +394,15 @@ export function estimateZonesFromStatisticalAnalysis(
   // to the dense easy-run buckets, preventing regression bias toward the easy end
   const bucketWeights = mono.map(b => 1 / Math.sqrt(b.count));
 
-  // LT2 (bp1): 2-segment LS search — large slope change makes LS reliable here
-  let lt2Err = Infinity, bp1 = 2;
-  for (let i = 1; i < nb - 2; i++) {
-    const err = segErr(paceArr, hrArr, 0, i, bucketWeights) +
-                segErr(paceArr, hrArr, i, nb - 1, bucketWeights);
-    if (err < lt2Err) { lt2Err = err; bp1 = i; }
-  }
-
-  // LT1 (bp2): D-max on the easy-zone sub-curve [bp1..nb-1].
-  // LS is biased for subtle slope changes (Baek 2018); D-max is geometry-based and unbiased.
-  let bp2 = Math.min(bp1 + 2, nb - 2);
-  const dMaxIdx = dMaxLT1(paceArr, hrArr, bp1, nb);
-  if (dMaxIdx !== null) bp2 = dMaxIdx;
-
-  // R² uses the jointly-optimal 3-segment LS fit as a data-quality metric.
-  // D-max gives a physiologically better LT1 but the 2-segment-derived bp1 may
-  // differ from the joint-optimal bp1 — fixing bp1 first and searching bp2 alone
-  // underestimates fit quality. Full nested search matches original LS behaviour.
-  let bestLSErr = Infinity;
+  // Joint 3-segment LS: globally-optimal (bp1, bp2) pair for both R² and zone placement.
+  // bp1 = LT2 (faster breakpoint, lower sec/km), bp2 = LS-derived LT1 (used as fallback).
+  let bestLSErr = Infinity, bp1 = 2, bp2 = Math.min(4, nb - 2);
   for (let i = 1; i < nb - 2; i++) {
     for (let j = i + 1; j < nb - 1; j++) {
       const err = segErr(paceArr, hrArr, 0, i, bucketWeights) +
                   segErr(paceArr, hrArr, i, j, bucketWeights) +
                   segErr(paceArr, hrArr, j, nb - 1, bucketWeights);
-      if (err < bestLSErr) bestLSErr = err;
+      if (err < bestLSErr) { bestLSErr = err; bp1 = i; bp2 = j; }
     }
   }
 
@@ -459,11 +414,26 @@ export function estimateZonesFromStatisticalAnalysis(
 
   if (rSquared < 0.62) return null;
 
-  // paceArr is sorted ascending (fast→slow); bp1 < bp2 so bp1 = fast = LT2, bp2 = slow = LT1
+  // LT2: joint LS breakpoint bp1 (faster breakpoint, lower sec/km)
   const lt2PaceSecPerKm = paceArr[bp1];
-  const lt1PaceSecPerKm = paceArr[bp2];
   const lt2HR = Math.round(hrArr[bp1]);
-  const lt1HR = Math.round(hrArr[bp2]);
+
+  // LT1: VT1/VT2 speed ratio (PMC12845794, n=1411) — anchored to LT2 pace, more reliable than D-max on field data
+  const lt1PaceTargetSecPerKm = lt2PaceSecPerKm / 0.844;
+  let lt1PaceSecPerKm = Math.round(lt1PaceTargetSecPerKm);
+  let lt1HR: number;
+  const lt1BucketIdx = paceArr.findIndex(p => p >= lt1PaceTargetSecPerKm);
+  if (lt1BucketIdx === -1) {
+    // VT1 pace is beyond (slower than) all buckets — fall back to LS-derived LT1 index
+    lt1HR = Math.round(hrArr[bp2]);
+    lt1PaceSecPerKm = Math.round(paceArr[bp2]);
+  } else if (lt1BucketIdx === 0) {
+    lt1HR = Math.round(hrArr[0]);
+  } else {
+    const t = (lt1PaceTargetSecPerKm - paceArr[lt1BucketIdx - 1]) /
+              (paceArr[lt1BucketIdx] - paceArr[lt1BucketIdx - 1]);
+    lt1HR = Math.round(hrArr[lt1BucketIdx - 1] + t * (hrArr[lt1BucketIdx] - hrArr[lt1BucketIdx - 1]));
+  }
 
   // Sanity: LT1 < LT2 < maxHR with meaningful separation, and in realistic HR ranges
   if (lt1HR >= lt2HR - 8) return null; // minimum 8 bpm gap between thresholds
@@ -495,38 +465,6 @@ export function estimateZonesFromStatisticalAnalysis(
   return { lt1HR, lt2HR, lt1PaceSecPerKm, lt2PaceSecPerKm, rSquared, bucketCount: buckets.length, zones };
 }
 
-/**
- * D-max method for LT1: finds the index in pace[lt2Idx..n-1] with maximum positive
- * deviation above the chord from (pace[lt2Idx], hr[lt2Idx]) to (pace[n-1], hr[n-1]).
- *
- * Physiological basis: the threshold zone (LT2→LT1) has a shallower HR:pace slope than
- * the easy zone (LT1→slowest). The chord lies between these two slopes, so the threshold
- * zone sits above the chord and the easy zone below. LT1 = the point of maximum deviation
- * above the chord (the transition from above-chord to below-chord).
- *
- * Superior to LS for LT1 because LS is biased toward the data-dense easy zone for subtle
- * slope changes (Baek 2018, arxiv:1811.03720).
- */
-function dMaxLT1(pace: number[], hr: number[], lt2Idx: number, n: number): number | null {
-  if (n - lt2Idx < 3) return null;
-  const ax = pace[lt2Idx], ay = hr[lt2Idx]; // LT2 anchor
-  const bx = pace[n - 1],  by = hr[n - 1];  // slowest anchor
-  const pRange = bx - ax;
-  const hRange = ay - by;
-  if (pRange <= 0 || hRange <= 0) return null;
-
-  let maxDev = 0, maxIdx = -1;
-  for (let i = lt2Idx + 1; i < n - 1; i++) {
-    const px = (pace[i] - ax) / pRange;
-    const py = (hr[i]   - by) / hRange;
-    // Deviation above the diagonal chord (0,1)→(1,0) in normalised space
-    const dev = py - (1 - px);
-    if (dev > maxDev) { maxDev = dev; maxIdx = i; }
-  }
-
-  // Require ≥ 3% normalised deviation — if curve is nearly linear there is no LT1 signal
-  return maxDev >= 0.03 && maxIdx !== -1 ? maxIdx : null;
-}
 
 function poolAdjacentViolators(buckets: BucketPoint[]): BucketPoint[] {
   const out = buckets.map(b => ({ ...b }));

@@ -15,7 +15,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromStatisticalAnalysis, ensureValidZones, MAXHR_ARTIFACT_CAP } from "./zones";
-import { estimateVO2max, buildHRPaceRegressionParams, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, gradeAdjustedPace, personalizedFatigueExponent, type RacePB } from "./vo2max";
+import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, personalizedFatigueExponent, type RacePB } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
 import { estimateCriticalSpeed } from "./critical-speed";
 import { computeTSS, buildLoadCurve, computeACWR } from "./training-load";
@@ -313,12 +313,9 @@ export async function updateVO2maxAndPaces(userId: string) {
 
   const statLapRuns = (activities as (Act & { laps?: unknown })[])
     .filter(a => /run|trail/i.test(a.sportType) && olRaceFilter(a) && Array.isArray(a.laps))
-    .flatMap(a => {
-      const actMaxHR = (a as Act).maxHeartrate ?? 0;
-      const isHardActivity = actMaxHR > maxHR * 0.87;
-      return (a.laps as LapRow[]).filter(l =>
-        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
-        (!isHardActivity || l.average_heartrate > maxHR * 0.80)
+    .flatMap(a =>
+      (a.laps as LapRow[]).filter(l =>
+        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
       ).map(l => ({
         avgHR: l.average_heartrate!,
         distanceM: l.distance,
@@ -326,8 +323,8 @@ export async function updateVO2maxAndPaces(userId: string) {
         totalElevationGain: l.total_elevation_gain ?? 0,
         startDate: (a as Act).startDate,
         isRace: (a as Act).isRace,
-      }));
-    });
+      }))
+    );
 
   const statZonesResult = estimateZonesFromStatisticalAnalysis(
     [...statActRuns, ...statLapRuns],
@@ -443,27 +440,8 @@ export async function updateHRZones(userId: string) {
 
   const racePBs = await loadRacePBs(userId);
 
-  // HR-pace regression — GAP-corrected, excludes intervals (whole-session avgPace is
-  // diluted by recovery jogs making interval sessions appear "high HR + slow pace",
-  // which would flatten the slope and push LT2 estimate down)
-  const regressionRuns = acts
-    .filter(a => a.averageHeartrate && a.distance >= 3000 && a.movingTime > 0
-      && /run|trail/i.test(a.sportType)
-      && !/intervall|interval|fartlek|tisdagsbana|bana\b/i.test(a.name ?? ""))
-    .map(a => {
-      const daysAgo = (Date.now() - new Date(a.startDate).getTime()) / (1000 * 60 * 60 * 24);
-      const rawPace = a.movingTime / (a.distance / 1000);
-      const gap = gradeAdjustedPace(rawPace, a.totalElevationGain ?? 0, a.distance);
-      return {
-        avgHR: a.averageHeartrate!,
-        avgPaceSecPerKm: gap,
-        weight: Math.exp(-daysAgo / 180),
-      };
-    });
-  const regression = buildHRPaceRegressionParams(regressionRuns, maxHR);
-
   // ── Method 1: Race-PB based LT estimation ─────────────────────────────
-  const lt = estimateLTFromRaces(racePBs, maxHR, restHR, regression);
+  const lt = estimateLTFromRaces(racePBs, maxHR, restHR);
   let hrZones = lt.source === "race-pbs"
     ? buildHRZonesFromLT(lt, maxHR, restHR)
     : buildHRZones(maxHR, restHR);
@@ -497,15 +475,9 @@ export async function updateHRZones(userId: string) {
 
   const statLapRunsZones = (acts as (ActLight & { laps?: unknown })[])
     .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterLight(a) && Array.isArray(a.laps))
-    .flatMap(a => {
-      // Hard activities (maxHR > 87% of derived maxHR) contain cooldown laps with HR
-      // 15–25 bpm above true easy-run HR — exclude those slow laps to prevent
-      // inflating 80th-pct HR in easy-zone buckets and pulling LT1 too low.
-      const actMaxHR = (a as ActLight).maxHeartrate ?? 0;
-      const isHardActivity = actMaxHR > maxHR * 0.87;
-      return (a.laps as LapRowLight[]).filter(l =>
-        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
-        (!isHardActivity || l.average_heartrate > maxHR * 0.80)
+    .flatMap(a =>
+      (a.laps as LapRowLight[]).filter(l =>
+        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
       ).map(l => ({
         avgHR: l.average_heartrate!,
         distanceM: l.distance,
@@ -513,8 +485,8 @@ export async function updateHRZones(userId: string) {
         totalElevationGain: l.total_elevation_gain ?? 0,
         startDate: (a as ActLight).startDate,
         isRace: (a as ActLight).isRace,
-      }));
-    });
+      }))
+    );
 
   const statResult = estimateZonesFromStatisticalAnalysis([...statRuns, ...statLapRunsZones], maxHR, restHR);
 
