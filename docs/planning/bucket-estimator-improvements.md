@@ -139,6 +139,102 @@ No code change needed — this is a UI-level informational addition, not an algo
 
 ---
 
+---
+
+## LT1 Bias Analysis — Why LT1 Is Systematically Underestimated
+
+> **Status:** 2026-05-28 — Items J (race-PB multiplier) and K (cooldown contamination) implemented.
+> Items L (D-max for bucket estimator) under investigation.
+
+### Observation
+
+After implementing items E–H, LT2 is accurate but LT1 remains **7–12 bpm too low**.
+
+### Root Causes (ranked by actionability)
+
+#### Item J — Race-PB formula: LT1/LT2 pace ratio is wrong (IMPLEMENTED)
+
+**What:** `lt1PaceSecPerKm = lt2PaceSecPerKm * 1.10` (10% slower) is too small.
+
+**Evidence:** PMC12845794 (n=1,411 long-distance runners): VT1 = 73.9 ± 5.5% of peak speed,
+VT2 = 87.6 ± 3.9% of peak speed. Speed ratio VT1/VT2 = 0.844, meaning LT1 pace is
+`1/0.844 ≈ 1.185×` slower than LT2 pace, **not 1.10×**.
+
+For a runner with LT2 at 4:30/km (270 s/km):
+- Old formula: LT1 = 297 s/km = 4:57/km
+- Correct: LT1 = 320 s/km = 5:20/km
+
+**Fix:** Changed to `lt2PaceSecPerKm / 0.844`.
+
+**Impact:** Primarily affects the fallback case (bucket estimator R² < 0.80 or no lap data).
+When the bucket estimator succeeds (R² ≥ 0.80) it overrides the race-PB formula.
+
+---
+
+#### Item K — Cooldown lap contamination in bucket estimator (IMPLEMENTED)
+
+**What:** Individual laps from interval/threshold sessions include cooldown laps with
+HR 15–25 bpm above true easy-run HR at the same pace. Since `statLapRunsZones` included
+ALL laps, the 80th-percentile HR in easy-zone buckets (5:00–6:30/km) was inflated.
+
+**Evidence:** HR recovery after high-intensity exercise takes 5–10+ minutes to return
+toward baseline. A cooldown lap at 5:30/km after tempo intervals can show HR 150–160 bpm
+vs. the true steady-state 130–135 bpm at that pace. With 80th-percentile, ~15–20%
+contaminated laps suffice to raise the bucket value by 5–10 bpm.
+
+**How it manifests:** Inflated HR in slow-pace buckets flattens the HR:pace slope in the
+easy zone → the piecewise regression finds the "kink" (LT1) earlier (lower HR) because
+the slope difference between easy and moderate zones appears smaller.
+
+**Fix:** For activities with `maxHeartrate > maxHR × 0.87` (hard effort present), exclude
+laps with `average_heartrate < maxHR × 0.80`. This keeps only the actual hard-effort laps
+from interval sessions while retaining all laps from easy/recovery runs.
+
+**Impact:** Directly improves the bucket estimator's LT1 breakpoint placement.
+
+---
+
+#### Item L — LS breakpoint estimator biased for small slope changes (UNDER INVESTIGATION)
+
+**What:** The piecewise linear LS search has a fundamental bias when the slope change at
+LT1 is small: it places the breakpoint at the dense end of the HR:pace distribution
+(easy zone) rather than at the true kink.
+
+**Evidence (Baek 2018, arxiv:1811.03720):** When break magnitude is small, the LS
+estimator has two modes at the ends of the finite sample period regardless of true break
+location. The LS objective gains little by correctly placing the break vs. placing it
+at a boundary where it absorbs more residuals from the dense easy segment.
+
+**Why LT2 is immune:** LT2 has a large slope change (acidosis onset); LT1 has only a
+subtle ~10–15% increase in HR:pace slope. For well-trained athletes:
+- VT1 HR: 85.1 ± 4.6% HRpeak (subtle kink)
+- VT2 HR: 93.5 ± 2.5% HRpeak (sharp kink)
+
+**Proposed fix (not yet implemented):** Replace LS breakpoint search for LT1 with
+**modified D-max** on the smoothed HR:pace curve:
+1. Fit a polynomial (degree 3–4) to the bucketed HR:pace data
+2. Draw a line from the first bucket to the last bucket
+3. LT1 = point of maximum perpendicular distance from that line (the geometrically
+   most "curved" point)
+
+Published evidence (PMC20508457; Jang & Ko 2017): D-max has smaller limits-of-agreement
+with reference methods than bi-segmented regression for threshold detection.
+
+**Complexity:** Moderate refactor of the piecewise regression search in `zones.ts`.
+Retain existing LS search for LT2 (large slope change = reliable); use D-max for LT1 only.
+
+---
+
+### Summary
+
+| Item | Root cause | Status | File |
+|------|-----------|--------|------|
+| J | LT1/LT2 pace ratio 1.10× too small (literature: 1.185×) | Implemented | `zones.ts:217` |
+| K | Cooldown laps inflate 80th-pct HR in easy-zone buckets | Implemented | `cache.ts` statLapRunsZones |
+| L | LS bias for small slope changes pulls LT1 breakpoint toward dense easy zone | Under investigation | `zones.ts` exhaustive piecewise search |
+
+---
+
 ## Literature References
 
 - Oliveira et al. (2021) "From Incremental Test to Continuous Running at Fixed Lactate Thresholds" — PMC10611166. Mean HR drift at LT1 = +4.0% over 40 min.

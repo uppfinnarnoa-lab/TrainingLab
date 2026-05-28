@@ -492,16 +492,24 @@ export async function updateHRZones(userId: string) {
 
   const statLapRunsZones = (acts as (ActLight & { laps?: unknown })[])
     .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterLight(a) && Array.isArray(a.laps))
-    .flatMap(a => (a.laps as LapRowLight[]).filter(l =>
-      l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
-    ).map(l => ({
-      avgHR: l.average_heartrate!,
-      distanceM: l.distance,
-      movingTimeSec: l.moving_time,
-      totalElevationGain: l.total_elevation_gain ?? 0,
-      startDate: (a as ActLight).startDate,
-      isRace: (a as ActLight).isRace,
-    })));
+    .flatMap(a => {
+      // Hard activities (maxHR > 87% of derived maxHR) contain cooldown laps with HR
+      // 15–25 bpm above true easy-run HR — exclude those slow laps to prevent
+      // inflating 80th-pct HR in easy-zone buckets and pulling LT1 too low.
+      const actMaxHR = (a as ActLight).maxHeartrate ?? 0;
+      const isHardActivity = actMaxHR > maxHR * 0.87;
+      return (a.laps as LapRowLight[]).filter(l =>
+        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180 &&
+        (!isHardActivity || l.average_heartrate > maxHR * 0.80)
+      ).map(l => ({
+        avgHR: l.average_heartrate!,
+        distanceM: l.distance,
+        movingTimeSec: l.moving_time,
+        totalElevationGain: l.total_elevation_gain ?? 0,
+        startDate: (a as ActLight).startDate,
+        isRace: (a as ActLight).isRace,
+      }));
+    });
 
   const statResult = estimateZonesFromStatisticalAnalysis([...statRuns, ...statLapRunsZones], maxHR, restHR);
 

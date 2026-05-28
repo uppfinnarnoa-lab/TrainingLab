@@ -214,7 +214,8 @@ export function estimateLTFromRaces(
 
   const lt2PaceSecPerKm = sumPaceW / cumW;
 
-  const lt1PaceSecPerKm = lt2PaceSecPerKm * 1.10; // LT1 ≈ 10% slower than LT2
+  // PMC12845794 (n=1,411): VT1/VT2 speed ratio = 0.844 → LT1 pace ≈ LT2/0.844 ≈ ×1.185
+  const lt1PaceSecPerKm = lt2PaceSecPerKm / 0.844;
 
   // Convert pace → HR via regression; returns null when regression is unavailable or out of range
   function paceToHR(paceSecPerKm: number): number | null {
