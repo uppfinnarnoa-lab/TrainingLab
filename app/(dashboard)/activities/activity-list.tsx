@@ -3,7 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { Heart, Mountain, Thermometer, Trophy } from "lucide-react";
-import { cn, formatDistance, formatDuration, formatPace, sportColor } from "@/lib/utils";
+import { cn, formatDistance, formatDuration, formatPace } from "@/lib/utils";
+import { workoutColor } from "@/lib/planner/colors";
 
 interface Activity {
   id: string;
@@ -74,7 +75,7 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
                 ? "text-white dark:text-background"
                 : "bg-surface-2 text-muted hover:text-primary"
             )}
-            style={selectedSport === s ? { backgroundColor: sportColor(s) } : {}}
+            style={selectedSport === s ? { backgroundColor: workoutColor(s, null) } : {}}
           >
             {s.replace(/([A-Z])/g, " $1").trim()}
           </button>
@@ -88,12 +89,14 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
             <p className="text-muted">No activities found. Sync your Strava account in Settings.</p>
           </div>
         ) : (
-          activities.map((activity) => (
+          activities.map((activity) => {
+            const color = activity.isRace ? "#FBBF24" : workoutColor(activity.sportType, null);
+            return (
             <a
               key={activity.id}
               href={`/activities/${activity.id}`}
               className="block rounded-xl bg-surface border border-border p-4 hover:border-accent/40 transition-colors cursor-pointer group"
-              style={{ borderLeftWidth: 3, borderLeftColor: sportColor(activity.sportType) }}
+              style={{ borderLeftWidth: 3, borderLeftColor: color }}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -109,8 +112,8 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
                     <span
                       className="text-xs font-medium px-2 py-0.5 rounded-full"
                       style={{
-                        backgroundColor: `${sportColor(activity.sportType)}20`,
-                        color: sportColor(activity.sportType),
+                        backgroundColor: `${color}20`,
+                        color,
                       }}
                     >
                       {activity.sportType.replace(/([A-Z])/g, " $1").trim()}
@@ -169,7 +172,8 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
                 </div>
               </div>
             </a>
-          ))
+            );
+          })
         )}
       </div>
 
