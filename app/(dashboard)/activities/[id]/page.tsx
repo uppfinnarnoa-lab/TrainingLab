@@ -40,6 +40,11 @@ export default async function ActivityDetailPage({
 
   if (!activity || activity.userId !== userId) notFound();
 
+  const fitnessCache = await prisma.fitnessCache.findUnique({
+    where: { userId },
+    select: { maxHR: true },
+  });
+
   const color = activity.isRace ? "#FBBF24" : workoutColor(activity.sportType, null);
   const pace = activity.averageSpeed ? formatPace(activity.averageSpeed) : null;
   interface LapRaw {
@@ -196,6 +201,7 @@ export default async function ActivityDetailPage({
             averageSpeed: activity.averageSpeed,
             averageHeartrate: activity.averageHeartrate,
             maxHeartrate: activity.maxHeartrate,
+            userMaxHR: fitnessCache?.maxHR ?? null,
           }}
           splits={splits}
         />
