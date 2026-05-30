@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, Trophy, Thermometer, Mountain, Heart, Zap } from "lucide-react";
 import { format } from "date-fns";
-import { formatDuration, formatDistance, formatPace, sportColor } from "@/lib/utils";
+import { formatDuration, formatDistance, formatPace } from "@/lib/utils";
+import { workoutColor } from "@/lib/planner/colors";
 import { ActivityMap } from "./activity-map";
 import { SplitsTable } from "./splits-table";
 import { SplitsChart } from "./splits-chart";
@@ -39,7 +40,7 @@ export default async function ActivityDetailPage({
 
   if (!activity || activity.userId !== userId) notFound();
 
-  const color = sportColor(activity.sportType);
+  const color = activity.isRace ? "#FBBF24" : workoutColor(activity.sportType, null);
   const pace = activity.averageSpeed ? formatPace(activity.averageSpeed) : null;
   interface LapRaw {
     lap_index: number;

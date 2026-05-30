@@ -25,14 +25,3 @@ export function formatDistance(meters: number): string {
   if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
   return `${Math.round(meters)} m`;
 }
-
-export function sportColor(sportType: string): string {
-  const t = sportType.toLowerCase();
-  if (t.includes("orienteer") || t === "trailrun") return "var(--sport-ol)";
-  if (t.includes("run")) return "var(--sport-run)";
-  if (t.includes("ride") || t.includes("cycl")) return "var(--sport-bike)";
-  if (t.includes("nordicski") || t.includes("backcountryski")) return "var(--sport-ski)";
-  if (t.includes("rollerski") || t.includes("inlineskate")) return "var(--sport-rski)";
-  if (t.includes("weight") || t.includes("strength") || t.includes("crossfit")) return "var(--sport-strength)";
-  return "var(--accent)";
-}
