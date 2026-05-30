@@ -180,7 +180,7 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
           <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: "var(--text-muted)" }}
             tickFormatter={xMode === "distance" ? v => `${v}km` : formatTimeAxis}
-            axisLine={false} tickLine={false} />
+            axisLine={false} tickLine={false} minTickGap={48} />
 
           {visible.has("pace") && (
             <YAxis yAxisId="pace" orientation="left" reversed

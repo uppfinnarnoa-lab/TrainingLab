@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Trophy, Thermometer, Mountain, Heart, Zap } from "lucide-react";
+import { ChevronLeft, Trophy, Thermometer, Mountain, Heart, Zap, Flame } from "lucide-react";
 import { format } from "date-fns";
 import { formatDuration, formatDistance, formatPace } from "@/lib/utils";
 import { workoutColor } from "@/lib/planner/colors";
@@ -144,8 +144,8 @@ export default async function ActivityDetailPage({
         )}
         {activity.sufferScore && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-border text-sm">
-            <Mountain size={14} className="text-warning" />
-            <span className="text-muted">Suffer:</span>
+            <Flame size={14} className="text-warning" />
+            <span className="text-muted">Ansträngning:</span>
             <span className="font-mono text-primary">{activity.sufferScore}</span>
           </div>
         )}
@@ -174,7 +174,7 @@ export default async function ActivityDetailPage({
       {/* Splits chart */}
       {splits && splits.length > 1 && (
         <div className="rounded-2xl bg-surface border border-border p-5">
-          <SplitsChart splits={splits} avgSpeedMs={activity.averageSpeed ?? 0} isLaps={isLaps} />
+          <SplitsChart splits={splits} avgSpeedMs={activity.averageSpeed ?? 0} isLaps={isLaps} color={color} />
         </div>
       )}
 

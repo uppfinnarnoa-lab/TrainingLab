@@ -1,20 +1,13 @@
 "use client";
 
-/**
- * Splits chart — Strava-style lap view:
- * - Bar HEIGHT = relative pace (faster = taller, inverted axis)
- * - Bar WIDTH  = proportional to time (slower km = wider bar)
- * - Colour encodes pace vs activity average
- * - Dynamic scale: min/max derived from THIS activity's pace range
- */
-
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
+import { cn } from "@/lib/utils";
 
 interface Split {
   split: number;
-  distance: number;       // meters
-  moving_time: number;    // seconds
-  average_speed: number;  // m/s
+  distance: number;
+  moving_time: number;
+  average_speed: number;
   average_heartrate?: number;
   elevation_difference?: number;
 }
@@ -23,7 +16,10 @@ interface Props {
   splits: Split[];
   avgSpeedMs: number;
   isLaps?: boolean;
+  color?: string;
 }
+
+type XMode = "distance" | "time";
 
 function secPerKmStr(secPerKm: number) {
   const m = Math.floor(secPerKm / 60);
@@ -31,63 +27,120 @@ function secPerKmStr(secPerKm: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function SplitsChart({ splits, avgSpeedMs, isLaps }: Props) {
+function fmtDuration(sec: number) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.round(sec % 60);
+  if (h > 0) return `${h}h${String(m).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// Non-linear exponent: makes fastest laps dramatically taller
+const POWER = 2.8;
+
+export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: Props) {
+  const [xMode, setXMode] = useState<XMode>("time");
+
   const validSplits = splits.filter(s => s.average_speed > 0 && s.moving_time > 0 && s.distance > 10);
   if (validSplits.length < 2) return null;
 
   const avgSecPerKm  = avgSpeedMs > 0 ? 1000 / avgSpeedMs : 300;
   const paces        = validSplits.map(s => 1000 / s.average_speed);
-  const minPace      = Math.min(...paces);
-  const maxPace      = Math.max(...paces);
-  // Padding so fastest/slowest bars don't touch the ceiling/floor
-  const scalePad     = Math.max((maxPace - minPace) * 0.15, 10);
-  const scaleMin     = minPace - scalePad;
-  const scaleMax     = maxPace + scalePad;
-  const scaleRange   = scaleMax - scaleMin;
+  const minPace      = Math.min(...paces); // fastest
+  const maxPace      = Math.max(...paces); // slowest
+  const paceRange    = maxPace - minPace;
+
   const totalTimeSec = validSplits.reduce((s, sp) => s + sp.moving_time, 0);
+  const totalDistM   = validSplits.reduce((s, sp) => s + sp.distance, 0);
 
-  const chartHeight  = 100; // px
+  const chartHeight  = 120;
+  // Show at most 8 X-axis labels
+  const labelEvery   = Math.max(1, Math.ceil(validSplits.length / 8));
 
-  const bars = useMemo(() => validSplits.map(sp => {
-    const pace     = 1000 / sp.average_speed;
-    const widthPct = (sp.moving_time / totalTimeSec) * 100;
-    // Invert: faster pace (lower sec/km) = taller bar
-    const heightPct = Math.max(2, Math.min(100, ((scaleMax - pace) / scaleRange) * 100));
-    const delta = pace - avgSecPerKm;
-    const color = delta < -8 ? "#6EE7B7" : delta > 8 ? "#F87171" : "#818CF8";
-    return { sp, pace, widthPct, heightPct, color };
+  const bars = useMemo(() => {
+    let cumTimeSec = 0;
+    let cumDistM   = 0;
+    return validSplits.map((sp, i) => {
+      const pace = 1000 / sp.average_speed;
+      const widthPct = xMode === "time"
+        ? (sp.moving_time / totalTimeSec) * 100
+        : (sp.distance   / totalDistM)   * 100;
+
+      // 0 = slowest, 1 = fastest
+      const normalizedSpeed = paceRange > 0 ? (maxPace - pace) / paceRange : 0.5;
+
+      // Power curve: slow laps compressed toward zero, fast laps at full height
+      const heightFrac = Math.max(0.04, Math.pow(normalizedSpeed, POWER));
+
+      // Alpha: 12% fill for slowest → 88% fill for fastest (darker on dark bg = faster)
+      const alpha    = Math.round((0.12 + 0.76 * normalizedSpeed) * 255);
+      const alphaHex = alpha.toString(16).padStart(2, "0");
+
+      cumTimeSec += sp.moving_time;
+      cumDistM   += sp.distance;
+
+      const showLabel = i % labelEvery === 0 || i === validSplits.length - 1;
+      const label = showLabel
+        ? (xMode === "time"
+            ? fmtDuration(cumTimeSec)
+            : `${(cumDistM / 1000).toFixed(1)}k`)
+        : "";
+
+      return { sp, pace, widthPct, heightFrac, alphaHex, label };
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [validSplits, totalTimeSec, scaleMax, scaleRange, avgSecPerKm]);
+  }, [validSplits, xMode, totalTimeSec, totalDistM, minPace, maxPace, paceRange, labelEvery]);
 
-  // Avg pace line: exact position in the same coordinate space
-  const avgLineHeightPct = Math.max(2, Math.min(98, ((scaleMax - avgSecPerKm) / scaleRange) * 100));
+  // Avg pace line: position in non-linear scale
+  const avgNorm     = paceRange > 0 ? Math.max(0, Math.min(1, (maxPace - avgSecPerKm) / paceRange)) : 0.5;
+  const avgLineFrac = Math.pow(avgNorm, POWER);
 
   return (
     <div>
-      <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
-        {isLaps ? "Laps" : "Splits"} — bredd = tid · höjd = tempo
-      </p>
+      {/* Header + toggle */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wide">
+          {isLaps ? "Laps" : "Splits"} — höjd = tempo · bredd = {xMode === "time" ? "tid" : "distans"}
+        </p>
+        <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
+          <button
+            onClick={() => setXMode("distance")}
+            className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+              xMode === "distance" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+          >
+            Distans
+          </button>
+          <button
+            onClick={() => setXMode("time")}
+            className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+              xMode === "time" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+          >
+            Tid
+          </button>
+        </div>
+      </div>
 
       <div className="relative" style={{ height: chartHeight + 28 }}>
         {/* Baseline */}
         <div className="absolute bottom-7 left-0 right-0 border-b border-border/50" />
 
-        {/* Average pace dashed line — correctly computed from scale */}
+        {/* Average pace dashed line */}
         <div
           className="absolute left-0 right-0 border-b border-dashed border-accent/50 pointer-events-none"
-          style={{ bottom: 7 + chartHeight * (avgLineHeightPct / 100) }}
+          style={{ bottom: 7 + chartHeight * avgLineFrac }}
           title={`Snittempo: ${secPerKmStr(avgSecPerKm)}/km`}
         />
 
         {/* Bars */}
         <div className="absolute bottom-7 left-0 right-0 flex items-end" style={{ gap: "1px" }}>
-          {bars.map(({ sp, pace, widthPct, heightPct, color }) => (
-            <div key={sp.split}
-              className="relative shrink-0 rounded-t-sm transition-all cursor-default group/bar"
+          {bars.map(({ sp, pace, widthPct, heightFrac, alphaHex }) => (
+            <div
+              key={sp.split}
+              className="relative shrink-0 rounded-t-sm cursor-default group/bar"
               style={{
                 width: `calc(${widthPct}% - 1px)`,
-                height: `${(heightPct / 100) * chartHeight}px`,
-                backgroundColor: `${color}85`,
+                height: `${heightFrac * chartHeight}px`,
+                backgroundColor: `${color}${alphaHex}`,
                 borderTop: `2px solid ${color}`,
               }}
             >
@@ -111,36 +164,19 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps }: Props) {
 
         {/* Pace scale: fastest at top, slowest at bottom */}
         <div className="absolute right-0 top-0 bottom-7 flex flex-col justify-between pointer-events-none pr-1">
-          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(scaleMin)}</span>
-          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(scaleMax)}</span>
+          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(minPace)}</span>
+          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(maxPace)}</span>
         </div>
 
-        {/* km labels */}
+        {/* X-axis labels (cumulative time or distance) */}
         <div className="absolute bottom-0 left-0 right-0 flex">
-          {bars.map(({ sp, widthPct }) => (
+          {bars.map(({ sp, widthPct, label }) => (
             <div key={sp.split} style={{ width: `${widthPct}%` }}
               className="shrink-0 text-center text-[9px] text-muted truncate">
-              {sp.split}
+              {label}
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-2 text-[10px] text-muted flex-wrap">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-2 rounded-sm inline-block" style={{ backgroundColor: "#6EE7B785", borderTop: "2px solid #6EE7B7" }} />
-          Snabbare
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-2 rounded-sm inline-block" style={{ backgroundColor: "#818CF885", borderTop: "2px solid #818CF8" }} />
-          Snittempo
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-2 rounded-sm inline-block" style={{ backgroundColor: "#F8717185", borderTop: "2px solid #F87171" }} />
-          Långsammare
-        </span>
-        <span className="ml-auto opacity-60">Håll muspekaren för detaljer</span>
       </div>
     </div>
   );
