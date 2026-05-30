@@ -61,7 +61,7 @@ export async function runHistoricalBackfill(
 ): Promise<BackfillResult> {
   const pending = await prisma.activity.findMany({
     where:   { userId, splitDetailFetched: false },
-    orderBy: { startDate: "asc" },
+    orderBy: { startDate: "desc" },
     select:  { id: true, stravaId: true, name: true },
   });
 
