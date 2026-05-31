@@ -61,6 +61,34 @@ export function workoutColor(sportName: string, typeName?: string | null): strin
   return "#7DD3FC"; // fallback
 }
 
+// ── Activity color helpers (for Strava activities in history / list) ─────────
+
+/** Options the user can choose from when manually overriding a running activity type */
+export const RUN_TYPE_OPTIONS = [
+  { value: null,        label: "Easy / Default",    color: "#7DD3FC" },
+  { value: "tempo",     label: "Tempo",             color: "#2DD4BF" },
+  { value: "lt",        label: "Threshold (LT)",    color: "#F472B6" },
+  { value: "at",        label: "AT / Aerobic",      color: "#818CF8" },
+  { value: "intervall", label: "Intervals",          color: "#3B82F6" },
+] as const;
+
+/** Map Strava's integer workoutType to a type name recognised by workoutColor() */
+export function inferTypeName(workoutType: number | null | undefined): string | null {
+  if (workoutType === 3) return "intervall"; // Strava "workout" → interval/speedwork colour
+  return null;
+}
+
+/** Full colour for a Strava activity, respecting manual override and isRace flag */
+export function activityColor(
+  sportType: string,
+  isRace: boolean,
+  workoutType: number | null | undefined,
+  customTypeName: string | null | undefined,
+): string {
+  if (isRace) return "#FBBF24";
+  return workoutColor(sportType, customTypeName ?? inferTypeName(workoutType));
+}
+
 /** Colour from a sport name alone (for non-running sports in templates) */
 export function sportOnlyColor(sportName: string): string {
   return workoutColor(sportName, null);

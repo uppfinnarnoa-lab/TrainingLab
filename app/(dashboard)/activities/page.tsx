@@ -38,6 +38,8 @@ export default async function ActivitiesPage({
         averageSpeed: true,
         isRace: true,
         weatherTemp: true,
+        workoutType: true,
+        customTypeName: true,
       },
     }),
     prisma.activity.count({ where }),

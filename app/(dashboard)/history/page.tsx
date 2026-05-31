@@ -14,7 +14,7 @@ export default async function HistoryPage() {
       startDate: true, distance: true, movingTime: true,
       totalElevationGain: true, averageHeartrate: true,
       averageSpeed: true, isRace: true, weatherTemp: true, stravaId: true,
-      laps: true,
+      laps: true, workoutType: true, customTypeName: true,
     },
   });
 
@@ -32,6 +32,8 @@ export default async function HistoryPage() {
           startDate: a.startDate.toISOString().slice(0, 10),
           stravaId: a.stravaId.toString(),
           hasLaps: a.laps !== null,
+          workoutType: a.workoutType ?? null,
+          customTypeName: a.customTypeName ?? null,
         }))}
       />
     </div>

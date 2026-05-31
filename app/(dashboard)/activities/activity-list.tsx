@@ -4,7 +4,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { Heart, Mountain, Thermometer, Trophy } from "lucide-react";
 import { cn, formatDistance, formatDuration, formatPace } from "@/lib/utils";
-import { workoutColor } from "@/lib/planner/colors";
+import { activityColor } from "@/lib/planner/colors";
+import { TypePicker } from "@/components/activity/TypePicker";
+import { useState } from "react";
 
 interface Activity {
   id: string;
@@ -19,6 +21,8 @@ interface Activity {
   averageSpeed: number | null;
   isRace: boolean;
   weatherTemp: number | null;
+  workoutType: number | null;
+  customTypeName: string | null;
 }
 
 interface Props {
@@ -33,6 +37,9 @@ interface Props {
 export function ActivityList({ activities, total, page, perPage, sports, selectedSport }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [typeOverrides, setTypeOverrides] = useState<Record<string, string | null>>({});
+  function getTypeName(a: Activity) { return a.id in typeOverrides ? typeOverrides[a.id] : a.customTypeName; }
+  function updateType(id: string, v: string | null) { setTypeOverrides(prev => ({ ...prev, [id]: v })); }
 
   function setFilter(sport?: string) {
     const p = new URLSearchParams(searchParams.toString());
@@ -75,7 +82,7 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
                 ? "text-white dark:text-background"
                 : "bg-surface-2 text-muted hover:text-primary"
             )}
-            style={selectedSport === s ? { backgroundColor: workoutColor(s, null) } : {}}
+            style={selectedSport === s ? { backgroundColor: activityColor(s, false, null, null) } : {}}
           >
             {s.replace(/([A-Z])/g, " $1").trim()}
           </button>
@@ -90,7 +97,7 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
           </div>
         ) : (
           activities.map((activity) => {
-            const color = activity.isRace ? "#FBBF24" : workoutColor(activity.sportType, null);
+            const color = activityColor(activity.sportType, activity.isRace, activity.workoutType, getTypeName(activity));
             return (
             <a
               key={activity.id}
@@ -111,13 +118,19 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
                   <div className="flex items-center gap-2 mt-0.5">
                     <span
                       className="text-xs font-medium px-2 py-0.5 rounded-full"
-                      style={{
-                        backgroundColor: `${color}20`,
-                        color,
-                      }}
+                      style={{ backgroundColor: `${color}20`, color }}
                     >
                       {activity.sportType.replace(/([A-Z])/g, " $1").trim()}
                     </span>
+                    <TypePicker
+                      activityId={activity.id}
+                      sportType={activity.sportType}
+                      isRace={activity.isRace}
+                      workoutType={activity.workoutType}
+                      customTypeName={getTypeName(activity)}
+                      onUpdate={v => updateType(activity.id, v)}
+                      size="xs"
+                    />
                     <span className="text-xs text-muted">
                       {format(new Date(activity.startDate), "EEE d MMM yyyy")}
                     </span>

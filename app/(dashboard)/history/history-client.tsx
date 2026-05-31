@@ -9,8 +9,9 @@ import {
   addMonths, subMonths, parseISO,
 } from "date-fns";
 import { formatDistance, formatDuration, formatPace } from "@/lib/utils";
-import { workoutColor } from "@/lib/planner/colors";
+import { activityColor } from "@/lib/planner/colors";
 import { cn } from "@/lib/utils";
+import { TypePicker } from "@/components/activity/TypePicker";
 
 interface Activity {
   id: string; name: string; description: string | null;
@@ -19,10 +20,11 @@ interface Activity {
   totalElevationGain: number; averageHeartrate: number | null;
   averageSpeed: number | null; isRace: boolean; weatherTemp: number | null;
   stravaId: string; hasLaps: boolean;
+  workoutType: number | null; customTypeName: string | null;
 }
 
-function ActivityPill({ a }: { a: Activity }) {
-  const color = a.isRace ? "#FBBF24" : workoutColor(a.sportType, null);
+function ActivityPill({ a, customTypeName }: { a: Activity; customTypeName: string | null }) {
+  const color = activityColor(a.sportType, a.isRace, a.workoutType, customTypeName);
   return (
     <div
       className="rounded px-1 py-0.5 text-[9px] font-medium leading-tight flex items-center gap-0.5 min-w-0"
@@ -42,6 +44,10 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selected, setSelected] = useState<Activity[] | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // Track custom type overrides locally so color updates immediately on change
+  const [typeOverrides, setTypeOverrides] = useState<Record<string, string | null>>({});
+  function getTypeName(a: Activity) { return a.id in typeOverrides ? typeOverrides[a.id] : a.customTypeName; }
+  function updateType(id: string, v: string | null) { setTypeOverrides(prev => ({ ...prev, [id]: v })); }
 
   const byDate = useMemo(() => {
     const map = new Map<string, Activity[]>();
@@ -127,7 +133,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
               {/* Activity pills */}
               <div className="space-y-0.5">
                 {acts.slice(0, 4).map(a => (
-                  <ActivityPill key={a.id} a={a} />
+                  <ActivityPill key={a.id} a={a} customTypeName={getTypeName(a)} />
                 ))}
                 {acts.length > 4 && (
                   <p className="text-[9px] text-muted pl-0.5">+{acts.length - 4}</p>
@@ -148,7 +154,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
             <p className="text-sm text-muted">No activities on this day.</p>
           ) : (
             selected.map(a => {
-              const color = a.isRace ? "#FBBF24" : workoutColor(a.sportType, null);
+              const color = activityColor(a.sportType, a.isRace, a.workoutType, getTypeName(a));
               const cardColor = a.hasLaps ? color : "#94A3B8";
               return (
               <div
@@ -168,12 +174,23 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
                         </span>
                       )}
                     </div>
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ backgroundColor: `${cardColor}20`, color: cardColor }}
-                    >
-                      {a.sportType.replace(/([A-Z])/g, " $1").trim()}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{ backgroundColor: `${cardColor}20`, color: cardColor }}
+                      >
+                        {a.sportType.replace(/([A-Z])/g, " $1").trim()}
+                      </span>
+                      <TypePicker
+                        activityId={a.id}
+                        sportType={a.sportType}
+                        isRace={a.isRace}
+                        workoutType={a.workoutType}
+                        customTypeName={getTypeName(a)}
+                        onUpdate={v => updateType(a.id, v)}
+                        size="xs"
+                      />
+                    </div>
                     {a.description && (
                       <p className="mt-1.5 text-xs text-muted line-clamp-3">{a.description}</p>
                     )}
