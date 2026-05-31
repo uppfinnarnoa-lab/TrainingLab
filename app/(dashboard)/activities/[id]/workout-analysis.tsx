@@ -48,55 +48,69 @@ function computeRating(splits: Split[] | null, activity: ActivityInfo): WorkoutR
 
   const valid = (splits ?? []).filter(s => s.average_speed > 0 && s.moving_time > 5 && s.distance > 10);
   if (valid.length < 3 || !activity.averageSpeed) {
-    return { score: 0, paceGapMin: 0, consistencyPct: 0, hrResponsePct: 0, bullets: ["Not enough lap data to rate this session."] };
+    return { score: 0, paceGapMin: 0, consistencyPct: 0, hrResponsePct: 0,
+      bullets: ["Not enough lap data to rate this session."] };
   }
 
-  const lapPaces = valid.map(s => 1000 / s.average_speed); // sec/km — lower = faster
+  const lapPaces = valid.map(s => 1000 / s.average_speed); // sec/km, lower = faster
   const sortedPaces = [...lapPaces].sort((a, b) => a - b);
 
-  // Find the biggest pace gap in the sorted distribution.
-  // A gap ≥30 sec/km indicates a bimodal structure (intervals + easy laps).
-  let maxGap = 0;
-  let splitIdx = 1;
+  // Scan from the FAST end for the first gap ≥ 30 sec/km.
+  // This separates intervals from easy/rest laps without being fooled by the
+  // (usually larger) gap between easy laps and walk-recovery laps.
+  let splitIdx = sortedPaces.length; // sentinel = no gap found
   for (let i = 1; i < sortedPaces.length; i++) {
-    const gap = sortedPaces[i] - sortedPaces[i - 1];
-    if (gap > maxGap) { maxGap = gap; splitIdx = i; }
+    if (sortedPaces[i] - sortedPaces[i - 1] >= 30) {
+      splitIdx = i;
+      break;
+    }
   }
 
-  const hasIntervals = maxGap >= 30;
+  const hasIntervals = splitIdx < sortedPaces.length;
 
-  // Threshold separating fast (work) laps from slow (easy/rest) laps
-  const threshold = hasIntervals
-    ? (sortedPaces[splitIdx - 1] + sortedPaces[splitIdx]) / 2
-    : -Infinity; // no split — all laps are work
+  if (!hasIntervals) {
+    // Steady effort — no clear bimodal structure
+    const avgPace = lapPaces.reduce((s, v) => s + v, 0) / lapPaces.length;
+    const cv = stddev(lapPaces) / avgPace;
+    const consistencyPct = Math.round(Math.max(0, Math.min(100, (1 - cv * 3) * 100)));
+    const score = consistencyPct >= 85 ? 3 : consistencyPct >= 65 ? 2 : 1;
+    bullets.push(`Steady effort — avg pace ${secPerKmStr(avgPace)}/km across all laps.`);
+    if (consistencyPct >= 85) bullets.push(`Very consistent pacing (${consistencyPct}%).`);
+    else bullets.push(`Variable pacing (${consistencyPct}%).`);
+    return { score, paceGapMin: 0, consistencyPct, hrResponsePct: 0, bullets };
+  }
 
-  const isWork = lapPaces.map(p => hasIntervals ? p < threshold : true);
+  // Threshold between interval laps and easy/rest laps
+  const threshold = (sortedPaces[splitIdx - 1] + sortedPaces[splitIdx]) / 2;
 
-  // Easy pace: distance-weighted avg of non-work laps
-  const easyLaps = valid.filter((_, i) => !isWork[i]);
-  const easyDist  = easyLaps.reduce((s, l) => s + l.distance, 0);
-  const easyPace  = easyDist > 0
+  // Easy laps: slower than threshold but NOT extremely slow (walking rests).
+  // Cap at threshold × 1.8 so recovery jogs are included but standing-still laps are not.
+  const maxEasyPace = threshold * 1.8;
+  const isWork = lapPaces.map(p => p < threshold);
+
+  // Easy pace: distance-weighted avg of the easy running laps (WU, CD, active recovery)
+  const easyLaps = valid.filter((l, i) => !isWork[i] && (1000 / l.average_speed) <= maxEasyPace);
+  const easyDist = easyLaps.reduce((s, l) => s + l.distance, 0);
+  const easyPace = easyDist > 0
     ? easyLaps.reduce((s, l) => s + (1000 / l.average_speed) * l.distance, 0) / easyDist
-    : (activity.averageSpeed ? 1000 / activity.averageSpeed * 1.1 : 360);
+    : 1000 / activity.averageSpeed * 1.15;
 
-  // Merge consecutive work laps into interval groups (2 fast laps back-to-back = one interval)
+  // Merge consecutive work (interval) laps into groups.
+  // Two fast laps back-to-back without a rest between them = one interval.
   const intervalGroups: { paceSecKm: number; avgHR: number | null }[] = [];
   let cur: Split[] = [];
-
   for (let i = 0; i < valid.length; i++) {
     if (isWork[i]) {
       cur.push(valid[i]);
-    } else {
-      if (cur.length > 0) {
-        const d = cur.reduce((s, l) => s + l.distance, 0);
-        const t = cur.reduce((s, l) => s + l.moving_time, 0);
-        const hrs = cur.map(l => l.average_heartrate).filter((h): h is number => h != null && h > 0);
-        intervalGroups.push({
-          paceSecKm: d > 0 ? t / (d / 1000) : 1000 / cur[0].average_speed,
-          avgHR: hrs.length > 0 ? hrs.reduce((s, h) => s + h, 0) / hrs.length : null,
-        });
-        cur = [];
-      }
+    } else if (cur.length > 0) {
+      const d = cur.reduce((s, l) => s + l.distance, 0);
+      const t = cur.reduce((s, l) => s + l.moving_time, 0);
+      const hrs = cur.map(l => l.average_heartrate).filter((h): h is number => h != null && h > 0);
+      intervalGroups.push({
+        paceSecKm: d > 0 ? t / (d / 1000) : 1000 / cur[0].average_speed,
+        avgHR: hrs.length > 0 ? hrs.reduce((s, h) => s + h, 0) / hrs.length : null,
+      });
+      cur = [];
     }
   }
   if (cur.length > 0) {
@@ -104,27 +118,27 @@ function computeRating(splits: Split[] | null, activity: ActivityInfo): WorkoutR
     const t = cur.reduce((s, l) => s + l.moving_time, 0);
     const hrs = cur.map(l => l.average_heartrate).filter((h): h is number => h != null && h > 0);
     intervalGroups.push({
-      paceSecKm: d > 0 ? t / (d / 1000) : 0,
+      paceSecKm: d > 0 ? t / (d / 1000) : 1000 / cur[0].average_speed,
       avgHR: hrs.length > 0 ? hrs.reduce((s, h) => s + h, 0) / hrs.length : null,
     });
   }
 
   if (intervalGroups.length === 0) {
-    return { score: 0, paceGapMin: 0, consistencyPct: 0, hrResponsePct: 0, bullets: ["Could not identify interval structure."] };
+    return { score: 0, paceGapMin: 0, consistencyPct: 0, hrResponsePct: 0,
+      bullets: ["Could not identify interval structure."] };
   }
 
   const intervalPaces = intervalGroups.map(g => g.paceSecKm).filter(p => p > 0);
   const avgIntervalPace = intervalPaces.reduce((s, v) => s + v, 0) / intervalPaces.length;
 
-  // Intensity: sec/km gap between easy and interval pace
   const paceGapSec = easyPace - avgIntervalPace;
   const paceGapMin = paceGapSec / 60;
 
-  // Consistency: variation among interval groups only
+  // Consistency: variation among interval groups only (not WU/CD/rest)
   const cv = intervalPaces.length > 1 ? stddev(intervalPaces) / avgIntervalPace : 0;
   const consistencyPct = Math.round(Math.max(0, Math.min(100, (1 - cv * 3) * 100)));
 
-  // HR: compare max lap avg HR to user's physiological max HR (from cache)
+  // HR: compare max lap avg HR to physiological max HR from fitness cache
   const allLapHRs = valid.map(s => s.average_heartrate).filter((h): h is number => h != null && h > 0);
   const maxLapAvgHR = allLapHRs.length > 0 ? Math.max(...allLapHRs) : null;
   const refMaxHR = activity.userMaxHR ?? activity.maxHeartrate ?? 190;
@@ -142,34 +156,24 @@ function computeRating(splits: Split[] | null, activity: ActivityInfo): WorkoutR
   score = Math.round(Math.min(5, Math.max(1, score)));
 
   // Bullets
-  if (hasIntervals) {
-    if (paceGapMin >= 1.5)
-      bullets.push(`High intensity — intervals averaged ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
-    else if (paceGapMin >= 0.75)
-      bullets.push(`Good intensity contrast — intervals ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
-    else if (paceGapMin > 0)
-      bullets.push(`Low intensity contrast — intervals only ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
-    else
-      bullets.push(`Intensity contrast unclear — pace gap could not be determined.`);
+  if (paceGapMin >= 1.5)
+    bullets.push(`High intensity — intervals ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
+  else if (paceGapMin >= 0.75)
+    bullets.push(`Good intensity contrast — intervals ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
+  else if (paceGapMin > 0)
+    bullets.push(`Low intensity contrast — intervals only ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
+  else
+    bullets.push(`Intervals were not meaningfully faster than easy pace.`);
 
-    bullets.push(`${intervalGroups.length} interval${intervalGroups.length > 1 ? "s" : ""} detected, avg pace ${secPerKmStr(avgIntervalPace)}/km.`);
+  bullets.push(`${intervalGroups.length} interval${intervalGroups.length > 1 ? "s" : ""} detected, avg pace ${secPerKmStr(avgIntervalPace)}/km.`);
 
-    if (intervalGroups.length > 1) {
-      if (consistencyPct >= 85)
-        bullets.push(`Very consistent splits (${consistencyPct}%).`);
-      else if (consistencyPct >= 65)
-        bullets.push(`Moderate split consistency (${consistencyPct}%).`);
-      else
-        bullets.push(`Uneven splits (${consistencyPct}%) — consider more even effort.`);
-    }
-  } else {
-    bullets.push(`Steady effort — avg pace ${secPerKmStr(avgIntervalPace)}/km across all laps.`);
+  if (intervalGroups.length > 1) {
     if (consistencyPct >= 85)
-      bullets.push(`Very consistent pacing (${consistencyPct}%).`);
+      bullets.push(`Very consistent splits (${consistencyPct}%).`);
     else if (consistencyPct >= 65)
-      bullets.push(`Moderate pacing consistency (${consistencyPct}%).`);
+      bullets.push(`Moderate split consistency (${consistencyPct}%).`);
     else
-      bullets.push(`Variable pacing (${consistencyPct}%).`);
+      bullets.push(`Uneven splits (${consistencyPct}%) — consider more even effort.`);
   }
 
   if (hrResponsePct > 0) {
