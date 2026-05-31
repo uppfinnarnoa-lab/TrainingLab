@@ -50,6 +50,12 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
   const maxPace      = Math.max(...paces); // slowest
   const paceRange    = maxPace - minPace;
 
+  // P10–P90 shade reference: fills the full alpha range even for steady-paced runs
+  const sortedPaces   = [...paces].sort((a, b) => a - b);
+  const shadeFastPace = sortedPaces[Math.max(0, Math.floor(sortedPaces.length * 0.10))];
+  const shadeSlowPace = sortedPaces[Math.min(sortedPaces.length - 1, Math.floor(sortedPaces.length * 0.90))];
+  const shadePaceRange = Math.max(shadeSlowPace - shadeFastPace, 5);
+
   const totalTimeSec = validSplits.reduce((s, sp) => s + sp.moving_time, 0);
   const totalDistM   = validSplits.reduce((s, sp) => s + sp.distance, 0);
 
@@ -72,8 +78,9 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
       // Power curve: slow laps compressed toward zero, fast laps at full height
       const heightFrac = Math.max(0.04, Math.pow(normalizedSpeed, POWER));
 
-      // Alpha: 4% for slowest → 100% for fastest; also modulate border
-      const alpha    = Math.round((0.04 + 0.96 * normalizedSpeed) * 255);
+      // Alpha: 18% for slowest → 100% for fastest; P10–P90 reference stretches contrast
+      const shadeNorm = Math.max(0, Math.min(1, (shadeSlowPace - pace) / shadePaceRange));
+      const alpha    = Math.round((0.18 + 0.82 * shadeNorm) * 255);
       const alphaHex = alpha.toString(16).padStart(2, "0");
 
       cumTimeSec += sp.moving_time;
@@ -89,7 +96,7 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
       return { sp, pace, widthPct, heightFrac, alphaHex, label };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [validSplits, xMode, totalTimeSec, totalDistM, minPace, maxPace, paceRange, labelEvery]);
+  }, [validSplits, xMode, totalTimeSec, totalDistM, minPace, maxPace, paceRange, shadeFastPace, shadeSlowPace, shadePaceRange, labelEvery]);
 
   // Avg pace line: position in non-linear scale
   const avgNorm     = paceRange > 0 ? Math.max(0, Math.min(1, (maxPace - avgSecPerKm) / paceRange)) : 0.5;

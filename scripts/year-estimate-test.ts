@@ -45,6 +45,8 @@ function estimateZones(
     // When true: pace sanity bounds are derived from this dataset's own pace distribution
     // instead of hardcoded values. Also removes the hardcoded gap upper bound (391 s/km).
     dataDrivenPaceBounds?: boolean;
+    // BUG-05 test: use weight-weighted (rather than count-weighted) average for medianHR in PAV merge
+    useWeightedPAV?: boolean;
   } = { useWeightThreshold: false, minCount: 15 },
 ): EstimateResult | null {
   const refTime = (opts.asOf ?? new Date()).getTime();
@@ -141,9 +143,12 @@ function estimateZones(
       if (out[i].medianHR < out[i + 1].medianHR) {
         const tc = out[i].count + out[i + 1].count;
         const tw = out[i].totalWeight + out[i + 1].totalWeight;
+        const mergedHR = opts.useWeightedPAV
+          ? (out[i].medianHR * out[i].totalWeight + out[i + 1].medianHR * out[i + 1].totalWeight) / tw
+          : (out[i].medianHR * out[i].count + out[i + 1].medianHR * out[i + 1].count) / tc;
         out.splice(i, 2, {
           pace: (out[i].pace * out[i].count + out[i + 1].pace * out[i + 1].count) / tc,
-          medianHR: (out[i].medianHR * out[i].count + out[i + 1].medianHR * out[i + 1].count) / tc,
+          medianHR: mergedHR,
           count: tc, totalWeight: tw,
         });
         changed = true; break;
@@ -270,9 +275,20 @@ type ActFull = {
   weatherTemp?: number | null;
 };
 
-function buildLaps(acts: ActFull[], olFilter: ReturnType<typeof makeOlRaceFilter>) {
+// BUG-02 test: WU/CD regex (mirrors production wuCdExclude in cache.ts)
+const WU_CD_RE = /^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i;
+
+function buildLaps(
+  acts: ActFull[],
+  olFilter: ReturnType<typeof makeOlRaceFilter>,
+  opts: { excludeWuCd?: boolean } = {},
+) {
   return acts
-    .filter(a => olFilter(a.name, a.sportType, a.isRace ?? false, a.averageSpeed) && Array.isArray(a.laps))
+    .filter(a =>
+      olFilter(a.name, a.sportType, a.isRace ?? false, a.averageSpeed) &&
+      (!opts.excludeWuCd || !WU_CD_RE.test(a.name)) &&
+      Array.isArray(a.laps)
+    )
     .flatMap(a =>
       (a.laps as LapRow[])
         .filter(l => l.average_heartrate && l.distance >= 800 && l.moving_time >= 180)
@@ -321,6 +337,9 @@ async function main() {
   const cfgD = (asOf?: Date, verbose = false) => ({
     ...cfgK(asOf, verbose), dataDrivenPaceBounds: true,
   });
+  // BUG-05: weight-weighted PAV merge (vs. count-weighted baseline)
+  const cfgKW = (asOf?: Date, verbose = false) => ({ ...cfgK(asOf, verbose), useWeightedPAV: true });
+  const cfgDW = (asOf?: Date, verbose = false) => ({ ...cfgD(asOf, verbose), useWeightedPAV: true });
 
   // ── Per-year ──────────────────────────────────────────────────────────────
   const currentYear = new Date().getFullYear();
@@ -339,15 +358,28 @@ async function main() {
     const olThreshold = bootstrapOlThreshold(acts, maxHR, restHR, end);
     const olFilter    = makeOlRaceFilter(olThreshold);
     const laps        = buildLaps(acts, olFilter);
+    const lapsNoWuCd  = buildLaps(acts, olFilter, { excludeWuCd: true }); // BUG-02
 
     const verbose = year >= 2025;
     if (verbose) console.log(`\n── ${year} (K) ──  OL threshold=${fmt(olThreshold)}/km`);
     const rK = estimateZones(laps, maxHR, restHR, cfgK(end, verbose));
-    printResult(`${year} cfgK  `, rK, laps.length, olThreshold);
+    printResult(`${year} cfgK          `, rK, laps.length, olThreshold);
 
     if (verbose) console.log(`\n── ${year} (D: data-driven pace bounds) ──`);
     const rD = estimateZones(laps, maxHR, restHR, cfgD(end, verbose));
-    printResult(`${year} cfgD  `, rD, laps.length, olThreshold);
+    printResult(`${year} cfgD          `, rD, laps.length, olThreshold);
+
+    // BUG-02: WU/CD excluded from laps
+    const rKnw = estimateZones(lapsNoWuCd, maxHR, restHR, cfgK(end));
+    printResult(`${year} cfgK +noWuCd  `, rKnw, lapsNoWuCd.length, olThreshold);
+    const rDnw = estimateZones(lapsNoWuCd, maxHR, restHR, cfgD(end));
+    printResult(`${year} cfgD +noWuCd  `, rDnw, lapsNoWuCd.length, olThreshold);
+
+    // BUG-05: weight-weighted PAV merge
+    const rKw = estimateZones(laps, maxHR, restHR, cfgKW(end));
+    printResult(`${year} cfgK +wPAV    `, rKw, laps.length, olThreshold);
+    const rDw = estimateZones(laps, maxHR, restHR, cfgDW(end));
+    printResult(`${year} cfgD +wPAV    `, rDw, laps.length, olThreshold);
   }
 
   // ── LIVE ──────────────────────────────────────────────────────────────────
@@ -362,15 +394,28 @@ async function main() {
   const liveOlThreshold = bootstrapOlThreshold(liveActs, maxHR, restHR);
   const liveOlFilter    = makeOlRaceFilter(liveOlThreshold);
   const liveLaps        = buildLaps(liveActs, liveOlFilter);
-  console.log(`Total laps: ${liveLaps.length}  OL threshold=${fmt(liveOlThreshold)}/km`);
+  const liveLapsNoWuCd  = buildLaps(liveActs, liveOlFilter, { excludeWuCd: true }); // BUG-02
+  console.log(`Total laps: ${liveLaps.length}  laps w/o WU/CD: ${liveLapsNoWuCd.length}  OL threshold=${fmt(liveOlThreshold)}/km`);
 
   console.log("\n── Verbose: LIVE Config K ──");
   const resK = estimateZones(liveLaps, maxHR, restHR, cfgK(undefined, true));
-  printResult("  Config K", resK, liveLaps.length, liveOlThreshold);
+  printResult("  Config K         ", resK, liveLaps.length, liveOlThreshold);
 
   console.log("\n── Verbose: LIVE Config D ──");
   const resD = estimateZones(liveLaps, maxHR, restHR, cfgD(undefined, true));
-  printResult("  Config D", resD, liveLaps.length, liveOlThreshold);
+  printResult("  Config D         ", resD, liveLaps.length, liveOlThreshold);
+
+  console.log("\n── LIVE BUG-02: WU/CD excluded from laps ──");
+  const resKnw = estimateZones(liveLapsNoWuCd, maxHR, restHR, cfgK(undefined, true));
+  printResult("  Config K +noWuCd ", resKnw, liveLapsNoWuCd.length, liveOlThreshold);
+  const resDnw = estimateZones(liveLapsNoWuCd, maxHR, restHR, cfgD(undefined, true));
+  printResult("  Config D +noWuCd ", resDnw, liveLapsNoWuCd.length, liveOlThreshold);
+
+  console.log("\n── LIVE BUG-05: weight-weighted PAV merge ──");
+  const resKw = estimateZones(liveLaps, maxHR, restHR, cfgKW(undefined, true));
+  printResult("  Config K +wPAV   ", resKw, liveLaps.length, liveOlThreshold);
+  const resDw = estimateZones(liveLaps, maxHR, restHR, cfgDW(undefined, true));
+  printResult("  Config D +wPAV   ", resDw, liveLaps.length, liveOlThreshold);
 }
 
 main().finally(() => prisma.$disconnect());

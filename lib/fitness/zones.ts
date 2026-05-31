@@ -508,8 +508,8 @@ function poolAdjacentViolators(buckets: BucketPoint[]): BucketPoint[] {
         const tc = out[i].count + out[i + 1].count;
         const tw = out[i].totalWeight + out[i + 1].totalWeight;
         out.splice(i, 2, {
-          pace:        (out[i].pace     * out[i].count + out[i + 1].pace     * out[i + 1].count) / tc,
-          medianHR:    (out[i].medianHR * out[i].count + out[i + 1].medianHR * out[i + 1].count) / tc,
+          pace:        (out[i].pace     * out[i].totalWeight + out[i + 1].pace     * out[i + 1].totalWeight) / tw,
+          medianHR:    (out[i].medianHR * out[i].totalWeight + out[i + 1].medianHR * out[i + 1].totalWeight) / tw,
           count:       tc,
           totalWeight: tw,
         });

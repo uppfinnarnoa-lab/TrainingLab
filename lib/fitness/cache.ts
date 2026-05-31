@@ -26,7 +26,7 @@ type Act = {
   sportType: string; name: string; distance: number; movingTime: number;
   averageHeartrate: number | null; maxHeartrate: number | null;
   averageSpeed: number | null; isRace: boolean; bestEfforts: unknown;
-  startDate: Date; totalElevationGain: number;
+  startDate: Date; totalElevationGain: number; weatherTemp?: number | null;
 };
 
 type ActLight = Omit<Act, "bestEfforts">;
@@ -39,7 +39,7 @@ async function loadActivities(userId: string) {
       sportType: true, name: true, distance: true, movingTime: true,
       averageHeartrate: true, maxHeartrate: true, totalElevationGain: true,
       averageSpeed: true, isRace: true, bestEfforts: true, startDate: true,
-      laps: true,
+      laps: true, weatherTemp: true,
     },
   });
 }
@@ -54,7 +54,7 @@ async function loadActivitiesLight(userId: string) {
       sportType: true, name: true, distance: true, movingTime: true,
       averageHeartrate: true, maxHeartrate: true, totalElevationGain: true,
       averageSpeed: true, isRace: true, startDate: true,
-      laps: true,
+      laps: true, weatherTemp: true,
     },
   });
 }
@@ -300,43 +300,73 @@ export async function updateVO2maxAndPaces(userId: string) {
     };
   })();
 
-  const olRaceFilter = (a: { name: string; isRace: boolean; averageSpeed: number | null; sportType: string }) =>
-    !/virtualrun/i.test(a.sportType) &&
-    !/indoor|inomhus/i.test(a.name ?? "") &&
-    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
-    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 330));
+  // ── LT/AT pace trend (Option B: statistical, incremental) ──────────────────
+  // Historical months: computed once and stored — history never changes.
+  // Current month: always recomputed on each sync.
+  type LTPacePoint = { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number };
+  const ltPaceTrend: LTPacePoint[] = [];
+  {
+    const currentMonth = format(now, "yyyy-MM");
+    const existingLtTrend = ((existingCache?.extraVizJson as { ltPaceTrend?: LTPacePoint[] } | null)?.ltPaceTrend ?? []);
+    const historical = existingLtTrend.filter(p => p.month < currentMonth);
+    const historicalKeys = new Set(historical.map(p => p.month));
+    ltPaceTrend.push(...historical);
 
-  type LapRow = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
-  const statActRuns = (activities as (Act & { laps?: unknown })[])
-    .filter(a => /run|trail/i.test(a.sportType) && a.averageHeartrate && olRaceFilter(a))
-    .map(a => ({ avgHR: a.averageHeartrate!, distanceM: a.distance, movingTimeSec: a.movingTime, totalElevationGain: a.totalElevationGain, startDate: a.startDate, isRace: a.isRace }));
+    type TrendAct = Act & { laps?: unknown };
+    type LapRow = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
+    const WU_CD_RE = /^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i;
 
-  const statLapRuns = (activities as (Act & { laps?: unknown })[])
-    .filter(a => /run|trail/i.test(a.sportType) && olRaceFilter(a) && Array.isArray(a.laps))
-    .flatMap(a =>
-      (a.laps as LapRow[]).filter(l =>
-        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
-      ).map(l => ({
-        avgHR: l.average_heartrate!,
-        distanceM: l.distance,
-        movingTimeSec: l.moving_time,
-        totalElevationGain: l.total_elevation_gain ?? 0,
-        startDate: (a as Act).startDate,
-        isRace: (a as Act).isRace,
-      }))
-    );
+    const nameOnlyOlFilter = (a: TrendAct) =>
+      /run|trail/i.test(a.sportType) &&
+      !/virtualrun/i.test(a.sportType) &&
+      !/indoor|inomhus/i.test(a.name) &&
+      !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name);
 
-  const statZonesResult = estimateZonesFromStatisticalAnalysis(
-    [...statActRuns, ...statLapRuns],
-    maxHR, restHR,
-  );
+    const buildTrendLaps = (olFilter: (a: TrendAct) => boolean) =>
+      (activities as TrendAct[])
+        .filter(a => olFilter(a) && !WU_CD_RE.test(a.name) && Array.isArray(a.laps))
+        .flatMap(a =>
+          (a.laps as LapRow[])
+            .filter(l => l.average_heartrate && l.distance >= 800 && l.moving_time >= 180)
+            .map(l => ({
+              avgHR: l.average_heartrate!,
+              distanceM: l.distance,
+              movingTimeSec: l.moving_time,
+              totalElevationGain: l.total_elevation_gain ?? 0,
+              startDate: a.startDate,
+              isRace: a.isRace,
+              weatherTemp: a.weatherTemp ?? null,
+            }))
+        );
 
-  const statZonesLapsResult = estimateZonesFromStatisticalAnalysis(
-    statLapRuns,
-    maxHR, restHR,
-  );
+    // Bootstrap: name-only filter → preliminary LT1 → OL race pace threshold
+    const phase1Laps = buildTrendLaps(nameOnlyOlFilter);
+    const phase1 = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR);
+    const trendOlThreshold = phase1 ? Math.round(phase1.lt1PaceSecPerKm * 1.15) : 330;
 
-  const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear: [] };
+    const olFilterTrend = (a: TrendAct) =>
+      nameOnlyOlFilter(a) &&
+      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < trendOlThreshold));
+
+    const allTrendLaps = buildTrendLaps(olFilterTrend);
+
+    for (let i = 0; i < 30; i++) {
+      const windowEnd = subDays(now, i * 30);
+      const month = format(windowEnd, "yyyy-MM");
+      // Skip historical months already stored — only compute missing + always recompute current month
+      if (month < currentMonth && historicalKeys.has(month)) continue;
+      const windowStart = subDays(windowEnd, 90);
+      const windowLaps = allTrendLaps.filter(l => l.startDate >= windowStart && l.startDate <= windowEnd);
+      if (windowLaps.length < 40) continue;
+      const result = estimateZonesFromStatisticalAnalysis(windowLaps, maxHR, restHR, windowEnd);
+      if (result && !ltPaceTrend.find(p => p.month === month)) {
+        ltPaceTrend.push({ month, lt1PaceSecPerKm: result.lt1PaceSecPerKm, lt2PaceSecPerKm: result.lt2PaceSecPerKm, r2: result.rSquared });
+      }
+    }
+    ltPaceTrend.sort((a, b) => a.month.localeCompare(b.month));
+  }
+
+  const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear: [], ltPaceTrend };
 
   // ── Persist to cache ───────────────────────────────────────────────────
   const sharedFields = {
@@ -475,6 +505,7 @@ export async function updateHRZones(userId: string) {
           totalElevationGain: l.total_elevation_gain ?? 0,
           startDate: (a as ActLight).startDate,
           isRace: (a as ActLight).isRace,
+          weatherTemp: (a as ActLight).weatherTemp ?? null,
         }))
       );
 
@@ -578,10 +609,12 @@ export async function updateHRZones(userId: string) {
   );
   const paceZones = buildPaceZones(vo2maxResult.vdot);
 
-  const anchorPB = racePBs.reduce<RacePB | null>((best, p) => {
-    if (!best) return p;
-    return vdotFromRace(p.distanceM, p.timeSec) > vdotFromRace(best.distanceM, best.timeSec) ? p : best;
-  }, null);
+  const anchorPB = racePBs
+    .filter(p => p.timeSec > 60 && p.distanceM >= 1500)
+    .reduce<RacePB | null>((best, p) => {
+      if (!best) return p;
+      return vdotFromRace(p.distanceM, p.timeSec) > vdotFromRace(best.distanceM, best.timeSec) ? p : best;
+    }, null);
   const cachedTsb = existingCacheForZones?.tsb ?? 0;
   const predictionsJson = RACE_DISTANCES.map(({ label, meters }) => {
     const peak = predictRaceTime(vo2maxResult.vdot, meters);

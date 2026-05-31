@@ -149,6 +149,7 @@ export default async function StatsPage() {
       vdotTrend: { month: string; vdot: number }[];
       terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
       perfByDistYear: { distance: string; period: string; time: number }[];
+      ltPaceTrend: { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[];
     } | null;
     const fastStatZonesLaps = (fitnessCache.statZonesLapsJson ?? null) as import("@/lib/fitness/zones").StatisticalZoneResult | null;
 
@@ -741,11 +742,14 @@ export default async function StatsPage() {
 
   const easyPaceTrend = computeEasyPaceTrend(activities as EasyPaceAct[], computedHrZones.z3[0]);
 
+  // Preserve stored ltPaceTrend — it's computed by updateVO2maxAndPaces, not the slow path
+  const existingLtPaceTrend = (fitnessCache?.extraVizJson as { ltPaceTrend?: unknown } | null)?.ltPaceTrend ?? [];
+
   // Save extraViz + statZones to cache for fast-path reads (fire-and-forget)
   prisma.fitnessCache.update({
     where: { userId },
     data: {
-      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear } as Prisma.InputJsonValue,
+      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear, ltPaceTrend: existingLtPaceTrend } as Prisma.InputJsonValue,
       statZonesJson:    (statZones     ?? null) as unknown as Prisma.InputJsonValue,
       statZonesLapsJson:(statZonesLaps ?? null) as unknown as Prisma.InputJsonValue,
     },
@@ -755,7 +759,7 @@ export default async function StatsPage() {
     zoneSeconds, computedHrZones, vo2max, effectivePaceZones, predictions, polarisation, acwr, overviewRun,
     { aeiByWeek, reByWeek, rampRate, injuryRisk, activeStreak, tempSensitivity }, paceZoneSeconds,
     modelPredictions, modelVdots,
-    { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear },
+    { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear, ltPaceTrend: existingLtPaceTrend as { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[] },
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
     easyPaceTrend, statZonesLaps);
 }
@@ -798,6 +802,7 @@ function renderStats(
     vdotTrend: { month: string; vdot: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];
+    ltPaceTrend?: { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[];
   } | null,
   manualMaxHR?: number | null,
   manualRestHR?: number | null,
@@ -913,11 +918,14 @@ function computeWeatherStats(acts: WeatherAct[]): WeatherStats {
   });
 
   const TEMP_BANDS = [
-    { label: "< 5°C",   test: (t: number) => t < 5 },
-    { label: "5–10°C",  test: (t: number) => t >= 5  && t < 10 },
-    { label: "10–15°C", test: (t: number) => t >= 10 && t < 15 },
-    { label: "15–20°C", test: (t: number) => t >= 15 && t < 20 },
-    { label: "> 20°C",  test: (t: number) => t >= 20 },
+    { label: "< −10°C",  test: (t: number) => t < -10 },
+    { label: "−10–−5°C", test: (t: number) => t >= -10 && t < -5 },
+    { label: "−5–0°C",   test: (t: number) => t >= -5  && t < 0 },
+    { label: "0–5°C",    test: (t: number) => t >= 0   && t < 5 },
+    { label: "5–10°C",   test: (t: number) => t >= 5   && t < 10 },
+    { label: "10–15°C",  test: (t: number) => t >= 10  && t < 15 },
+    { label: "15–20°C",  test: (t: number) => t >= 15  && t < 20 },
+    { label: "> 20°C",   test: (t: number) => t >= 20 },
   ];
   const WIND_BANDS = [
     { label: "Calm (< 10)",      test: (w: number) => w < 10 },

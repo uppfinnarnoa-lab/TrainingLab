@@ -1,6 +1,6 @@
 # Implementation Plan — LT & AT Tempo Development Chart
 
-**Status:** Plan — awaiting implementation approval  
+**Status:** Implemented 2026-05-31 (Option B — statistical, incremental)  
 **Scope:** `lib/fitness/cache.ts` + new chart component + stats page integration
 
 ---

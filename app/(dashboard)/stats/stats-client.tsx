@@ -8,6 +8,7 @@ import { WeeklyVolumeChart } from "@/components/charts/WeeklyVolumeChart";
 import { TrainingLoadChart } from "@/components/charts/TrainingLoadChart";
 import { HRZonesChart } from "@/components/charts/HRZonesChart";
 import { EasyPaceTrendChart } from "@/components/charts/EasyPaceTrendChart";
+import { LTPaceTrendChart } from "@/components/charts/LTPaceTrendChart";
 import { MetricTooltip } from "@/components/stats/metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
@@ -67,6 +68,7 @@ interface Props {
     vdotTrend: { month: string; vdot: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];
+    ltPaceTrend?: { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[];
   } | null;
 }
 
@@ -388,6 +390,16 @@ export function StatsClient(props: Props) {
 
           {/* VDOT trend over time */}
           <VdotTrendCard data={extraViz?.vdotTrend ?? []} />
+
+          {/* LT/AT tempo development over time */}
+          <div className="rounded-xl border border-border p-4 space-y-3">
+            <p className="text-sm font-semibold text-primary">LT/AT tempo-utveckling</p>
+            <LTPaceTrendChart
+              data={extraViz?.ltPaceTrend ?? []}
+              currentLT2={paceZones?.threshold?.[0]}
+              currentLT1={paceZones?.marathon?.[1]}
+            />
+          </div>
 
           {/* OL terrain factor */}
           <TerrainFactorCard tf={extraViz?.terrainFactor ?? null} />
