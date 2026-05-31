@@ -292,7 +292,7 @@ export interface StatisticalZoneResult {
   zones: HRZones;
 }
 
-interface BucketPoint { pace: number; medianHR: number; count: number }
+interface BucketPoint { pace: number; medianHR: number; count: number; totalWeight: number }
 
 /**
  * Estimate HR zones statistically from a large dataset of training runs.
@@ -355,14 +355,18 @@ export function estimateZonesFromStatisticalAnalysis(
       return { gap, hr: r.avgHR, weight: tempWeight * recency * raceBoost };
     })
     .filter((p): p is { gap: number; hr: number; weight: number } =>
-      p !== null && p.gap > 200 && p.gap < 391 // 3:20–6:31/km (OL paces excluded upstream)
+      // weight > 0.01 makes the recency window real: with halfLife=90 this is ~14 months;
+      // with halfLife=180 (fewer recent laps) it's ~28 months.
+      // Without this filter, weights are computed but never applied — all historical data
+      // contributes equally to bucket P80s regardless of age.
+      p !== null && p.gap > 200 && p.gap < 391 && p.weight > 0.01
     );
 
   if (points.length < 40) return null;
 
   const binWidth = 15; // fixed 15 s/km bins: ~13 buckets in 200–391 range, better LT resolution than adaptive FD
 
-  // ── 3. Build buckets with weighted median HR ────────────────────────────
+  // ── 3. Build buckets with weighted P80 HR ─────────────────────────────
   const bucketMap = new Map<number, Array<{ hr: number; w: number }>>();
   for (const p of points) {
     const key = Math.round(p.gap / binWidth) * binWidth;
@@ -370,14 +374,21 @@ export function estimateZonesFromStatisticalAnalysis(
     bucketMap.get(key)!.push({ hr: p.hr, w: p.weight });
   }
 
-  const MIN_COUNT = 15;
+  const MIN_COUNT = 8; // effective-weight minimum — a bucket of 3 race laps (weight 3×) = 9, passes
   const buckets: BucketPoint[] = [...bucketMap.entries()]
-    .filter(([, pts]) => pts.length >= MIN_COUNT)
+    .filter(([, pts]) => pts.reduce((s, p) => s + p.w, 0) >= MIN_COUNT)
     .map(([pace, pts]) => {
-      const sortedHR = pts.map(p => p.hr).sort((a, b) => a - b);
-      // Unweighted (count-based) P80: biased weights must not warp the bucket HR estimate
-      const pct80HR = sortedHR[Math.min(Math.floor(sortedHR.length * 0.80), sortedHR.length - 1)];
-      return { pace, medianHR: pct80HR, count: pts.length };
+      // Weighted P80: sort by HR, accumulate weight until 80% is covered.
+      // Recent races (3× boost) and recent training dominate; old easy laps contribute less.
+      const totalW = pts.reduce((s, p) => s + p.w, 0);
+      const sortedByHR = [...pts].sort((a, b) => a.hr - b.hr);
+      let cumW = 0;
+      let pct80HR = sortedByHR[sortedByHR.length - 1].hr;
+      for (const pt of sortedByHR) {
+        cumW += pt.w;
+        if (cumW >= totalW * 0.80) { pct80HR = pt.hr; break; }
+      }
+      return { pace, medianHR: pct80HR, count: pts.length, totalWeight: totalW };
     })
     .sort((a, b) => a.pace - b.pace);
 
@@ -391,8 +402,9 @@ export function estimateZonesFromStatisticalAnalysis(
   const paceArr = mono.map(b => b.pace);
   const hrArr   = mono.map(b => b.medianHR);
   // Reciprocal-density weights: sparse buckets (threshold pace) get equal influence
-  // to the dense easy-run buckets, preventing regression bias toward the easy end
-  const bucketWeights = mono.map(b => 1 / Math.sqrt(b.count));
+  // to the dense easy-run buckets. Use effective weight (sum of recency×temp×race weights)
+  // so race-dominated fast buckets and recent-data-dominated slow buckets are balanced fairly.
+  const bucketWeights = mono.map(b => 1 / Math.sqrt(b.totalWeight));
 
   // Joint 3-segment LS: globally-optimal (bp1, bp2) pair for both R² and zone placement.
   // bp1 = LT2 (faster breakpoint, lower sec/km), bp2 = LS-derived LT1 (used as fallback).
@@ -474,10 +486,12 @@ function poolAdjacentViolators(buckets: BucketPoint[]): BucketPoint[] {
     for (let i = 0; i < out.length - 1; i++) {
       if (out[i].medianHR < out[i + 1].medianHR) {
         const tc = out[i].count + out[i + 1].count;
+        const tw = out[i].totalWeight + out[i + 1].totalWeight;
         out.splice(i, 2, {
-          pace:     (out[i].pace     * out[i].count + out[i + 1].pace     * out[i + 1].count) / tc,
-          medianHR: (out[i].medianHR * out[i].count + out[i + 1].medianHR * out[i + 1].count) / tc,
-          count:    tc,
+          pace:        (out[i].pace     * out[i].count + out[i + 1].pace     * out[i + 1].count) / tc,
+          medianHR:    (out[i].medianHR * out[i].count + out[i + 1].medianHR * out[i + 1].count) / tc,
+          count:       tc,
+          totalWeight: tw,
         });
         changed = true;
         break;

@@ -359,8 +359,10 @@ export async function updateVO2maxAndPaces(userId: string) {
     criticalSpeedMs:   csResult?.csMetersPerSec   ?? undefined,
     wPrimeMeters:      csResult?.wPrimeMeters      ?? undefined,
     extraVizJson:       extraVizJson as object,
-    statZonesJson:      (statZonesResult     ?? null) as object | null,
-    statZonesLapsJson:  (statZonesLapsResult ?? null) as object | null,
+    // statZonesJson / statZonesLapsJson intentionally omitted — zone estimation results
+    // are only written by updateHRZones (calibration button). Auto-sync must not
+    // overwrite them because the estimate is sensitive to newly backfilled laps and
+    // drifts unexpectedly between explicit calibrations.
   };
 
   await prisma.fitnessCache.upsert({
