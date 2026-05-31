@@ -72,8 +72,8 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
       // Power curve: slow laps compressed toward zero, fast laps at full height
       const heightFrac = Math.max(0.04, Math.pow(normalizedSpeed, POWER));
 
-      // Alpha: 12% fill for slowest → 88% fill for fastest (darker on dark bg = faster)
-      const alpha    = Math.round((0.12 + 0.76 * normalizedSpeed) * 255);
+      // Alpha: 4% for slowest → 100% for fastest; also modulate border
+      const alpha    = Math.round((0.04 + 0.96 * normalizedSpeed) * 255);
       const alphaHex = alpha.toString(16).padStart(2, "0");
 
       cumTimeSec += sp.moving_time;
@@ -122,17 +122,17 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
 
       <div className="relative" style={{ height: chartHeight + 28 }}>
         {/* Baseline */}
-        <div className="absolute bottom-7 left-0 right-0 border-b border-border/50" />
+        <div className="absolute bottom-7 left-0 right-10 border-b border-border/50" />
 
         {/* Average pace dashed line */}
         <div
-          className="absolute left-0 right-0 border-b border-dashed border-accent/50 pointer-events-none"
+          className="absolute left-0 right-10 border-b border-dashed border-accent/50 pointer-events-none"
           style={{ bottom: 7 + chartHeight * avgLineFrac }}
           title={`Snittempo: ${secPerKmStr(avgSecPerKm)}/km`}
         />
 
-        {/* Bars */}
-        <div className="absolute bottom-7 left-0 right-0 flex items-end" style={{ gap: "1px" }}>
+        {/* Bars — right-10 reserves space for pace scale labels */}
+        <div className="absolute bottom-7 left-0 right-10 flex items-end" style={{ gap: "1px" }}>
           {bars.map(({ sp, pace, widthPct, heightFrac, alphaHex }) => (
             <div
               key={sp.split}
@@ -141,7 +141,7 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
                 width: `calc(${widthPct}% - 1px)`,
                 height: `${heightFrac * chartHeight}px`,
                 backgroundColor: `${color}${alphaHex}`,
-                borderTop: `2px solid ${color}`,
+                borderTop: `2px solid ${color}${alphaHex}`,
               }}
             >
               {/* Hover tooltip */}
@@ -168,8 +168,8 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
           <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(maxPace)}</span>
         </div>
 
-        {/* X-axis labels (cumulative time or distance) */}
-        <div className="absolute bottom-0 left-0 right-0 flex">
+        {/* X-axis labels — right-10 matches bars container */}
+        <div className="absolute bottom-0 left-0 right-10 flex">
           {bars.map(({ sp, widthPct, label }) => (
             <div key={sp.split} style={{ width: `${widthPct}%` }}
               className="shrink-0 text-center text-[9px] text-muted truncate">
