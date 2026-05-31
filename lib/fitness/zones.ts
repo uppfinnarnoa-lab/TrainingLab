@@ -334,40 +334,45 @@ export function estimateZonesFromStatisticalAnalysis(
   }).length;
   const halfLife = recentCount >= 40 ? 90 : 180;
 
-  const points = runs
+  // ── First pass: all valid raw points (no gap upper bound) ─────────────────
+  // HR bounds are universal physiology; lower gap bound (200 s/km = 3:20/km) is a
+  // physical impossibility for sustained 800m+ laps.
+  const allValid = runs
     .filter(r =>
-      // Reject near-max HR (sensor artifacts or all-out efforts — not steady state)
       r.avgHR > maxHR * 0.52 && r.avgHR < maxHR * 0.96 &&
       r.distanceM >= MIN_DIST && r.movingTimeSec >= MIN_DURATION_SEC &&
-      // Reject extreme terrain where GAP correction is unreliable (>12% avg grade)
       r.totalElevationGain / r.distanceM < 0.12
     )
-    .map(r => {
+    .flatMap(r => {
       const rawPace = r.movingTimeSec / (r.distanceM / 1000);
       const gap = gradeAdjustedPace(rawPace, r.totalElevationGain, r.distanceM);
       const temp = r.weatherTemp ?? 15;
-      // Reject very hot runs entirely — heat drastically inflates HR beyond useful range
-      if (temp > 30) return null;
+      if (temp > 30 || gap <= 200) return [];
       const tempWeight = temp > 25 ? 0.35 : temp > 20 ? 0.75 : 1.0;
-      const daysAgo = r.startDate
-        ? (refTime - r.startDate.getTime()) / 86_400_000
-        : halfLife;
+      const daysAgo = r.startDate ? (refTime - r.startDate.getTime()) / 86_400_000 : halfLife;
       const recency = Math.exp(-daysAgo / halfLife);
-      // Race activities are max-effort steady-state at known pace — most informative for LT2
       const raceBoost = r.isRace ? 3.0 : 1.0;
-      return { gap, hr: r.avgHR, weight: tempWeight * recency * raceBoost };
-    })
-    .filter((p): p is { gap: number; hr: number; weight: number } =>
-      // weight > 0.01 makes the recency window real: with halfLife=90 this is ~14 months;
-      // with halfLife=180 (fewer recent laps) it's ~28 months.
-      // Without this filter, weights are computed but never applied — all historical data
-      // contributes equally to bucket P80s regardless of age.
-      p !== null && p.gap > 200 && p.gap < 391 && p.weight > 0.01
-    );
+      return [{ gap, hr: r.avgHR, weight: tempWeight * recency * raceBoost }];
+    });
+
+  // ── Compute pace percentiles from all raw points ────────────────────────
+  // Used for data-driven sanity checks: LT2 must be in the faster 60% of training laps;
+  // LT1 must be in the faster 85%. Scales automatically with any athlete's fitness level.
+  const sortedRawGaps = allValid.map(p => p.gap).sort((a, b) => a - b);
+  const gapPct = (p: number) =>
+    sortedRawGaps[Math.max(0, Math.min(sortedRawGaps.length - 1, Math.floor(sortedRawGaps.length * p)))];
+  const gapP60 = gapPct(0.60);
+  const gapP85 = gapPct(0.85);
+
+  // ── Apply weight threshold ─────────────────────────────────────────────
+  // weight > 0.01 makes the recency window real: with halfLife=90 this is ~14 months.
+  // Sparse slow-pace buckets beyond the athlete's typical range are filtered by the
+  // effective-weight MIN_EFF_WEIGHT=8 threshold, so no hardcoded gap upper bound is needed.
+  const points = allValid.filter(p => p.weight > 0.01);
 
   if (points.length < 40) return null;
 
-  const binWidth = 15; // fixed 15 s/km bins: ~13 buckets in 200–391 range, better LT resolution than adaptive FD
+  const binWidth = 15; // fixed 15 s/km bins
 
   // ── 3. Build buckets ───────────────────────────────────────────────────
   const bucketMap = new Map<number, Array<{ hr: number; w: number }>>();
@@ -459,14 +464,17 @@ export function estimateZonesFromStatisticalAnalysis(
     lt1HR = Math.round(hrArr[lt1BucketIdx - 1] + t * (hrArr[lt1BucketIdx] - hrArr[lt1BucketIdx - 1]));
   }
 
-  // Sanity: LT1 < LT2 < maxHR with meaningful separation, and in realistic HR ranges
-  if (lt1HR >= lt2HR - 8) return null; // minimum 8 bpm gap between thresholds
+  // Sanity: universal physiology — apply equally to all athletes
+  if (lt1HR >= lt2HR - 8) return null;       // minimum 8 bpm separation
   if (lt2HR >= maxHR * 0.98) return null;
-  if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70) return null; // thresholds too low — bad data
-  // Breakpoints must be in physiologically plausible pace ranges
-  if (lt1PaceSecPerKm < 240 || lt1PaceSecPerKm > 380) return null; // LT1 at 4:00–6:20/km
-  if (lt2PaceSecPerKm < 200 || lt2PaceSecPerKm > 420) return null; // LT2 at 3:20–7:00/km
-  if (lt2PaceSecPerKm >= lt1PaceSecPerKm) return null; // LT2 must be faster than LT1
+  if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70) return null;
+  if (lt2PaceSecPerKm >= lt1PaceSecPerKm) return null;
+  // Pace sanity: data-driven — threshold paces must be in the faster minority of training.
+  // LT2 (threshold effort) must be faster than 60% of training laps;
+  // LT1 (aerobic effort) must be faster than 85% of training laps.
+  // These percentiles auto-scale to any athlete's fitness level.
+  if (lt2PaceSecPerKm > gapP60) return null;
+  if (lt1PaceSecPerKm > gapP85) return null;
 
   // ── 5. Build non-uniform zones ─────────────────────────────────────────
   const z2width = Math.max(8, Math.round(lt1HR * 0.07)); // same formula as buildHRZonesFromLT

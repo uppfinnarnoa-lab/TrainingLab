@@ -449,14 +449,45 @@ export async function updateHRZones(userId: string) {
     : buildHRZones(maxHR, restHR);
 
   // ── Method 2: Statistical zone analysis from bucketed training data ───
-  // Uses all running activities + lap splits, finds LT1/LT2 as deflection points in the
-  // HR-pace curve. Applied directly when R² ≥ 0.80 (high confidence).
   type LapRowLight = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
-  const olRaceFilterLight = (a: ActLight) =>
+
+  // Name-based OL/indoor/virtual exclusions are universal — always applied.
+  const nameOnlyOlFilter = (a: ActLight) =>
     !/virtualrun/i.test(a.sportType) &&
     !/indoor|inomhus/i.test(a.name ?? "") &&
-    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
-    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 330));
+    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "");
+
+  // Bootstrap OL race pace threshold from a preliminary estimate:
+  // Phase 1 — run with name-only filter (no pace check) to get a preliminary LT1.
+  // Phase 2 — threshold = LT1 × 1.15 = upper boundary of easy training pace.
+  // A race slower than easy-training pace is terrain/navigation limited, not fitness limited.
+  // Falls back to 330 s/km (5:30/km) when phase-1 produces no estimate.
+  const buildStatLapRuns = (olFilter: (a: ActLight) => boolean) =>
+    (acts as (ActLight & { laps?: unknown })[])
+      .filter(a => /run|trail/i.test(a.sportType) && olFilter(a) && Array.isArray(a.laps))
+      .flatMap(a =>
+        (a.laps as LapRowLight[]).filter(l =>
+          l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
+        ).map(l => ({
+          avgHR: l.average_heartrate!,
+          distanceM: l.distance,
+          movingTimeSec: l.moving_time,
+          totalElevationGain: l.total_elevation_gain ?? 0,
+          startDate: (a as ActLight).startDate,
+          isRace: (a as ActLight).isRace,
+        }))
+      );
+
+  const phase1Laps = buildStatLapRuns(nameOnlyOlFilter);
+  const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR);
+  const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
+
+  const olRaceFilterLight = (a: ActLight) =>
+    nameOnlyOlFilter(a) &&
+    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < olPaceThreshold));
+
+  const wuCdExclude = (name: string) =>
+    !/^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i.test(name);
 
   const statRuns = acts
     .filter(a =>
@@ -464,7 +495,7 @@ export async function updateHRZones(userId: string) {
       /run|trail/i.test(a.sportType) &&
       olRaceFilterLight(a) &&
       a.distance >= 4000 && a.movingTime >= 900 &&
-      !/^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i.test(a.name ?? "")
+      wuCdExclude(a.name ?? "")
     )
     .map(a => ({
       avgHR: a.averageHeartrate!,
@@ -475,23 +506,11 @@ export async function updateHRZones(userId: string) {
       isRace: a.isRace,
     }));
 
-  const statLapRunsZones = (acts as (ActLight & { laps?: unknown })[])
-    .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterLight(a) && Array.isArray(a.laps))
-    .flatMap(a =>
-      (a.laps as LapRowLight[]).filter(l =>
-        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
-      ).map(l => ({
-        avgHR: l.average_heartrate!,
-        distanceM: l.distance,
-        movingTimeSec: l.moving_time,
-        totalElevationGain: l.total_elevation_gain ?? 0,
-        startDate: (a as ActLight).startDate,
-        isRace: (a as ActLight).isRace,
-      }))
-    );
+  const statLapRunsZones = buildStatLapRuns(olRaceFilterLight);
 
   const statResult = estimateZonesFromStatisticalAnalysis([...statRuns, ...statLapRunsZones], maxHR, restHR);
   const statLapOnlyResult = estimateZonesFromStatisticalAnalysis(statLapRunsZones, maxHR, restHR);
+  console.log(`[zones] OL race threshold (bootstrap): ${olPaceThreshold}s/km  (phase1: LT1=${phase1Result?.lt1PaceSecPerKm ?? "n/a"}s/km)`);
 
   let zonesMethod: "statistical" | "race-pbs" | "fallback" | "manual" = "fallback";
   let rSquared: number | undefined;
