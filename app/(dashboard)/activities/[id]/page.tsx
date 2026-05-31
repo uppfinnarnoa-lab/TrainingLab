@@ -150,7 +150,7 @@ export default async function ActivityDetailPage({
         {activity.sufferScore && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-border text-sm">
             <Flame size={14} className="text-warning" />
-            <span className="text-muted">Ansträngning:</span>
+            <span className="text-muted">Effort:</span>
             <span className="font-mono text-primary">{activity.sufferScore}</span>
           </div>
         )}

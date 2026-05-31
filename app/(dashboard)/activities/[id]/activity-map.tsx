@@ -56,15 +56,10 @@ export function ActivityMap({ polyline, color }: Props) {
       L.circleMarker(coords[0], { radius: 6, color: "#22C55E", fillColor: "#22C55E", fillOpacity: 1, weight: 2 }).addTo(map);
       L.circleMarker(coords[coords.length - 1], { radius: 6, color: "#EF4444", fillColor: "#EF4444", fillOpacity: 1, weight: 2 }).addTo(map);
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
+      // Force tile repositioning after CSS is guaranteed to have applied
+      setTimeout(() => map.invalidateSize(), 50);
     });
   }, [polyline, color]);
 
-  return (
-    <>
-      {/* Leaflet CSS */}
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-      <div ref={ref} style={{ width: "100%", height: "100%", background: "#1a1d27" }} />
-    </>
-  );
+  return <div ref={ref} style={{ width: "100%", height: "100%", background: "#1a1d27" }} />;
 }
