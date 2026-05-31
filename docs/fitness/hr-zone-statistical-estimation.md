@@ -2,7 +2,7 @@
 
 > **Status:** 2026-05-31 — **Implemented and live** in `lib/fitness/zones.ts`  
 > **Function:** `estimateZonesFromStatisticalAnalysis()`  
-> **Algorithm version:** Config K (weighted P80 + slope-based LT2 detection)
+> **Algorithm version:** Config K + D (weighted P80, slope-based LT2, data-driven pace bounds)
 
 ---
 
@@ -21,7 +21,7 @@ With 2 800+ runs, we have enough data to detect these kinks statistically.
 
 ---
 
-## 2. Algorithm — As Implemented (Config K)
+## 2. Algorithm — As Implemented (Config K + D)
 
 ### Step 1: Data collection and filtering
 
@@ -39,14 +39,30 @@ weight = tempWeight × recency × raceBoost
 
 Points with `weight ≤ 0.01` are excluded (effective window: ~14 months at halfLife=90).
 
-HR filter (universal physiological bounds, not user-specific):
+**First pass (all raw points):** HR filter and minimum lap filter applied, no gap upper bound.
 ```
-0.52 × maxHR < avgHR < 0.96 × maxHR
+0.52 × maxHR < avgHR < 0.96 × maxHR   (universal physiological bounds)
+distanceM ≥ 800, movingTimeSec ≥ 180
+totalElevationGain / distance < 0.12   (>12% avg grade — GAP correction unreliable)
+gap > 200 s/km                          (3:20/km — physical impossibility for 800m+ laps)
 ```
 
-Terrain filter: `totalElevationGain / distance < 0.12` (>12% avg grade — GAP correction unreliable).
+No upper bound on gap — sparse slow-pace buckets are filtered by the effective-weight
+threshold at Step 3 instead.
 
-### Step 2: Grade-Adjusted Pace (GAP)
+### Step 2: Pace percentiles for data-driven sanity bounds
+
+After computing all raw valid points, compute pace percentiles **before** the weight threshold:
+```typescript
+const sortedRawGaps = allValid.map(p => p.gap).sort((a, b) => a - b);
+const gapP60 = gapPct(0.60); // upper bound for LT2: threshold must be faster than 60% of training laps
+const gapP85 = gapPct(0.85); // upper bound for LT1: aerobic threshold faster than 85% of training
+```
+
+These auto-scale with any athlete's fitness level. A 6:00/km runner's LT2 at 6:00/km passes
+if 60% of their training laps are ≥6:00/km — which is the physiology.
+
+### Step 3: Grade-Adjusted Pace (GAP)
 
 Uses `gradeAdjustedPace()` from `lib/fitness/vo2max.ts` (Minetti cost-of-transport model):
 ```
@@ -54,13 +70,13 @@ grade = totalElevationGain / distanceM
 GAP = rawPace × (1 + grade × 3.5)   // simplified — actual formula in vo2max.ts
 ```
 
-### Step 3: Buckets — 15 sec/km bins, effective-weight threshold
+### Step 4: Buckets — 15 sec/km bins, effective-weight threshold
 
-Fixed bin width of 15 sec/km. Bucket qualifies if `sum(weight) ≥ 8`.
+Fixed bin width of 15 sec/km. Bucket qualifies if `sum(weight) ≥ 8` (MIN_EFF_WEIGHT).
 This is data-driven: 3 recent race laps (weight ≈ 3 each → total 9) qualifies;
 12 laps from 18 months ago (weight ≈ 0.2 each → total 2.4) does not.
 
-### Step 4: Weighted P80 per bucket
+### Step 5: Weighted P80 per bucket
 
 ```typescript
 // Sort laps by HR ascending, accumulate weight until 80% is reached
@@ -76,13 +92,13 @@ for (const pt of sortedByHR) {
 Race laps (3× weight) drive P80 upward at fast-pace buckets, capturing true race-effort HR
 rather than being washed out by training laps at the same pace.
 
-### Step 5: Pool-Adjacent-Violators (PAV)
+### Step 6: Pool-Adjacent-Violators (PAV)
 
 Enforces strictly non-increasing HR with increasing pace. Adjacent buckets that violate
 monotonicity are merged (count-weighted average) until the constraint is satisfied.
 This removes noise inversions that would corrupt R² and mis-place breakpoints.
 
-### Step 6: Slope-based LT2 detection
+### Step 7: Slope-based LT2 detection
 
 ```typescript
 const slopes = paceArr.slice(0, -1).map((p, i) =>
@@ -99,7 +115,7 @@ Scans from the fastest bucket. The first transition where the HR-pace slope exce
 20% of the curve's own maximum slope = LT2. The 0.20 threshold is dimensionless —
 it scales with the curve's own geometry, not with any HR value or maxHR%.
 
-### Step 7: bp2 via regression (LT1 fallback anchor)
+### Step 8: bp2 via regression (LT1 fallback anchor)
 
 bp1 is fixed by slope detection. bp2 is found by optimising the two remaining segments:
 ```typescript
@@ -112,7 +128,7 @@ for (let j = bp1 + 1; j < nb - 1; j++) {
 Regression weights: `1 / sqrt(count)` — sparse fast-pace buckets get proportionally
 more influence than the dense easy-run region.
 
-### Step 8: LT1 from VT1/VT2 speed ratio
+### Step 9: LT1 from VT1/VT2 speed ratio
 
 ```
 lt1PaceTarget = lt2Pace / 0.844   (VT1/VT2 ratio — PMC12845794, n=1411)
@@ -121,21 +137,47 @@ lt1HR = interpolate HR from bucket curve at lt1PaceTarget
 
 Fallback: if lt1PaceTarget is slower than all buckets, use bp2 pace/HR.
 
-### Step 9: Sanity checks and zone building
+### Step 10: Sanity checks and zone building
 
-LT1 and LT2 must satisfy:
+Universal physiological bounds (apply equally to all athletes):
 - `lt1HR < lt2HR - 8` (minimum 8 bpm separation)
 - `lt2HR < maxHR × 0.98`
 - `lt1HR ≥ maxHR × 0.60`, `lt2HR ≥ maxHR × 0.70`
-- `lt1Pace` in [240, 380] sec/km, `lt2Pace` in [200, 420] sec/km
 - `lt2Pace < lt1Pace` (LT2 must be faster)
 - R² ≥ 0.62
+
+Data-driven pace bounds (Config D — auto-scale to any athlete's fitness):
+- `lt2PaceSecPerKm ≤ gapP60` — LT2 must be faster than 60% of training laps
+- `lt1PaceSecPerKm ≤ gapP85` — LT1 must be faster than 85% of training laps
 
 Zones built identically to `buildHRZonesFromLT()`: Z1–Z2–Z3–Z4–Z5 anchored to lt1HR/lt2HR.
 
 ---
 
-## 3. Why Config K Fixed the Systematic Error
+## 3. OL Race Threshold Bootstrap (cache.ts)
+
+The activity filter in `updateHRZones()` excludes OL/orienteering races that are
+terrain/navigation-limited (slower than easy training pace). The threshold is **bootstrapped**
+from the data — not hardcoded.
+
+**Phase 1:** Run `estimateZonesFromStatisticalAnalysis` with name-only OL filter (no pace check).
+This gives a preliminary LT1 estimate.
+
+**Phase 2:** `olPaceThreshold = round(LT1_pace × 1.15)` — upper boundary of easy training
+pace. A race slower than easy-training pace is terrain/navigation limited, not fitness limited.
+
+```typescript
+const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR);
+const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
+```
+
+Falls back to 330 s/km (5:30/km) if Phase 1 produces no estimate. For the reference athlete
+(LT1=153 bpm @ 4:35/km), this bootstrap produces ≈5:17/km — consistent with the previous
+hardcoded 5:30/km and correctly scaled for any fitness level.
+
+---
+
+## 4. Why Config K Fixed the Systematic Error
 
 **Root cause:** With unweighted P80, race laps counted as 1 lap each regardless of their
 information value. Fast-pace buckets (3:30/km) had P80=160.9, lower than the adjacent
@@ -151,16 +193,18 @@ the plateau-to-descent transition regardless of how many buckets exist.
 
 | Window | LT1 | LT2 | R² |
 |--------|-----|-----|----|
-| 2025 full year | 151bpm @ 4:44 | 163bpm @ 4:00 | 0.99 |
-| 2026 YTD | 152bpm @ 4:36 | 162bpm @ 3:53 | 0.99 |
-| LIVE 5yr window | 153bpm @ 4:35 | 162bpm @ 3:52 | 0.99 |
+| 2025 full year | 151 bpm @ 4:44 | 163 bpm @ 4:00 | 0.99 |
+| 2026 YTD | 152 bpm @ 4:36 | 162 bpm @ 3:53 | 0.99 |
+| LIVE 5yr window | 153 bpm @ 4:35 | 162 bpm @ 3:52 | 0.99 |
+
+Config D produces identical results on this dataset while applying correctly to athletes at any fitness level.
 
 ---
 
-## 4. Integration in TrainingLab
+## 5. Integration in TrainingLab
 
 - `lib/fitness/zones.ts` — `estimateZonesFromStatisticalAnalysis()`
-- `lib/fitness/cache.ts` — `updateHRZones()`: calls the function twice (all data + laps-only)
+- `lib/fitness/cache.ts` — `updateHRZones()`: OL threshold bootstrap (Phase 1), then calls the estimator twice (all data + laps-only)
 - Laps-only result stored as `statZonesLapsJson` — shown in "Statistisk tröskelestimering" card
 - Applied if R² ≥ 0.80; falls back to race-PB method or fixed percentages if not
 
@@ -172,18 +216,18 @@ Priority order in `updateHRZones()`:
 4. Fixed percentages (fallback)
 ```
 
----
-
-## 5. Known Limitations
-
-| Issue | Impact | Mitigation |
-|---|---|---|
-| Hardcoded pace range (200–391 sec/km) | Fails for very slow or very fast runners | Planned: data-adaptive pace bounds |
-| OL race exclusion pace (5:30/km) | Wrong threshold for slow runners | Planned: derive from user's own pace distribution |
-| LT1/LT2 sanity pace bounds (fixed) | Could filter valid estimates for extreme athletes | Planned: percentile-based bounds |
-
-See `docs/planning/` for the data-driven filters improvement plan.
+**Important:** `updateVO2maxAndPaces()` (auto-sync path) does NOT run zone calibration.
+Zone results are only written by `updateHRZones()` (manual calibration button).
 
 ---
 
-*Last updated: 2026-05-31*
+## 6. Standalone Test Script
+
+`scripts/year-estimate-test.ts` — validates the algorithm against real data without touching production.
+Run with: `pnpm tsx scripts/year-estimate-test.ts`
+
+See `docs/guides/year-estimate-test.md` for full documentation.
+
+---
+
+*Last updated: 2026-05-31 (Config D: data-driven pace bounds, OL bootstrap; Config K: weighted P80, slope-based LT2)*

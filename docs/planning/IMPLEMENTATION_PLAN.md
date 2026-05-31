@@ -1811,6 +1811,27 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 
 **Docs / cleanup:**
 - `docs/planning/statistical-zone-estimator.md`: concise write-up of how the estimator works, how it differs from % of maxHR, and the five bugs that were fixed (archived after merge into IMPLEMENTATION_PLAN).
+
+**Session 2026-05-31 (zone estimator Config K + D — universal athlete support):**
+
+**Config K — Weighted P80 + slope-based LT2 detection:**
+- `zones.ts` `estimateZonesFromStatisticalAnalysis`: replaced count-based P80 with **weighted P80** — accumulates recency × race-boost weight until 80% covered. Race laps (3× boost) drive P80 up at fast-pace buckets, preventing spurious PAV inversions that shifted LT2 by 20–30 sec/km. Fixes systematic mis-placement of LT2 at 4:15 instead of 3:52.
+- `zones.ts`: replaced joint 3-segment exhaustive search with **slope-based LT2 detection** — scan from fastest bucket, first HR-pace slope exceeding 20% of curve's max slope = LT2. Dimensionless ratio (no HR values referenced). More reliable than exhaustive search across varied bucket counts.
+- `zones.ts`: **effective-weight bucket threshold** `MIN_EFF_WEIGHT=8` replaces count ≥ N — 3 recent race laps (weight ≈ 9) qualify; 12 stale laps from 18 months ago (weight ≈ 2.4) do not.
+- `zones.ts`: regression segment weights changed to `1/sqrt(count)` per bucket — sparse fast-pace (threshold) buckets get proportionally more regression influence than the dense easy-run region.
+
+**Config D — Data-driven filters (universally applicable to any athlete):**
+- `zones.ts`: removed **gap upper bound** (391 s/km = 6:31/km) from first-pass filter — sparse slow-pace buckets are naturally eliminated by MIN_EFF_WEIGHT=8, so no hardcoded upper limit is needed.
+- `zones.ts`: compute **pace percentiles P60 and P85** from all raw valid points before the weight threshold. LT2 sanity: must be faster than P60 of training laps; LT1: must be faster than P85. Replaces hardcoded absolute ranges (LT1: 240–380 s/km, LT2: 200–420 s/km) that failed for elite or slow runners.
+- `cache.ts` `updateHRZones`: **bootstrapped OL race pace threshold** — Phase 1 runs zone estimator with name-only OL filter to get preliminary LT1; Phase 2 threshold = `round(LT1 × 1.15)`. Replaces hardcoded 330 s/km (5:30/km). Produces ≈5:17/km for reference athlete; correctly scales for any fitness level.
+
+**Validated results (maxHR=184):** LT1=151–153 bpm, LT2=162–163 bpm, R²=0.99 across 2025/2026/LIVE windows. Config D gives identical results while being universally applicable.
+
+**Docs / cleanup:**
+- `docs/fitness/hr-zone-statistical-estimation.md`: updated to reflect Config D; Known Limitations section replaced with data-driven implementation notes.
+- `docs/planning/config-k-production-plan.md` and `config-d-data-driven-plan.md`: archived to `docs/planning/archive/`.
+- New: `docs/guides/year-estimate-test.md` — documentation for standalone test script.
+- New: `docs/planning/bug-audit-2026-05-31.md` — bug audit with 6 bugs + 3 feature change notes awaiting approval.
 - `docs/planning/zone-estimator-overhaul.md` archived to `docs/planning/archive/`.
 - `docs/planning/IDEAS.md` archived (superseded by NOTES.md + IMPLEMENTATION_PLAN.md section 12).
 
@@ -1915,4 +1936,4 @@ Every internal API endpoint and cross-module function that crosses a boundary (H
 
 ---
 
-*Last updated: 2026-05-29 (zone estimator overhaul: zoneProximity fix, joint 3-segment LS, VT1/VT2 LT1, laps-only UI, duplicate model button fix, CD filter false positive fix)*
+*Last updated: 2026-05-31 (Config K: weighted P80, slope-based LT2, effective-weight buckets; Config D: data-driven pace bounds, OL bootstrap; bug audit written; LT/AT trend chart plan written)*

@@ -28,8 +28,16 @@ export function ActivityMap({ polyline, color }: Props) {
 
   useEffect(() => {
     if (!ref.current || typeof window === "undefined") return;
-    // Dynamically import Leaflet to avoid SSR issues
+
+    // Capture ref so the cleanup closure always has access to the same element
+    const container = ref.current;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let map: any = null;
+
     import("leaflet").then(L => {
+      // Component may have unmounted while the dynamic import was resolving
+      if (!container.isConnected) return;
+
       // Fix default icon paths (Leaflet webpack quirk)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -42,23 +50,24 @@ export function ActivityMap({ polyline, color }: Props) {
       const coords = decodePolyline(polyline);
       if (coords.length === 0) return;
 
-      // Clean up existing map
-      if ((ref.current as HTMLDivElement & { _leaflet_id?: number })._leaflet_id) return;
-
-      const map = L.map(ref.current!, { zoomControl: true, scrollWheelZoom: false });
+      map = L.map(container, { zoomControl: true, scrollWheelZoom: false });
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
         attribution: "© CartoDB",
         maxZoom: 18,
       }).addTo(map);
 
       const line = L.polyline(coords, { color, weight: 3, opacity: 0.9 }).addTo(map);
-      // Start/end markers
       L.circleMarker(coords[0], { radius: 6, color: "#22C55E", fillColor: "#22C55E", fillOpacity: 1, weight: 2 }).addTo(map);
       L.circleMarker(coords[coords.length - 1], { radius: 6, color: "#EF4444", fillColor: "#EF4444", fillOpacity: 1, weight: 2 }).addTo(map);
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
-      // Force tile repositioning after CSS is guaranteed to have applied
-      setTimeout(() => map.invalidateSize(), 50);
+      // Allow CSS to settle before Leaflet measures the container
+      setTimeout(() => map?.invalidateSize(), 200);
     });
+
+    return () => {
+      map?.remove();
+      map = null;
+    };
   }, [polyline, color]);
 
   return <div ref={ref} style={{ width: "100%", height: "100%", background: "#1a1d27" }} />;
