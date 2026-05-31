@@ -25,6 +25,9 @@ echo "→ Installing dependencies..."
 pnpm install --frozen-lockfile --prod=false
 
 echo "→ Running database migrations..."
+# migrate deploy only applies NEW migrations — never drops or resets data.
+# The database and all its data are untouched by git pull and this script.
+# NEVER run: prisma migrate reset / prisma db push  — those destroy data.
 pnpm exec prisma migrate deploy
 
 echo "→ Building app..."

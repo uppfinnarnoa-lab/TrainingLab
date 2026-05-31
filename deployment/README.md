@@ -252,7 +252,25 @@ sudo systemctl reload nginx
 
 ---
 
-## 11. Updates (after first deploy)
+## 11. Database Safety
+
+**The database is never touched by a redeploy.** `git pull` only updates code files — PostgreSQL runs separately and is not affected. `prisma migrate deploy` only applies new schema migrations (additive changes like new columns/tables) — it never drops data.
+
+**Commands that WILL destroy data — never run these in production:**
+```bash
+pnpm prisma migrate reset   # ⚠ drops and recreates the entire database
+pnpm prisma db push         # ⚠ can drop columns/tables to match schema
+pnpm tsx scripts/seed-user.ts  # only run once on first deploy, not on updates
+```
+
+**What persists across all redeploys:**
+- All PostgreSQL data (activities, user settings, cached stats, etc.)
+- `.env.local` (never in git, never touched by deploy)
+- PM2 process config
+
+---
+
+## 12. Updates (after first deploy)
 
 > **Use SSH keys, never passwords in scripts.** Set up key-based auth:
 > ```bash
@@ -274,7 +292,7 @@ Or on the server directly:
 
 ---
 
-## 12. Monitoring & Logs
+## 13. Monitoring & Logs
 
 ```bash
 pm2 status
@@ -289,7 +307,7 @@ tail -f /var/www/traininglab/deploy.log
 
 ---
 
-## 13. Cert Renewal
+## 14. Cert Renewal
 
 The wildcard cert auto-renews via certbot's systemd timer (~30 days before expiry).
 
@@ -302,7 +320,7 @@ sudo certbot renew --dry-run           # test renewal manually
 
 ---
 
-## 14. First-Run App Setup
+## 15. First-Run App Setup
 
 After the server is up and you can reach https://training.helgars.se:
 
@@ -324,7 +342,7 @@ After the server is up and you can reach https://training.helgars.se:
 
 ---
 
-## 15. Database Backup
+## 16. Database Backup
 
 ```bash
 # Manual dump
@@ -336,7 +354,7 @@ pg_dump -U traininglab traininglab | gzip > ~/traininglab-$(date +%F).sql.gz
 
 ---
 
-## 16. Rollback
+## 17. Rollback
 
 ```bash
 cd /var/www/traininglab
@@ -350,7 +368,7 @@ For DB rollback: restore from backup — never use `prisma migrate reset` in pro
 
 ---
 
-## 17. Useful Commands
+## 18. Useful Commands
 
 ```bash
 pm2 restart traininglab
