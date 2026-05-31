@@ -36,11 +36,10 @@ export default async function StatsPage() {
       select: { distanceM: true, time: true, date: true },
       orderBy: { time: "asc" },
     }),
-    // Weather profile: last 4 years only — older data reflects a different fitness level
+    // Weather profile: all running activities with weather data (no date limit)
     prisma.activity.findMany({
       where: {
         userId,
-        startDate: { gte: subDays(now, 4 * 365) },
         sportType: { contains: "run", mode: "insensitive" },
         weatherTemp: { not: null },
         averageSpeed: { not: null },
@@ -549,14 +548,12 @@ export default async function StatsPage() {
     injuryRisk = Math.min(100, acwrRisk + rampRisk);
   }
 
-  // Temperature sensitivity: regression of weatherTemp → pace (sec/km), last 4 years only
-  const fourYearsAgo = subDays(now, 4 * 365);
+  // Temperature sensitivity: regression of weatherTemp → pace (sec/km) for runs with weather data
   let tempSensitivity: number | null = null; // sec/km per 5°C above 15°C baseline
   {
     const pts = (activities as A[]).filter(a =>
       a.averageSpeed && a.averageSpeed > 0 && /run|trail/i.test(a.sportType) &&
-      a.distance >= 4000 && a.averageHeartrate && a.averageHeartrate < lt1HR &&
-      a.startDate >= fourYearsAgo
+      a.distance >= 4000 && a.averageHeartrate && a.averageHeartrate < lt1HR
     );
     if (pts.length >= 10) {
       const meanTemp = pts.reduce((s, a) => s + (a.weatherTemp ?? 15), 0) / pts.length;
