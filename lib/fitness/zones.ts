@@ -318,16 +318,19 @@ export function estimateZonesFromStatisticalAnalysis(
   }>,
   maxHR: number,
   restHR: number,
+  asOf?: Date,
 ): StatisticalZoneResult | null {
   // ── 1. Filter and compute GAP ──────────────────────────────────────────
   const MIN_DIST = 800;          // allows 1km lap splits from activities
   const MIN_DURATION_SEC = 180;  // 3 min — laps are pre-warmed from the surrounding run
 
+  const refTime = (asOf ?? new Date()).getTime();
+
   // Prefer 90-day recency half-life to track current fitness; fall back to 180 days when
   // fewer than 40 runs exist in the last 90 days (injury/off-season gaps).
   const recentCount = runs.filter(r => {
     if (!r.startDate) return false;
-    return (Date.now() - r.startDate.getTime()) / 86_400_000 < 90;
+    return (refTime - r.startDate.getTime()) / 86_400_000 < 90;
   }).length;
   const halfLife = recentCount >= 40 ? 90 : 180;
 
@@ -347,7 +350,7 @@ export function estimateZonesFromStatisticalAnalysis(
       if (temp > 30) return null;
       const tempWeight = temp > 25 ? 0.35 : temp > 20 ? 0.75 : 1.0;
       const daysAgo = r.startDate
-        ? (Date.now() - r.startDate.getTime()) / 86_400_000
+        ? (refTime - r.startDate.getTime()) / 86_400_000
         : halfLife;
       const recency = Math.exp(-daysAgo / halfLife);
       // Race activities are max-effort steady-state at known pace — most informative for LT2
@@ -366,7 +369,7 @@ export function estimateZonesFromStatisticalAnalysis(
 
   const binWidth = 15; // fixed 15 s/km bins: ~13 buckets in 200–391 range, better LT resolution than adaptive FD
 
-  // ── 3. Build buckets with weighted P80 HR ─────────────────────────────
+  // ── 3. Build buckets ───────────────────────────────────────────────────
   const bucketMap = new Map<number, Array<{ hr: number; w: number }>>();
   for (const p of points) {
     const key = Math.round(p.gap / binWidth) * binWidth;
@@ -374,20 +377,21 @@ export function estimateZonesFromStatisticalAnalysis(
     bucketMap.get(key)!.push({ hr: p.hr, w: p.weight });
   }
 
-  const MIN_COUNT = 8; // effective-weight minimum — a bucket of 3 race laps (weight 3×) = 9, passes
+  // Effective-weight threshold: a bucket must have accumulated weight ≥ 8 to qualify.
+  // A bucket with 3 recent race laps (weight ≈ 3 each = 9) passes; 12 stale laps
+  // (weight ≈ 0.2 each = 2.4) do not. Data-driven, not count-based.
+  const MIN_EFF_WEIGHT = 8;
   const buckets: BucketPoint[] = [...bucketMap.entries()]
-    .filter(([, pts]) => pts.reduce((s, p) => s + p.w, 0) >= MIN_COUNT)
+    .filter(([, pts]) => pts.reduce((s, p) => s + p.w, 0) >= MIN_EFF_WEIGHT)
     .map(([pace, pts]) => {
-      // Weighted P80: sort by HR, accumulate weight until 80% is covered.
-      // Recent races (3× boost) and recent training dominate; old easy laps contribute less.
       const totalW = pts.reduce((s, p) => s + p.w, 0);
+      // Weighted P80: accumulate recency/race weights until 80% is covered.
+      // Race laps (3× boost) drive P80 higher at fast-pace buckets, preventing
+      // spurious PAV inversions that mis-place the LT2 breakpoint.
       const sortedByHR = [...pts].sort((a, b) => a.hr - b.hr);
       let cumW = 0;
       let pct80HR = sortedByHR[sortedByHR.length - 1].hr;
-      for (const pt of sortedByHR) {
-        cumW += pt.w;
-        if (cumW >= totalW * 0.80) { pct80HR = pt.hr; break; }
-      }
+      for (const pt of sortedByHR) { cumW += pt.w; if (cumW >= totalW * 0.80) { pct80HR = pt.hr; break; } }
       return { pace, medianHR: pct80HR, count: pts.length, totalWeight: totalW };
     })
     .sort((a, b) => a.pace - b.pace);
@@ -397,25 +401,33 @@ export function estimateZonesFromStatisticalAnalysis(
   const mono = poolAdjacentViolators(buckets);
   if (mono.length < 6) return null;
 
-  // ── 4. Exhaustive piecewise linear search for two breakpoints ──────────
+  // ── 4. Slope-based LT2 detection + bp2 regression ─────────────────────
   const nb = mono.length;
   const paceArr = mono.map(b => b.pace);
   const hrArr   = mono.map(b => b.medianHR);
-  // Reciprocal-density weights: sparse buckets (threshold pace) get equal influence
-  // to the dense easy-run buckets. Use effective weight (sum of recency×temp×race weights)
-  // so race-dominated fast buckets and recent-data-dominated slow buckets are balanced fairly.
-  const bucketWeights = mono.map(b => 1 / Math.sqrt(b.totalWeight));
+  // Count-based reciprocal weights: sparse fast-pace buckets (threshold region) need
+  // proportionally more regression influence than dense easy-run buckets.
+  const bucketWeights = mono.map(b => 1 / Math.sqrt(b.count));
 
-  // Joint 3-segment LS: globally-optimal (bp1, bp2) pair for both R² and zone placement.
-  // bp1 = LT2 (faster breakpoint, lower sec/km), bp2 = LS-derived LT1 (used as fallback).
-  let bestLSErr = Infinity, bp1 = 2, bp2 = Math.min(4, nb - 2);
-  for (let i = 1; i < nb - 2; i++) {
-    for (let j = i + 1; j < nb - 1; j++) {
-      const err = segErr(paceArr, hrArr, 0, i, bucketWeights) +
-                  segErr(paceArr, hrArr, i, j, bucketWeights) +
-                  segErr(paceArr, hrArr, j, nb - 1, bucketWeights);
-      if (err < bestLSErr) { bestLSErr = err; bp1 = i; bp2 = j; }
-    }
+  // Slope-based LT2 detection: scan from the fastest bucket, find first transition
+  // where HR-pace slope exceeds 20% of the curve's own maximum slope.
+  // This is the "plateau end" = LT2. The 0.20 threshold is a dimensionless ratio
+  // of the curve's own geometry — no HR value or maxHR% is referenced.
+  const slopes = paceArr.slice(0, -1).map((p, i) => (hrArr[i] - hrArr[i + 1]) / (paceArr[i + 1] - p));
+  const slopeMax = Math.max(...slopes);
+  let bp1 = 1; // fallback: second bucket
+  for (let i = 0; i < slopes.length - 2; i++) {
+    if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
+  }
+
+  // Fix bp1, find bp2 by minimising remaining two-segment error.
+  // bp2 = LS-derived LT1 (used as fallback when VT1 interpolation is out of range).
+  let bestLSErr = Infinity, bp2 = Math.min(bp1 + 2, nb - 2);
+  for (let j = bp1 + 1; j < nb - 1; j++) {
+    const err = segErr(paceArr, hrArr, 0, bp1, bucketWeights) +
+                segErr(paceArr, hrArr, bp1, j, bucketWeights) +
+                segErr(paceArr, hrArr, j, nb - 1, bucketWeights);
+    if (err < bestLSErr) { bestLSErr = err; bp2 = j; }
   }
 
   // Weighted R² — consistent with the weighted fit
@@ -426,7 +438,7 @@ export function estimateZonesFromStatisticalAnalysis(
 
   if (rSquared < 0.62) return null;
 
-  // LT2: joint LS breakpoint bp1 (faster breakpoint, lower sec/km)
+  // LT2: slope-detected breakpoint bp1 (fastest significant HR-drop point)
   const lt2PaceSecPerKm = paceArr[bp1];
   const lt2HR = Math.round(hrArr[bp1]);
 
