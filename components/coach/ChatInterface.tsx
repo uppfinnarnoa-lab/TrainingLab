@@ -181,12 +181,20 @@ export function ChatInterface({
 
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value;
+    const prev = input;
     setInput(val);
-    setShowToolMenu(val === "/");
+    // Open menu whenever "/" is typed (at any position in the input)
+    if (val.length > prev.length && val[val.length - 1] === "/") {
+      setShowToolMenu(true);
+    } else if (!val.includes("/")) {
+      setShowToolMenu(false);
+    }
   }
 
-  function selectTool() {
-    setInput("");
+  function selectTool(hint: string) {
+    // Insert the example query (minus "ex: " prefix) so user can complete it
+    const text = hint.replace(/^ex:\s*/i, "");
+    setInput(text);
     setShowToolMenu(false);
     textareaRef.current?.focus();
   }
@@ -411,7 +419,7 @@ export function ChatInterface({
                 ].map(tool => (
                   <button
                     key={tool.name}
-                    onClick={() => selectTool()}
+                    onClick={() => selectTool(tool.hint)}
                     className="w-full text-left px-3 py-2.5 hover:bg-surface-2 transition flex items-start gap-3"
                   >
                     <div className="flex-1 min-w-0">

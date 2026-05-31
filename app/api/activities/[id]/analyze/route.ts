@@ -74,9 +74,9 @@ export async function POST(
   const totalDistKm = (activity.distance / 1000).toFixed(2);
   const avgPace = formatPace(activity.averageSpeed ?? 0);
 
-  const prompt = `You are a running coach analyzing a workout session. Be concise and practical — 150–250 words.
+  const prompt = `You are a running coach analyzing an interval/tempo workout session. Be concise and practical — 150–250 words.
 
-Activity: ${activity.name} (${activity.sportType})
+Activity: ${activity.name} (${activity.sportType}) — Strava workout type: interval/quality session
 Date: ${activity.startDate.toISOString().split("T")[0]}
 Total distance: ${totalDistKm} km | Moving time: ${formatDur(activity.movingTime)}
 Average pace: ${avgPace} | Avg HR: ${activity.averageHeartrate ? Math.round(activity.averageHeartrate) + " bpm" : "n/a"} | Max HR: ${activity.maxHeartrate ? Math.round(activity.maxHeartrate) + " bpm" : "n/a"}
@@ -87,10 +87,10 @@ ${vdot != null ? `Current VDOT: ${vdot.toFixed(1)}` : ""}
 ${maxHR != null ? `Max HR reference: ${maxHR} bpm` : ""}
 ${activity.description ? `\nAthlete notes: ${activity.description}` : ""}
 
-Lap breakdown:
+Lap breakdown (warm-up, intervals, cool-down):
 ${lapsText}
 
-Analyze: (1) workout execution quality — were intervals consistent, was intensity appropriate? (2) what the data suggests about current fitness and readiness. (3) one specific recommendation for next time. Address the athlete directly.`;
+This is an interval/quality session. Analyze: (1) interval execution — pace consistency, intensity relative to easy/WU pace and max HR; (2) what the data reveals about current fitness; (3) one specific actionable recommendation for the next interval session. Address the athlete directly.`;
 
   const provider = aiSettings?.provider ?? "gemini";
   const apiKey = provider === "claude"
@@ -105,6 +105,7 @@ Analyze: (1) workout execution quality — were intervals consistent, was intens
 
   const encoder = new TextEncoder();
 
+  try {
   if (provider === "claude") {
     const client = new Anthropic({ apiKey });
     const stream = await client.messages.stream({
@@ -166,7 +167,7 @@ Analyze: (1) workout execution quality — were intervals consistent, was intens
   } else {
     // Gemini
     const genai = new GoogleGenerativeAI(apiKey);
-    const model = genai.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+    const model = genai.getGenerativeModel({ model: "gemini-2.5-flash" });
     const result = await model.generateContentStream(prompt);
     const readable = new ReadableStream({
       async start(controller) {
@@ -178,5 +179,9 @@ Analyze: (1) workout execution quality — were intervals consistent, was intens
       },
     });
     return new Response(readable, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return new Response(msg, { status: 500 });
   }
 }
