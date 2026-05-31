@@ -24,6 +24,7 @@ const TOOL_NAMES = [
 const schema = z.object({
   conversationId: z.string().cuid().optional(),
   message: z.string().min(1).max(4000),
+  language: z.enum(["en", "sv"]).optional(),
   approvedAction: z.object({
     toolName: z.enum(TOOL_NAMES),
     toolInput: z.record(z.unknown()),
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return new Response("Invalid request", { status: 400 });
 
-  const { conversationId, message, approvedAction } = parsed.data;
+  const { conversationId, message, language, approvedAction } = parsed.data;
 
   // ── Load AI settings ────────────────────────────────────────────────
   const [aiSettings, user] = await Promise.all([
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
     buildRecentActivitiesSummary(userId, recentDays),
   ]);
   coachCtx.name = user?.name ?? null;
-  const systemPrompt = buildSystemPrompt(coachCtx);
+  const systemPrompt = buildSystemPrompt(coachCtx, language ?? "en");
 
   // ── Save user message ────────────────────────────────────────────────
   await prisma.message.create({

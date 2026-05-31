@@ -155,13 +155,14 @@ function computeRating(splits: Split[] | null, activity: ActivityInfo): WorkoutR
   else if (hrResponsePct >= 80)  score += 0.5;
   score = Math.round(Math.min(5, Math.max(1, score)));
 
-  // Bullets
+  // Bullets — format gap as mm:ss/km
+  const paceGapStr = secPerKmStr(paceGapSec);
   if (paceGapMin >= 1.5)
-    bullets.push(`High intensity — intervals ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
+    bullets.push(`High intensity — intervals ${paceGapStr}/km faster than easy pace.`);
   else if (paceGapMin >= 0.75)
-    bullets.push(`Good intensity contrast — intervals ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
+    bullets.push(`Good intensity contrast — intervals ${paceGapStr}/km faster than easy pace.`);
   else if (paceGapMin > 0)
-    bullets.push(`Low intensity contrast — intervals only ${paceGapMin.toFixed(1)} min/km faster than easy pace.`);
+    bullets.push(`Low intensity contrast — intervals only ${paceGapStr}/km faster than easy pace.`);
   else
     bullets.push(`Intervals were not meaningfully faster than easy pace.`);
 

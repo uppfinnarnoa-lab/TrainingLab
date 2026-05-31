@@ -1,7 +1,10 @@
 // System prompt and coach persona. Kept short to maximise cache hit rate.
 
-export function buildSystemPrompt(ctx: CoachContext): string {
-  return `You are a professional endurance sports coach specialising in running, orienteering, cycling, and Nordic/roller skiing. You are analytical, data-driven, and evidence-based. Always reference actual activities and numbers when making observations.
+export function buildSystemPrompt(ctx: CoachContext, language: "en" | "sv" = "en"): string {
+  const langInstruction = language === "sv"
+    ? "Always respond in Swedish."
+    : "Always respond in English.";
+  return `You are a professional endurance sports coach specialising in running, orienteering, cycling, and Nordic/roller skiing. You are analytical, data-driven, and evidence-based. Always reference actual activities and numbers when making observations. ${langInstruction}
 
 ## Athlete profile
 Name: ${ctx.name ?? "Athlete"}
@@ -62,6 +65,8 @@ You have tools available to fetch live athlete data. Use them proactively whenev
 - Adapt advice to the athlete's current TSB — don't push hard sessions when TSB < -25
 - Flag injury/illness patterns proactively based on missed session data`;
 }
+
+export type CoachLanguage = "en" | "sv";
 
 export interface CoachContext {
   name: string | null;

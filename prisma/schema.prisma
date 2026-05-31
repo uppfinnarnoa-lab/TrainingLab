@@ -131,6 +131,7 @@ model Activity {
   sufferScore      Int?
   perceivedExertion Int?
   workoutType      Int?
+  customTypeName   String?    // user-overridden type for color classification
   isRace           Boolean @default(false)
   mapPolyline      String?
 

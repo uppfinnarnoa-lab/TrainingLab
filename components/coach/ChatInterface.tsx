@@ -49,6 +49,7 @@ export function ChatInterface({
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [showToolMenu, setShowToolMenu] = useState(false);
+  const [language, setLanguage] = useState<"en" | "sv">("en");
   const [streaming, setStreaming] = useState(false);
   const [sessionCost, setSessionCost] = useState(0);
   const [convId, setConvId] = useState<string | undefined>(initialConversationId);
@@ -96,7 +97,7 @@ export function ChatInterface({
       const res = await fetch("/api/coach/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: convId, message: text, ...(approvedAction ? { approvedAction } : {}) }),
+        body: JSON.stringify({ conversationId: convId, message: text, language, ...(approvedAction ? { approvedAction } : {}) }),
       });
       await processStream(res, assistantId);
     } finally {
@@ -322,6 +323,7 @@ export function ChatInterface({
         {/* Header strip */}
         <div className="shrink-0 flex items-center gap-3 px-4 h-10 border-b border-border text-xs text-muted bg-surface">
           <span className="font-medium text-primary">{provider === "claude" ? "Claude Sonnet" : provider === "nvidia" ? "NVIDIA NIM" : provider === "groq" ? "Groq" : "Gemini Flash"}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded border border-border">{language === "sv" ? "SV" : "EN"}</span>
           {sessionCost > 0 && <span>Session: <span className="font-mono">${sessionCost.toFixed(4)}</span></span>}
           {monthlyBudget > 0 && (
             <div className="flex items-center gap-2 ml-auto">
@@ -429,6 +431,25 @@ export function ChatInterface({
                     <p className="text-[10px] text-accent/70 shrink-0 mt-0.5 hidden sm:block">{tool.hint}</p>
                   </button>
                 ))}
+                {/* Language toggle — special action, not a message */}
+                <div className="px-3 py-2.5 flex items-center justify-between border-t border-border/50">
+                  <div>
+                    <p className="text-xs font-semibold text-primary">Language</p>
+                    <p className="text-[10px] text-muted">Response language for this chat</p>
+                  </div>
+                  <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
+                    <button
+                      onClick={() => { setLanguage("en"); setShowToolMenu(false); }}
+                      className={cn("px-2.5 py-1 rounded-md font-medium transition-colors",
+                        language === "en" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+                    >EN</button>
+                    <button
+                      onClick={() => { setLanguage("sv"); setShowToolMenu(false); }}
+                      className={cn("px-2.5 py-1 rounded-md font-medium transition-colors",
+                        language === "sv" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+                    >SV</button>
+                  </div>
+                </div>
               </div>
               <p className="px-3 py-1.5 text-[10px] text-muted border-t border-border">Skriv / för att öppna · Esc stänger · Klicka för att välja — skriv sedan din egna fråga</p>
             </div>

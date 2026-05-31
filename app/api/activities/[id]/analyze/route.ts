@@ -86,7 +86,7 @@ export async function POST(
   const totalDistKm = (activity.distance / 1000).toFixed(2);
   const avgPace = formatPace(activity.averageSpeed ?? 0);
 
-  const prompt = `You are a running coach analyzing an interval/tempo workout session. Be concise and practical — 150–250 words.
+  const prompt = `You are a running coach analyzing an interval/tempo workout session. Be concise and practical — 150–250 words. Always respond in English.
 
 Activity: ${activity.name} (${activity.sportType}) — Strava workout type: interval/quality session
 Date: ${activity.startDate.toISOString().split("T")[0]}
