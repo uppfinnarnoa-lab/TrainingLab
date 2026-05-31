@@ -61,10 +61,22 @@ export async function POST(
     lap_index: number; distance: number; moving_time: number;
     average_speed: number; average_heartrate?: number; total_elevation_gain?: number;
   }
+  interface SplitRaw {
+    split: number; distance: number; moving_time: number;
+    average_speed: number; average_heartrate?: number;
+  }
   const lapsRaw = activity.laps as LapRaw[] | null;
-  const lapsText = lapsRaw && lapsRaw.length >= 2
-    ? lapsRaw.map((l, i) =>
+  const splitsRaw = activity.splitsMetric as SplitRaw[] | null;
+
+  // Prefer Strava laps (manual lap presses); fall back to auto km-splits
+  const isLaps = !!(lapsRaw && lapsRaw.length >= 2);
+  const lapsText = isLaps
+    ? lapsRaw!.map((l, i) =>
         `  Lap ${i + 1}: ${(l.distance / 1000).toFixed(2)} km, ${formatDur(l.moving_time)}, ${formatPace(l.average_speed)}${l.average_heartrate ? `, ${Math.round(l.average_heartrate)} bpm` : ""}`
+      ).join("\n")
+    : splitsRaw && splitsRaw.length > 0
+    ? splitsRaw.map(s =>
+        `  km ${s.split}: ${formatDur(s.moving_time)}, ${formatPace(s.average_speed)}${s.average_heartrate ? `, ${Math.round(s.average_heartrate)} bpm` : ""}`
       ).join("\n")
     : "No lap data available";
 
