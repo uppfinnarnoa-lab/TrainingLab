@@ -129,9 +129,14 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
       .filter(r => r.year === year && r.month === month && sportList.includes(r.sport))
       .reduce((s, r) => s + getValue(r), 0);
 
+  // When the current year is selected, cap all years at the current month so
+  // comparisons are fair (Jan–May 2026 vs Jan–May 2024, not Jan–May vs full year)
+  const yearlyYtdMode = selectedYears.includes(currentYear);
+  const effectiveMonthTo = yearlyYtdMode ? Math.min(monthTo, currentMonth) : monthTo;
+
   // ── Yearly chart data ──────────────────────────────────────────────────────
   const yearlyData = useMemo(() => {
-    const months = Array.from({ length: monthTo - monthFrom + 1 }, (_, i) => monthFrom + i);
+    const months = Array.from({ length: effectiveMonthTo - monthFrom + 1 }, (_, i) => monthFrom + i);
     return months.map(m => {
       const entry: Record<string, number | string> = { month: MONTHS[m - 1] };
       for (const yr of selectedYears) {
@@ -139,13 +144,13 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
       }
       return entry;
     });
-  }, [records, selectedYears, monthFrom, monthTo, metric, selectedSports]);
+  }, [records, selectedYears, monthFrom, effectiveMonthTo, metric, selectedSports]);
 
   const yearlySummaries = useMemo(() => selectedYears.map(yr => {
-    const months = Array.from({ length: monthTo - monthFrom + 1 }, (_, i) => monthFrom + i);
+    const months = Array.from({ length: effectiveMonthTo - monthFrom + 1 }, (_, i) => monthFrom + i);
     const vals = months.map(m => monthVal(yr, m));
     const total = vals.reduce((s, v) => s + v, 0);
-    const avg = total / months.length;
+    const avg = months.length > 0 ? total / months.length : 0;
     const bestIdx = vals.indexOf(Math.max(...vals));
     return {
       year: yr,
@@ -154,7 +159,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
       bestMonth: MONTHS[monthFrom + bestIdx - 1],
       color: yearColor(yr, availableYears),
     };
-  }), [records, selectedYears, monthFrom, monthTo, metric, selectedSports]);
+  }), [records, selectedYears, monthFrom, effectiveMonthTo, metric, selectedSports]);
 
   const avgLine = useMemo(() => {
     if (yearlySummaries.length === 0) return null;
@@ -438,13 +443,20 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
               </ResponsiveContainer>
             </div>
 
+            {/* YTD indicator */}
+            {yearlyYtdMode && (
+              <p className="text-[11px] text-accent bg-accent/5 rounded-lg px-3 py-1.5">
+                YTD — showing Jan–{MONTHS[effectiveMonthTo - 1]} for all years
+              </p>
+            )}
+
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {yearlySummaries.map(s => (
                 <div key={s.year} className="rounded-xl border border-border p-4 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: s.color }} />
-                    <p className="text-xs font-semibold text-muted">{s.year}</p>
+                    <p className="text-xs font-semibold text-muted">{s.year}{yearlyYtdMode && s.year !== currentYear ? ` (Jan–${MONTHS[effectiveMonthTo - 1]})` : ""}</p>
                   </div>
                   <p className="text-2xl font-semibold font-mono text-primary">{fmtShort(s.total, metric)}</p>
                   <p className="text-[11px] text-muted">Avg {fmtShort(s.avg, metric)}/month</p>
@@ -454,7 +466,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
               {/* YoY comparison if exactly 2 years */}
               {yearlySummaries.length === 2 && (() => {
                 const [a, b] = yearlySummaries;
-                const delta = b.total > 0 ? Math.round(((b.total - a.total) / a.total) * 100) : 0;
+                const delta = a.total > 0 ? Math.round(((b.total - a.total) / a.total) * 100) : 0;
                 const up = b.total >= a.total;
                 return (
                   <div className="rounded-xl border border-border p-4 space-y-1">
