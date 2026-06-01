@@ -25,14 +25,21 @@ Get-Process -Name "node" -ErrorAction SilentlyContinue | Stop-Process -Force
 ```
 Then start pnpm dev again. Never start multiple dev servers — always kill all node processes first.
 
+## Documentation — After Every Change (MANDATORY)
+**Update docs immediately after each task, before declaring it done.** Never defer this.
+
+- **`docs/planning/IMPLEMENTATION_PLAN.md`** — always. Add a session entry describing what changed and why. One bullet per changed file/function with the concrete behavior (not just "updated X"). Mark any Phase checklist items done.
+- **`docs/api/`** — if any API endpoint or cross-module function signature changed.
+- **`docs/`** other files — if architecture, data flow, or integration knowledge changed.
+
+This is not optional. Future sessions (and future you) must be able to read IMPLEMENTATION_PLAN.md and know exactly what exists, how it works, and what remains — without reading the code.
+
 ## Session End — Always
 After every task, do all of the following before declaring it done:
 1. Run `pnpm build --no-lint` to verify the build compiles without errors before pushing
 2. Stage changed files by name, commit, and push
 3. Restart the dev server on localhost:3000 (kill node, then `pnpm dev` with `run_in_background: true`)
-4. If any API endpoint or cross-module function signature changed → update its doc in `docs/api/`
-5. If architecture, workflow, or integration knowledge changed → update the relevant file in `docs/`
-6. Update `docs/planning/IMPLEMENTATION_PLAN.md` to reflect what was built or changed (see below)
+4. Update documentation (see above — Documentation section)
 
 ## Keeping IMPLEMENTATION_PLAN.md Current
 `docs/planning/IMPLEMENTATION_PLAN.md` is a living document — it must always reflect reality, not just intent.

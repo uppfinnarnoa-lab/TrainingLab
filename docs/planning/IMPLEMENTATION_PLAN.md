@@ -1835,6 +1835,43 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 - `docs/planning/zone-estimator-overhaul.md` archived to `docs/planning/archive/`.
 - `docs/planning/IDEAS.md` archived (superseded by NOTES.md + IMPLEMENTATION_PLAN.md section 12).
 
+**Session 2026-06-01 (LT trend stabilization + temperature stats + map fix + volume toggles):**
+
+**LT/AT pace trend — ALL HL-auto algorithm:**
+- `lib/fitness/zones.ts`: **bp1 slope search starts at `i=1`** (previously `i=0`) — prevents LT2 being placed at the fastest bucket when slopeMax is at the LT1 inflection, which caused a false LT2 at race pace and downstream HR gap check failure or wrong placement.
+- `lib/fitness/zones.ts`: **HR gap threshold lowered 8 → 5 bpm** — the 8 bpm threshold rejected valid estimates during post-OL season (Aug–Oct) when training distribution is compressed and HR spread is 5–7 bpm. 5 bpm at 84%/81% maxHR is physiologically distinct.
+- `lib/fitness/cache.ts`: **per-window OL bootstrap** — replaced global 90-day window + global OL threshold with per-window computation. Each of the 30 monthly windows now: (1) runs estimator on all acts up to `windowEnd` with name-only OL filter to get historical LT1; (2) derives OL threshold as `round(LT1 × 1.15)`; (3) runs final estimator on all filtered laps up to `windowEnd` (no lower bound). Equivalent to running LIVE calibration from a historical point in time. Fixes: global threshold (5:17/km) incorrectly excluded spring 2025 OL races (5:30–6:00/km, appropriate for that era's fitness).
+- `lib/fitness/cache.ts`: **`smoothLTTrend()`** — two-pass post-processing: Pass 1 removes isolated single-month spikes (±15s from both neighbors via linear interpolation); Pass 2 caps improvement at 20s/month (physiological rate limit). Only applied between consecutive months (gap = 1 month), not across data gaps.
+- DB: `ltPaceTrend` cleared from `FitnessCache` to force full recompute with new algorithm.
+- **Expected result:** 18/18 months populated (2025-01 through 2026-06), smooth seasonal curve, no Feb 2026 outlier.
+
+**Temperature statistics improvements:**
+- `app/(dashboard)/stats/page.tsx` `computeWeatherStats()`: split `> 20°C` band → `20–25°C` + `> 25°C` for heat granularity above the inflection point.
+- Added **precipitation bands** (`Dry < 0.5mm`, `Light 0.5–2mm`, `Rain > 2mm`) — controlled for 0–25°C to avoid cold/rain conflation. Requires `weatherPrecip` field in query select.
+- Added **HR-normalized pace by temperature** (`hrNormByTemp`) — filters runs where `avgHR ∈ [70%, 80%] maxHR`, groups by temperature band. Effort-controlled, no fitness drift correction needed. Requires `maxHR` parameter passed to `computeWeatherStats`.
+- Added **cold sensitivity** (`coldSensitivity`) — OLS regression on cold runs (< 10°C), reports sec/km penalty per 5°C below 5°C baseline. Requires ≥ 8 data points.
+- **`tempSensitivity` always-null bug in fast path fixed** — moved computation to use `weatherActs` (always fetched fresh) before the fast/slow path split. Both paths now receive the value. Previously the fast path (which handles ~99% of page loads) always showed null.
+- `WeatherStats` interface: added `byPrecip`, `hrNormByTemp`, `coldSensitivity`.
+- `app/(dashboard)/stats/stats-client.tsx` `WeatherProfileCard`: added precipitation section, HR-normalized section, cold sensitivity chip.
+
+**Activity map — double init fix:**
+- `app/(dashboard)/activities/[id]/activity-map.tsx`: added `aborted` boolean flag set to `true` in cleanup, checked before creating the Leaflet map in the async import callback. Root cause: React 18 Strict Mode fires effects twice (mount → cleanup → mount); cleanup set `map = null` but the async import from the first mount had not yet resolved, so when it did, `container.isConnected` was still true and a second Leaflet map was created in the same container, producing split tile fragments.
+
+**Easy pace trend — full 5-year history:**
+- `lib/fitness/cache.ts`: `easyPaceTrend` now computed during sync (all 5 years of activities, not 2-year rolling window) and stored in `extraVizJson`.
+- `app/(dashboard)/stats/page.tsx` fast path: reads `easyPaceTrend` from `extraVizJson` (full history) instead of computing from `recentForCurve` (capped at 730 days). Falls back to `recentForCurve` if cache pre-dates this change.
+- `app/(dashboard)/stats/page.tsx` slow path: includes `easyPaceTrend` in the `extraVizJson` cache save.
+
+**Volume section — global toggles:**
+- `app/(dashboard)/stats/stats-client.tsx`: sport filter and km/time toggle moved to top of Volume section (outside any card) so they control all charts in the section.
+- `MonthlyOverlayCard`: accepts `mode` and `sportFilter` props; respects volumeMode (bars scale to hours or km) and sport filter (via `bySport` breakdown per entry).
+- `ActivityHeatmapCard`: accepts `mode` prop; shows weekly hours or weekly km; tooltip shows formatted time or km accordingly.
+- `monthlyOverlay` data structure extended: added `timeSec` (total time) and `bySport: Record<string, { km, timeSec }>` per monthly entry. Updated in both `cache.ts` and `page.tsx` slow path.
+- `heatmapData` structure extended: added `timeSec` per weekly entry. Updated in both `cache.ts` and `page.tsx` slow path.
+
+**Archived plans:**
+- `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
+
 ### Documentation Written
 - `docs/api/auth.md` — auth + settings endpoints
 - `docs/api/strava.md` — sync + webhook endpoints
