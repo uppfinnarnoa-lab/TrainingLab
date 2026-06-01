@@ -258,31 +258,40 @@ export async function updateVO2maxAndPaces(userId: string) {
   const evLt1 = ezHz?.z3?.[0] ?? Math.round(maxHR * 0.78);
   const evLt2 = ezHz?.z4?.[0] ?? Math.round(maxHR * 0.88);
 
-  const heatmapData: { week: string; km: number }[] = [];
+  const heatmapData: { week: string; km: number; timeSec: number }[] = [];
   {
-    const wm = new Map<string, number>();
+    const wm = new Map<string, { km: number; timeSec: number }>();
     const threeYearsAgo = subDays(now, 3 * 365);
     for (const a of activities as Act[]) {
       if (a.startDate < threeYearsAgo) continue;
       const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      wm.set(wk, (wm.get(wk) ?? 0) + a.distance / 1000);
+      const e = wm.get(wk) ?? { km: 0, timeSec: 0 };
+      e.km += a.distance / 1000; e.timeSec += a.movingTime;
+      wm.set(wk, e);
     }
-    for (const [week, km] of wm) heatmapData.push({ week, km: Math.round(km * 10) / 10 });
+    for (const [week, v] of wm) heatmapData.push({ week, km: Math.round(v.km * 10) / 10, timeSec: Math.round(v.timeSec) });
     heatmapData.sort((a, b) => a.week.localeCompare(b.week));
   }
 
-  const monthlyOverlay: { month: string; year: number; km: number }[] = [];
+  const monthlyOverlay: { month: string; year: number; km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }[] = [];
   {
-    const mm = new Map<string, number>();
+    const mm = new Map<string, { km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }>();
     for (const a of activities as Act[]) {
       const key = `${a.startDate.getFullYear()}-${format(a.startDate, "MM")}`;
-      mm.set(key, (mm.get(key) ?? 0) + a.distance / 1000);
+      if (!mm.has(key)) mm.set(key, { km: 0, timeSec: 0, bySport: {} });
+      const e = mm.get(key)!;
+      e.km += a.distance / 1000; e.timeSec += a.movingTime;
+      const sport = normalizeActivitySport(a.sportType);
+      if (!e.bySport[sport]) e.bySport[sport] = { km: 0, timeSec: 0 };
+      e.bySport[sport].km += a.distance / 1000;
+      e.bySport[sport].timeSec += a.movingTime;
     }
     const yr = now.getFullYear();
     for (let y = yr - 2; y <= yr; y++) {
       for (let m = 1; m <= 12; m++) {
         const mo = String(m).padStart(2, "0");
-        monthlyOverlay.push({ month: mo, year: y, km: Math.round(mm.get(`${y}-${mo}`) ?? 0) });
+        const v = mm.get(`${y}-${mo}`) ?? { km: 0, timeSec: 0, bySport: {} };
+        monthlyOverlay.push({ month: mo, year: y, km: Math.round(v.km), timeSec: Math.round(v.timeSec), bySport: Object.fromEntries(Object.entries(v.bySport).map(([s, d]) => [s, { km: Math.round(d.km), timeSec: Math.round(d.timeSec) }])) });
       }
     }
   }

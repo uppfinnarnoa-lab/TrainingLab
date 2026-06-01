@@ -165,8 +165,8 @@ export default async function StatsPage() {
       : paceZones;
     const acwr = fitnessCache.acwr ?? null;
     const extraViz = (fitnessCache.extraVizJson ?? null) as {
-      heatmapData: { week: string; km: number }[];
-      monthlyOverlay: { month: string; year: number; km: number }[];
+      heatmapData: { week: string; km: number; timeSec?: number }[];
+      monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
       intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
       vdotTrend: { month: string; vdot: number }[];
       terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
@@ -589,37 +589,42 @@ export default async function StatsPage() {
 
   // ── NEW VISUALIZATIONS ────────────────────────────────────────────────
 
-  // Activity heatmap: weekly km for last 3 years (§3A)
-  const heatmapData: { week: string; km: number }[] = [];
+  // Activity heatmap: weekly km + timeSec for last 3 years
+  const heatmapData: { week: string; km: number; timeSec: number }[] = [];
   {
-    const wm = new Map<string, number>();
-    for (const a of activities as A[]) {
-      const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      wm.set(wk, (wm.get(wk) ?? 0) + a.distance / 1000);
-    }
+    const wm = new Map<string, { km: number; timeSec: number }>();
     const threeYearsAgo = subDays(now, 3 * 365);
-    for (const [week, km] of wm) {
-      if (new Date(week) >= threeYearsAgo) {
-        heatmapData.push({ week, km: Math.round(km * 10) / 10 });
-      }
+    for (const a of activities as A[]) {
+      if (a.startDate < threeYearsAgo) continue;
+      const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const e = wm.get(wk) ?? { km: 0, timeSec: 0 };
+      e.km += a.distance / 1000; e.timeSec += a.movingTime;
+      wm.set(wk, e);
     }
+    for (const [week, v] of wm) heatmapData.push({ week, km: Math.round(v.km * 10) / 10, timeSec: Math.round(v.timeSec) });
     heatmapData.sort((a, b) => a.week.localeCompare(b.week));
   }
 
-  // 3-year monthly volume overlay (§2A)
-  const monthlyOverlay: { month: string; year: number; km: number }[] = [];
+  // 3-year monthly volume overlay with timeSec + per-sport breakdown
+  const monthlyOverlay: { month: string; year: number; km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }[] = [];
   {
-    const mm = new Map<string, number>();
+    const mm = new Map<string, { km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }>();
     for (const a of activities as A[]) {
       const key = `${a.startDate.getFullYear()}-${format(a.startDate, "MM")}`;
-      mm.set(key, (mm.get(key) ?? 0) + a.distance / 1000);
+      if (!mm.has(key)) mm.set(key, { km: 0, timeSec: 0, bySport: {} });
+      const e = mm.get(key)!;
+      e.km += a.distance / 1000; e.timeSec += a.movingTime;
+      const sport = normalizeSport(a.sportType);
+      if (!e.bySport[sport]) e.bySport[sport] = { km: 0, timeSec: 0 };
+      e.bySport[sport].km += a.distance / 1000;
+      e.bySport[sport].timeSec += a.movingTime;
     }
     const yr = now.getFullYear();
     for (let y = yr - 2; y <= yr; y++) {
       for (let m = 1; m <= 12; m++) {
         const mo = String(m).padStart(2, "0");
-        const km = mm.get(`${y}-${mo}`) ?? 0;
-        monthlyOverlay.push({ month: mo, year: y, km: Math.round(km) });
+        const v = mm.get(`${y}-${mo}`) ?? { km: 0, timeSec: 0, bySport: {} };
+        monthlyOverlay.push({ month: mo, year: y, km: Math.round(v.km), timeSec: Math.round(v.timeSec), bySport: Object.fromEntries(Object.entries(v.bySport).map(([s, d]) => [s, { km: Math.round(d.km), timeSec: Math.round(d.timeSec) }])) });
       }
     }
   }
@@ -798,8 +803,8 @@ function renderStats(
   modelPredictions?: Record<string, { label: string; meters: number; peak: number }[]>,
   modelVdots?: Record<string, number>,
   extraViz?: {
-    heatmapData: { week: string; km: number }[];
-    monthlyOverlay: { month: string; year: number; km: number }[];
+    heatmapData: { week: string; km: number; timeSec?: number }[];
+    monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
     vdotTrend: { month: string; vdot: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;

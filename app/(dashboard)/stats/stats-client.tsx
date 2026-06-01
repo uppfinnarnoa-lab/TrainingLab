@@ -62,8 +62,8 @@ interface Props {
   easyPaceTrend: EasyPacePoint[];
   statZonesLaps: StatisticalZoneResult | null;
   extraViz: {
-    heatmapData: { week: string; km: number }[];
-    monthlyOverlay: { month: string; year: number; km: number }[];
+    heatmapData: { week: string; km: number; timeSec?: number }[];
+    monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
     vdotTrend: { month: string; vdot: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
@@ -189,12 +189,13 @@ export function StatsClient(props: Props) {
       {/* ── Volume ── */}
       {section === "Volume" && (
         <div className="space-y-6">
-          <SectionCard title="Weekly volume" action={
-            <div className="flex gap-1 items-center">
-              <SportFilter sports={allSports} selected={sportFilter} onChange={setSportFilter} />
-              <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
-            </div>
-          }>
+          {/* Global controls for the whole Volume section */}
+          <div className="flex gap-2 items-center justify-end flex-wrap">
+            <SportFilter sports={allSports} selected={sportFilter} onChange={setSportFilter} />
+            <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
+          </div>
+
+          <SectionCard title="Weekly volume">
             <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
           </SectionCard>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -203,14 +204,14 @@ export function StatsClient(props: Props) {
             <OverviewCard label="Year to date" value={`${o.ytd.km} km`} sub={formatDuration(o.ytd.timeSec)} delta={pct(o.ytd.km, o.lyYtd.km)} />
           </div>
 
-          {/* 3-year monthly overlay */}
-          <MonthlyOverlayCard data={extraViz?.monthlyOverlay ?? []} />
+          {/* 3-year monthly overlay — respects sport filter + volume mode */}
+          <MonthlyOverlayCard data={extraViz?.monthlyOverlay ?? []} mode={volumeMode} sportFilter={sportFilter} />
 
           {/* Monthly intensity profile */}
           <IntensityProfileCard data={extraViz?.intensityProfile ?? []} />
 
-          {/* Activity heatmap */}
-          <ActivityHeatmapCard data={extraViz?.heatmapData ?? []} />
+          {/* Activity heatmap — respects volume mode */}
+          <ActivityHeatmapCard data={extraViz?.heatmapData ?? []} mode={volumeMode} />
         </div>
       )}
 
@@ -985,40 +986,46 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult | null }) {
 
 // ── NEW VISUALIZATION COMPONENTS ──────────────────────────────────────────────
 
-function ActivityHeatmapCard({ data }: { data: { week: string; km: number }[] }) {
+function ActivityHeatmapCard({ data, mode = "distance" }: { data: { week: string; km: number; timeSec?: number }[]; mode?: "distance" | "time" }) {
   if (data.length === 0) return (
     <div className="rounded-xl border border-border p-4 space-y-3">
-      <p className="text-sm font-semibold text-primary">Activity heatmap — last 3 years (weekly km)</p>
+      <p className="text-sm font-semibold text-primary">Activity heatmap — last 3 years</p>
       <p className="text-xs text-muted py-4 text-center">No data available yet.</p>
     </div>
   );
-  const maxKm = Math.max(...data.map(d => d.km), 1);
-  // Group by year
+  const getValue = (d: { km: number; timeSec?: number }) =>
+    mode === "time" ? (d.timeSec ?? 0) / 3600 : d.km;
+  const maxVal = Math.max(...data.map(d => getValue(d)), 1);
   const years = [...new Set(data.map(d => d.week.slice(0, 4)))].sort().slice(-3);
-  const color = (km: number) => {
-    if (km === 0) return "var(--surface-2)";
-    const i = Math.min(4, Math.ceil((km / maxKm) * 4));
+  const color = (v: number) => {
+    if (v === 0) return "var(--surface-2)";
+    const i = Math.min(4, Math.ceil((v / maxVal) * 4));
     return ["#d1fae5","#6EE7B7","#34D399","#10B981","#059669"][i - 1];
+  };
+  const fmtTip = (d: { km: number; timeSec?: number } | undefined) => {
+    if (!d) return "0";
+    return mode === "time"
+      ? `${Math.floor((d.timeSec ?? 0) / 3600)}h ${Math.round(((d.timeSec ?? 0) % 3600) / 60)}m`
+      : `${d.km.toFixed(0)} km`;
   };
   return (
     <div className="rounded-xl border border-border p-4 space-y-3">
-      <p className="text-sm font-semibold text-primary">Activity heatmap — last 3 years (weekly km)</p>
+      <p className="text-sm font-semibold text-primary">Activity heatmap — last 3 years ({mode === "time" ? "weekly time" : "weekly km"})</p>
       <div className="space-y-1">
         {years.map(yr => {
           const weeks = Array.from({ length: 53 }, (_, i) => {
             const d = new Date(Number(yr), 0, 1 + i * 7);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate() - d.getDay() + 1).padStart(2, "0")}`;
-            const found = data.find(x => x.week.startsWith(yr) && x.week === key.slice(0, 10));
-            return found?.km ?? 0;
+            return data.find(x => x.week.startsWith(yr) && x.week === key.slice(0, 10));
           });
           return (
             <div key={yr} className="flex items-center gap-1.5">
               <span className="text-xs text-muted w-8 shrink-0">{yr}</span>
               <div className="flex gap-0.5 flex-wrap">
-                {weeks.map((km, i) => (
-                  <div key={i} title={`${km.toFixed(0)} km`}
+                {weeks.map((entry, i) => (
+                  <div key={i} title={fmtTip(entry)}
                     className="w-2.5 h-2.5 rounded-sm"
-                    style={{ backgroundColor: color(km) }} />
+                    style={{ backgroundColor: color(entry ? getValue(entry) : 0) }} />
                 ))}
               </div>
             </div>
@@ -1036,7 +1043,15 @@ function ActivityHeatmapCard({ data }: { data: { week: string; km: number }[] })
   );
 }
 
-function MonthlyOverlayCard({ data }: { data: { month: string; year: number; km: number }[] }) {
+function MonthlyOverlayCard({
+  data,
+  mode = "distance",
+  sportFilter = null,
+}: {
+  data: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
+  mode?: "distance" | "time";
+  sportFilter?: string | null;
+}) {
   if (data.length === 0) return (
     <div className="rounded-xl border border-border p-4 space-y-3">
       <p className="text-sm font-semibold text-primary">3-year monthly volume overlay</p>
@@ -1046,7 +1061,21 @@ function MonthlyOverlayCard({ data }: { data: { month: string; year: number; km:
   const years = [...new Set(data.map(d => d.year))].sort();
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const COLORS = ["#818CF8","#6EE7B7","#F472B6"];
-  const maxKm = Math.max(...data.map(d => d.km), 1);
+
+  const getValue = (d: typeof data[number]) => {
+    const src = sportFilter ? (d.bySport?.[sportFilter] ?? { km: 0, timeSec: 0 }) : d;
+    return mode === "time" ? ((src.timeSec ?? 0) / 3600) : (src.km ?? 0);
+  };
+  const fmtTip = (d: typeof data[number], yr: number, mo: string) => {
+    const v = getValue(d);
+    const label = mode === "time"
+      ? `${Math.floor(v)}h ${Math.round((v % 1) * 60)}m`
+      : `${Math.round(v)} km`;
+    return `${yr} ${mo}: ${label}`;
+  };
+
+  const maxVal = Math.max(...data.map(d => getValue(d)), 1);
+
   return (
     <div className="rounded-xl border border-border p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -1066,11 +1095,12 @@ function MonthlyOverlayCard({ data }: { data: { month: string; year: number; km:
             <div className="flex items-end gap-px w-full justify-center h-20">
               {years.map((yr, yi) => {
                 const d = data.find(x => x.year === yr && x.month === String(mi + 1).padStart(2, "0"));
-                const h = d ? Math.max(2, Math.round((d.km / maxKm) * 80)) : 2;
+                const v = d ? getValue(d) : 0;
+                const h = Math.max(2, Math.round((v / maxVal) * 80));
                 return (
-                  <div key={yr} title={`${yr} ${mo}: ${d?.km ?? 0} km`}
+                  <div key={yr} title={d ? fmtTip(d, yr, mo) : `${yr} ${mo}: 0`}
                     className="flex-1 rounded-t-sm"
-                    style={{ height: h, backgroundColor: COLORS[yi] + (d?.km ? "cc" : "22") }} />
+                    style={{ height: h, backgroundColor: COLORS[yi] + (v > 0 ? "cc" : "22") }} />
                 );
               })}
             </div>
