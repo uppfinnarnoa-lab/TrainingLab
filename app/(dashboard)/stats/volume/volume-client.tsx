@@ -17,13 +17,23 @@ export type VolumeRecord = {
   timeSec: number;
 };
 
+export type WeeklyRecord = {
+  weekStart: string;  // "YYYY-MM-DD" Monday
+  year: number;
+  isoWeek: number;    // 1–53
+  sport: string;
+  km: number;
+  timeSec: number;
+};
+
 interface Props {
   records: VolumeRecord[];
+  weeklyRecords: WeeklyRecord[];
   sports: string[];
   availableYears: number[];
 }
 
-type ViewMode = "yearly" | "cumulative" | "sports" | "period";
+type ViewMode = "yearly" | "cumulative" | "sports" | "period" | "weekly";
 type Metric = "distance" | "time";
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -88,7 +98,7 @@ function ChartTooltip({ active, payload, label, metric }: CustomTooltipProps) {
   );
 }
 
-export function VolumeClient({ records, sports, availableYears }: Props) {
+export function VolumeClient({ records, weeklyRecords, sports, availableYears }: Props) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -102,6 +112,11 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
   const [periodA, setPeriodA] = useState({ start: `${currentYear - 1}-01`, end: `${currentYear - 1}-12` });
   const [periodB, setPeriodB] = useState({ start: `${currentYear}-01`, end: `${currentYear}-${String(currentMonth).padStart(2, "0")}` });
+
+  // Weekly mode state
+  const [weeklySubMode, setWeeklySubMode] = useState<"timeline" | "seasonal">("timeline");
+  const [weekRangeFrom, setWeekRangeFrom] = useState(`${currentYear - 1}-${String(currentMonth).padStart(2, "0")}`);
+  const [weekRangeTo, setWeekRangeTo] = useState(`${currentYear}-${String(currentMonth).padStart(2, "0")}`);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const getValue = (r: { km: number; timeSec: number }) =>
@@ -249,6 +264,53 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
     ];
   }, [records, periodA, periodB, metric, selectedSports, compareLen]);
 
+  // ── Weekly data ────────────────────────────────────────────────────────────
+  const getWValue = (r: WeeklyRecord) => metric === "time" ? r.timeSec / 3600 : r.km;
+  const sportListW = selectedSports.length > 0 ? selectedSports : sports;
+
+  const weeklyTimelineData = useMemo(() => {
+    const fromD = new Date(weekRangeFrom + "-01");
+    const toD   = new Date(weekRangeTo + "-01");
+    toD.setMonth(toD.getMonth() + 1);
+    const byWeek = new Map<string, Record<string, number>>();
+    for (const r of weeklyRecords) {
+      const d = new Date(r.weekStart + "T12:00:00Z");
+      if (d < fromD || d >= toD) continue;
+      if (!sportListW.includes(r.sport)) continue;
+      if (!byWeek.has(r.weekStart)) byWeek.set(r.weekStart, {});
+      const e = byWeek.get(r.weekStart)!;
+      e[r.sport] = (e[r.sport] ?? 0) + getWValue(r);
+    }
+    return [...byWeek.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ws, sports]) => {
+      const d = new Date(ws + "T12:00:00Z");
+      const lbl = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const total = Object.values(sports).reduce((s, v) => s + v, 0);
+      return { week: lbl, total: Math.round(total * 10) / 10, ...Object.fromEntries(Object.entries(sports).map(([s, v]) => [s, Math.round(v * 10) / 10])) };
+    });
+  }, [weeklyRecords, weekRangeFrom, weekRangeTo, metric, selectedSports, sports]);
+
+  // Seasonal: align week 1-52 across selected years
+  const weeklySeasonalData = useMemo(() => {
+    return Array.from({ length: 52 }, (_, i) => {
+      const wn = i + 1;
+      const entry: Record<string, number | string> = { week: `W${wn}` };
+      for (const yr of selectedYears) {
+        const total = weeklyRecords
+          .filter(r => r.year === yr && r.isoWeek === wn && sportListW.includes(r.sport))
+          .reduce((s, r) => s + getWValue(r), 0);
+        entry[String(yr)] = Math.round(total * 10) / 10;
+      }
+      return entry;
+    });
+  }, [weeklyRecords, selectedYears, metric, selectedSports, sports]);
+
+  const weeklyTimelineSummary = useMemo(() => {
+    const total = weeklyTimelineData.reduce((s, d) => s + (d.total as number), 0);
+    const avg = weeklyTimelineData.length > 0 ? total / weeklyTimelineData.length : 0;
+    const peak = weeklyTimelineData.reduce((mx, d) => Math.max(mx, d.total as number), 0);
+    return { total, avg, peak, weeks: weeklyTimelineData.length };
+  }, [weeklyTimelineData]);
+
   // ── Shared controls ────────────────────────────────────────────────────────
   const toggleYear = (yr: number) =>
     setSelectedYears(prev => prev.includes(yr) ? prev.filter(y => y !== yr) : [...prev, yr].sort());
@@ -256,6 +318,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
   const MODES: { id: ViewMode; label: string }[] = [
     { id: "yearly",     label: "Year vs Year" },
     { id: "cumulative", label: "Cumulative" },
+    { id: "weekly",     label: "Weekly" },
     { id: "sports",     label: "Sports" },
     { id: "period",     label: "Periods" },
   ];
@@ -476,6 +539,121 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                 })}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Weekly volume ───────────────────────────────────────────────── */}
+        {viewMode === "weekly" && (
+          <div className="space-y-4">
+            {/* Sub-mode + controls */}
+            <div className="rounded-xl border border-border p-4 space-y-3">
+              <div className="flex gap-1 rounded-lg border border-border p-0.5 w-fit text-xs">
+                {(["timeline", "seasonal"] as const).map(m => (
+                  <button key={m} onClick={() => setWeeklySubMode(m)}
+                    className={cn("px-3 py-1 rounded-md transition-colors capitalize",
+                      weeklySubMode === m ? "bg-accent/10 text-accent" : "text-muted hover:text-primary")}>
+                    {m === "timeline" ? "Timeline" : "Season comparison"}
+                  </button>
+                ))}
+              </div>
+
+              {weeklySubMode === "timeline" && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-muted uppercase tracking-wide">Date range</span>
+                  <input type="month" value={weekRangeFrom} onChange={e => setWeekRangeFrom(e.target.value)}
+                    className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary" />
+                  <span className="text-xs text-muted">–</span>
+                  <input type="month" value={weekRangeTo} onChange={e => setWeekRangeTo(e.target.value)}
+                    className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary" />
+                </div>
+              )}
+
+              {weeklySubMode === "seasonal" && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-muted uppercase tracking-wide">Year</span>
+                  {availableYears.map(yr => (
+                    <button key={yr} onClick={() => toggleYear(yr)}
+                      className={cn("px-3 py-1 rounded-lg text-sm font-medium border transition-colors",
+                        selectedYears.includes(yr) ? "border-transparent text-[#0a0a0a]" : "border-border text-muted hover:text-primary")}
+                      style={selectedYears.includes(yr) ? { backgroundColor: yearColor(yr, availableYears) } : {}}>
+                      {yr}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {sharedSportFilter}
+            </div>
+
+            {/* Timeline chart */}
+            {weeklySubMode === "timeline" && (
+              <>
+                <div className="rounded-xl border border-border p-4">
+                  {weeklyTimelineData.length === 0
+                    ? <p className="text-xs text-muted py-8 text-center">No data for this range.</p>
+                    : (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={weeklyTimelineData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="10%">
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                          <XAxis dataKey="week" tick={{ fontSize: 9, fill: "var(--text-muted)" }} axisLine={false} tickLine={false}
+                            interval={Math.max(0, Math.floor(weeklyTimelineData.length / 20) - 1)} />
+                          <YAxis tickFormatter={tickFmt} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={48} />
+                          <Tooltip content={<ChartTooltip metric={metric} />} />
+                          {sportListW.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: "var(--text-muted)" }} />}
+                          {sportListW.length <= 1
+                            ? <Bar dataKey="total" fill="#6EE7B7" radius={[2, 2, 0, 0]} maxBarSize={24} />
+                            : sportListW.map(s => (
+                              <Bar key={s} dataKey={s} stackId="a" fill={SPORT_COLORS[s] ?? "#94A3B8"}
+                                radius={sportListW.indexOf(s) === sportListW.length - 1 ? [2, 2, 0, 0] : [0, 0, 0, 0]} />
+                            ))
+                          }
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )
+                  }
+                </div>
+                {weeklyTimelineData.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rounded-xl border border-border p-4 space-y-1">
+                      <p className="text-[11px] text-muted">Total</p>
+                      <p className="text-xl font-semibold font-mono text-primary">{fmtShort(weeklyTimelineSummary.total, metric)}</p>
+                    </div>
+                    <div className="rounded-xl border border-border p-4 space-y-1">
+                      <p className="text-[11px] text-muted">Weekly avg</p>
+                      <p className="text-xl font-semibold font-mono text-primary">{fmtShort(weeklyTimelineSummary.avg, metric)}</p>
+                    </div>
+                    <div className="rounded-xl border border-border p-4 space-y-1">
+                      <p className="text-[11px] text-muted">Best week</p>
+                      <p className="text-xl font-semibold font-mono text-primary">{fmtShort(weeklyTimelineSummary.peak, metric)}</p>
+                    </div>
+                    <div className="rounded-xl border border-border p-4 space-y-1">
+                      <p className="text-[11px] text-muted">Weeks shown</p>
+                      <p className="text-xl font-semibold font-mono text-primary">{weeklyTimelineSummary.weeks}</p>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Seasonal chart */}
+            {weeklySubMode === "seasonal" && (
+              <div className="rounded-xl border border-border p-4">
+                <p className="text-[11px] text-muted mb-3">Week 1–52 aligned by calendar year — compare seasonal training patterns</p>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={weeklySeasonalData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="15%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="week" tick={{ fontSize: 9, fill: "var(--text-muted)" }} axisLine={false} tickLine={false}
+                      interval={3} />
+                    <YAxis tickFormatter={tickFmt} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={48} />
+                    <Tooltip content={<ChartTooltip metric={metric} />} />
+                    <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
+                    {selectedYears.map(yr => (
+                      <Bar key={yr} dataKey={String(yr)} name={String(yr)}
+                        fill={yearColor(yr, availableYears)} radius={[2, 2, 0, 0]} maxBarSize={20} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         )}
 

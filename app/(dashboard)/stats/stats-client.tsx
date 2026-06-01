@@ -176,6 +176,7 @@ export function StatsClient(props: Props) {
             <div className="flex gap-1 items-center">
               <SportFilter sports={allSports} selected={sportFilter} onChange={setSportFilter} />
               <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
+              <Link href="/stats/volume?mode=weekly" className="text-xs text-muted hover:text-accent transition-colors ml-1">Explore →</Link>
             </div>
           }>
             <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
@@ -196,7 +197,9 @@ export function StatsClient(props: Props) {
             <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
           </div>
 
-          <SectionCard title="Weekly volume">
+          <SectionCard title="Weekly volume" action={
+            <Link href="/stats/volume?mode=weekly" className="text-xs text-muted hover:text-accent transition-colors">Explore →</Link>
+          }>
             <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
           </SectionCard>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1081,9 +1084,9 @@ function MonthlyOverlayCard({
   const maxVal = Math.max(...data.map(d => getValue(d)), 1);
 
   return (
-    <div className="rounded-xl border border-border p-4 space-y-3">
+    <Link href="/stats/volume" className="block rounded-xl border border-border p-4 space-y-3 hover:border-accent/40 transition-colors cursor-pointer">
       <div className="flex items-center justify-between">
-        <Link href="/stats/volume" className="text-sm font-semibold text-primary hover:text-accent transition-colors">3-year monthly volume overlay →</Link>
+        <p className="text-sm font-semibold text-primary">3-year monthly volume overlay →</p>
         <div className="flex gap-3">
           {years.map((yr, i) => (
             <span key={yr} className="flex items-center gap-1 text-xs text-muted">
@@ -1112,7 +1115,7 @@ function MonthlyOverlayCard({
           </div>
         ))}
       </div>
-    </div>
+    </Link>
   );
 }
 
