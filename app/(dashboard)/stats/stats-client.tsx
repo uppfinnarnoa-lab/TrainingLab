@@ -392,7 +392,7 @@ export function StatsClient(props: Props) {
 
           {/* LT/AT tempo development over time */}
           <div className="rounded-xl border border-border p-4 space-y-3">
-            <p className="text-sm font-semibold text-primary">LT/AT tempo-utveckling</p>
+            <p className="text-sm font-semibold text-primary">LT/AT pace development</p>
             <LTPaceTrendChart
               data={extraViz?.ltPaceTrend ?? []}
               currentLT2={paceZones?.threshold?.[0]}
@@ -748,7 +748,7 @@ function ZoneCalibrationButton({ initialLt1Pct = 83, initialLt2Pct = 89 }: { ini
         <div className="text-xs text-muted bg-surface-2 rounded-xl px-3 py-2 space-y-1 max-w-sm">
           <p className="font-medium text-primary">
             {result.aiApplied ? "AI zones applied" : "Zones updated"} — max HR {result.maxHR} bpm · VO2max {result.vo2max?.toFixed(1)}
-            <a href="/stats" className="ml-2 text-accent hover:underline font-normal">ladda om sidan</a>
+            <a href="/stats" className="ml-2 text-accent hover:underline font-normal">reload page</a>
           </p>
           <p>
             {result.lt1HR && result.lt2HR && <>LT1 {result.lt1HR} bpm · LT2 {result.lt2HR} bpm · </>}
@@ -790,14 +790,14 @@ function HRZoneTable({ hrZones, ltBounds, manualMaxHR, manualRestHR }: {
             <span className="font-mono font-medium text-primary">{hrZones.maxHR} bpm</span>
             {manualMaxHR != null
               ? <span className="ml-1 text-[10px] text-accent">(manuell)</span>
-              : <span className="ml-1 text-[10px] text-muted">(estimerat)</span>}
+              : <span className="ml-1 text-[10px] text-muted">(estimated)</span>}
           </p>
           <p>
             Vila HR:{" "}
             <span className="font-mono font-medium text-primary">{hrZones.restHR} bpm</span>
             {manualRestHR != null
               ? <span className="ml-1 text-[10px] text-accent">(manuell)</span>
-              : <span className="ml-1 text-[10px] text-muted">(estimerat)</span>}
+              : <span className="ml-1 text-[10px] text-muted">(estimated)</span>}
           </p>
         </div>
       </div>
@@ -945,8 +945,8 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult | null }) {
     <div className="rounded-xl border border-border overflow-hidden">
       <div className="px-4 py-3 border-b border-border bg-surface-2 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-primary">Statistisk tröskelestimering</p>
-          {sz && <p className="text-xs text-muted mt-0.5">{sz.bucketCount} tempo-buckets · piecewise regression</p>}
+          <p className="text-sm font-semibold text-primary">Statistical threshold estimation</p>
+          {sz && <p className="text-xs text-muted mt-0.5">{sz.bucketCount} pace buckets · piecewise regression</p>}
         </div>
         {sz && (
           <span className="text-xs font-semibold font-mono shrink-0" style={{ color: confColor(sz.rSquared) }}>
@@ -956,7 +956,7 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult | null }) {
       </div>
       {!sz ? (
         <div className="p-4">
-          <p className="text-xs text-muted py-4 text-center">Ingen lapdata ännu — kör en Strava-backfill av laps först.</p>
+          <p className="text-xs text-muted py-4 text-center">No lap data yet — run a Strava backfill first.</p>
         </div>
       ) : (
         <>
@@ -965,18 +965,18 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult | null }) {
               <p className="text-xs font-semibold text-muted uppercase tracking-wide">LT1 — Aerobic Threshold</p>
               <p className="text-2xl font-semibold font-mono text-primary">{sz.lt1HR} <span className="text-sm text-muted font-normal">bpm</span></p>
               <p className="text-xs text-muted">Tempo: {secPerKmToPaceStr(sz.lt1PaceSecPerKm)} (GAP)</p>
-              <p className="text-xs text-muted">Z2/Z3-gräns — lugna pass stannar under detta</p>
+              <p className="text-xs text-muted">Z2/Z3 boundary — easy sessions stay below this</p>
             </div>
             <div className="space-y-1">
               <p className="text-xs font-semibold text-muted uppercase tracking-wide">LT2 — Lactate Threshold</p>
               <p className="text-2xl font-semibold font-mono text-primary">{sz.lt2HR} <span className="text-sm text-muted font-normal">bpm</span></p>
               <p className="text-xs text-muted">Tempo: {secPerKmToPaceStr(sz.lt2PaceSecPerKm)} (GAP)</p>
-              <p className="text-xs text-muted">Z3/Z4-gräns — tröskelintensitet</p>
+              <p className="text-xs text-muted">Z3/Z4 boundary — threshold intensity</p>
             </div>
           </div>
           <div className="border-t border-border px-4 py-3 bg-surface-2">
             <p className="text-xs text-muted">
-              Estimerat från {sz.bucketCount} tempo-buckets. Använd kalibrationsknappen ovan för att tillämpa dessa zoner.
+              Estimated from {sz.bucketCount} pace buckets. Use the calibration button above to apply these zones.
             </p>
           </div>
         </>

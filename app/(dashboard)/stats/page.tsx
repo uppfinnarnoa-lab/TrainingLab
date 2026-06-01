@@ -183,9 +183,9 @@ export default async function StatsPage() {
       return Object.values(weeklyVolumes[key] ?? {}).reduce((s, v) => s + v.km, 0);
     });
 
-    // Fetch last 2 years for load curve; zone/pace/analytics calculations filter internally to 12 weeks
+    // 3 years: load curve uses only the last 2 years internally; extra year supplies fresh viz data
     const recentForCurve = await prisma.activity.findMany({
-      where: { userId, startDate: { gte: subDays(now, 730) } },
+      where: { userId, startDate: { gte: subDays(now, 3 * 365) } },
       select: { movingTime: true, averageHeartrate: true, startDate: true, sportType: true, averageSpeed: true,
         distance: true, totalElevationGain: true, isRace: true },
       orderBy: { startDate: "asc" },
@@ -316,9 +316,17 @@ export default async function StatsPage() {
       ? extraViz.easyPaceTrend
       : computeEasyPaceTrend(recentForCurve as EasyPaceAct[], hrZones.z3[0]);
 
+    // Always compute fresh heatmap/overlay/intensity from recentForCurve so timeSec and
+    // bySport are always present regardless of cache vintage
+    type FCurve = { sportType: string; distance: number; movingTime: number; startDate: Date; averageHeartrate: number | null };
+    const fpHeatmap     = computeFreshHeatmap(recentForCurve as FCurve[], now);
+    const fpOverlay     = computeFreshMonthlyOverlay(recentForCurve as FCurve[], now);
+    const fpIntensity   = computeFreshIntensityProfile(recentForCurve as FCurve[], hrZones.z3[0], hrZones.z4[0]);
+    const extraVizFresh = extraViz ? { ...extraViz, heatmapData: fpHeatmap, monthlyOverlay: fpOverlay, intensityProfile: fpIntensity } : null;
+
     return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
       fastZoneSeconds, hrZones, vo2max, effectivePaceZones, predictions, fastPolarisation, acwr,
-      overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraViz,
+      overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraVizFresh,
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
       fpEasyPaceTrend, fastStatZonesLaps);
   }
@@ -1080,4 +1088,76 @@ function normalizeSport(t: string): string {
   if (s.includes("orienteer")) return "Orienteering";
   if (s.includes("weight") || s.includes("strength") || s.includes("workout")) return "Strength";
   return t;
+}
+
+// ── Fresh viz helpers — always computed from recentForCurve in fast path ──────
+// These are O(n) aggregations that take <10ms and ensure timeSec + bySport are
+// always present regardless of cache vintage.
+type VizAct = { sportType: string; distance: number; movingTime: number; startDate: Date; averageHeartrate: number | null };
+
+function computeFreshHeatmap(acts: VizAct[], now: Date) {
+  type E = { km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> };
+  const wm = new Map<string, E>();
+  const cutoff = subDays(now, 3 * 365);
+  for (const a of acts) {
+    if (a.startDate < cutoff) continue;
+    const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
+    const e = wm.get(wk) ?? { km: 0, timeSec: 0, bySport: {} };
+    e.km += a.distance / 1000; e.timeSec += a.movingTime;
+    const sp = normalizeSport(a.sportType);
+    if (!e.bySport[sp]) e.bySport[sp] = { km: 0, timeSec: 0 };
+    e.bySport[sp].km += a.distance / 1000; e.bySport[sp].timeSec += a.movingTime;
+    wm.set(wk, e);
+  }
+  const result = [...wm.entries()].map(([week, v]) => ({
+    week, km: Math.round(v.km * 10) / 10, timeSec: Math.round(v.timeSec),
+    bySport: Object.fromEntries(Object.entries(v.bySport).map(([s, d]) => [s, { km: Math.round(d.km * 10) / 10, timeSec: Math.round(d.timeSec) }])),
+  }));
+  result.sort((a, b) => a.week.localeCompare(b.week));
+  return result;
+}
+
+function computeFreshMonthlyOverlay(acts: VizAct[], now: Date) {
+  type E = { km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> };
+  const mm = new Map<string, E>();
+  for (const a of acts) {
+    const key = `${a.startDate.getFullYear()}-${format(a.startDate, "MM")}`;
+    if (!mm.has(key)) mm.set(key, { km: 0, timeSec: 0, bySport: {} });
+    const e = mm.get(key)!;
+    e.km += a.distance / 1000; e.timeSec += a.movingTime;
+    const sp = normalizeSport(a.sportType);
+    if (!e.bySport[sp]) e.bySport[sp] = { km: 0, timeSec: 0 };
+    e.bySport[sp].km += a.distance / 1000; e.bySport[sp].timeSec += a.movingTime;
+  }
+  const yr = now.getFullYear();
+  const result: { month: string; year: number; km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }[] = [];
+  for (let y = yr - 2; y <= yr; y++) {
+    for (let m = 1; m <= 12; m++) {
+      const mo = String(m).padStart(2, "0");
+      const v = mm.get(`${y}-${mo}`) ?? { km: 0, timeSec: 0, bySport: {} };
+      result.push({ month: mo, year: y, km: Math.round(v.km), timeSec: Math.round(v.timeSec), bySport: Object.fromEntries(Object.entries(v.bySport).map(([s, d]) => [s, { km: Math.round(d.km), timeSec: Math.round(d.timeSec) }])) });
+    }
+  }
+  return result;
+}
+
+function computeFreshIntensityProfile(acts: VizAct[], lt1: number, lt2: number) {
+  type IB = { easy: number; tempo: number; hard: number };
+  const mm = new Map<string, { total: IB; bySport: Record<string, IB> }>();
+  for (const a of acts) {
+    if (!a.averageHeartrate || a.distance < 2000) continue;
+    const key = format(a.startDate, "yyyy-MM");
+    if (!mm.has(key)) mm.set(key, { total: { easy: 0, tempo: 0, hard: 0 }, bySport: {} });
+    const e = mm.get(key)!;
+    const min = a.movingTime / 60;
+    const sp = normalizeSport(a.sportType);
+    if (!e.bySport[sp]) e.bySport[sp] = { easy: 0, tempo: 0, hard: 0 };
+    const add = (b: IB) => { if (a.averageHeartrate! < lt1) b.easy += min; else if (a.averageHeartrate! < lt2) b.tempo += min; else b.hard += min; };
+    add(e.total); add(e.bySport[sp]);
+  }
+  return [...mm.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-24).map(([month, d]) => ({
+    month,
+    easyMin: Math.round(d.total.easy), tempoMin: Math.round(d.total.tempo), hardMin: Math.round(d.total.hard),
+    bySport: Object.fromEntries(Object.entries(d.bySport).map(([s, b]) => [s, { easyMin: Math.round(b.easy), tempoMin: Math.round(b.tempo), hardMin: Math.round(b.hard) }])),
+  }));
 }

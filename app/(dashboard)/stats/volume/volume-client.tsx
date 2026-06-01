@@ -100,16 +100,8 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
   const [monthFrom, setMonthFrom] = useState(1);
   const [monthTo, setMonthTo] = useState(12);
   const [selectedSports, setSelectedSports] = useState<string[]>([]);
-  const [periodA, setPeriodA] = useState({
-    start: `${currentYear - 1}-01`,
-    end: `${currentYear - 1}-12`,
-    label: String(currentYear - 1),
-  });
-  const [periodB, setPeriodB] = useState({
-    start: `${currentYear}-01`,
-    end: `${currentYear}-${String(currentMonth).padStart(2, "0")}`,
-    label: String(currentYear),
-  });
+  const [periodA, setPeriodA] = useState({ start: `${currentYear - 1}-01`, end: `${currentYear - 1}-12` });
+  const [periodB, setPeriodB] = useState({ start: `${currentYear}-01`, end: `${currentYear}-${String(currentMonth).padStart(2, "0")}` });
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const getValue = (r: { km: number; timeSec: number }) =>
@@ -210,41 +202,62 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
     return out;
   };
 
+  // Auto-label: "2025" for full year, "Jan–Jun 2025" for partial, "Jan 2024 – Jun 2025" for multi-year
+  const periodLabel = (start: string, end: string): string => {
+    const [sy, sm] = start.split("-").map(Number);
+    const [ey, em] = end.split("-").map(Number);
+    if (sy === ey) return sm === 1 && em === 12 ? String(sy) : `${MONTHS[sm - 1]}–${MONTHS[em - 1]} ${sy}`;
+    return `${MONTHS[sm - 1]} ${sy} – ${MONTHS[em - 1]} ${ey}`;
+  };
+  const labelA = periodLabel(periodA.start, periodA.end);
+  const labelB = periodLabel(periodB.start, periodB.end);
+
+  // YTD equalization: when comparing periods of different lengths, trim both to the shorter one.
+  // This prevents the common misleading case of comparing a full year vs a partial current year.
+  const currentYM = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+  const countMonths = (start: string, end: string) => periodMonths(parseYM(start), parseYM(end)).length;
+  const aLen = countMonths(periodA.start, periodA.end);
+  const bLen = countMonths(periodB.start, periodB.end);
+  const ytdEqualized = aLen !== bLen;
+  const compareLen = Math.min(aLen, bLen);
+  const trimmed = (start: string) => {
+    const ms = periodMonths(parseYM(start), { y: 9999, m: 12 }).slice(0, compareLen);
+    return ms;
+  };
+
   const periodData = useMemo(() => {
-    const aM = periodMonths(parseYM(periodA.start), parseYM(periodA.end));
-    const bM = periodMonths(parseYM(periodB.start), parseYM(periodB.end));
+    const aM = trimmed(periodA.start);
+    const bM = trimmed(periodB.start);
     const len = Math.max(aM.length, bM.length);
     return Array.from({ length: len }, (_, i) => {
       const am = aM[i], bm = bM[i];
       const entry: Record<string, number | string> = {
         month: am ? MONTHS[am.month - 1] : (bm ? MONTHS[bm.month - 1] : String(i + 1)),
       };
-      if (am) entry[periodA.label] = Math.round(monthVal(am.year, am.month) * 10) / 10;
-      if (bm) entry[periodB.label] = Math.round(monthVal(bm.year, bm.month) * 10) / 10;
+      if (am) entry[labelA] = Math.round(monthVal(am.year, am.month) * 10) / 10;
+      if (bm) entry[labelB] = Math.round(monthVal(bm.year, bm.month) * 10) / 10;
       return entry;
     });
-  }, [records, periodA, periodB, metric, selectedSports]);
+  }, [records, periodA, periodB, metric, selectedSports, compareLen]);
 
   const periodSummaries = useMemo(() => {
-    const total = (p: typeof periodA) => {
-      const ms = periodMonths(parseYM(p.start), parseYM(p.end));
-      return ms.reduce((s, { year, month }) => s + monthVal(year, month), 0);
-    };
+    const aM = trimmed(periodA.start);
+    const bM = trimmed(periodB.start);
     return [
-      { label: periodA.label, total: total(periodA), color: YEAR_COLORS[0] },
-      { label: periodB.label, total: total(periodB), color: YEAR_COLORS[1] },
+      { label: labelA, total: aM.reduce((s, { year, month }) => s + monthVal(year, month), 0), color: YEAR_COLORS[0] },
+      { label: labelB, total: bM.reduce((s, { year, month }) => s + monthVal(year, month), 0), color: YEAR_COLORS[1] },
     ];
-  }, [records, periodA, periodB, metric, selectedSports]);
+  }, [records, periodA, periodB, metric, selectedSports, compareLen]);
 
   // ── Shared controls ────────────────────────────────────────────────────────
   const toggleYear = (yr: number) =>
     setSelectedYears(prev => prev.includes(yr) ? prev.filter(y => y !== yr) : [...prev, yr].sort());
 
   const MODES: { id: ViewMode; label: string }[] = [
-    { id: "yearly",     label: "År vs år" },
-    { id: "cumulative", label: "Ackumulerat" },
-    { id: "sports",     label: "Sporter" },
-    { id: "period",     label: "Perioder" },
+    { id: "yearly",     label: "Year vs Year" },
+    { id: "cumulative", label: "Cumulative" },
+    { id: "sports",     label: "Sports" },
+    { id: "period",     label: "Periods" },
   ];
 
   const tickFmt = (v: number) => metric === "time" ? `${v}h` : `${v} km`;
@@ -255,7 +268,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
       <button onClick={() => setSelectedSports([])}
         className={cn("px-2.5 py-1 rounded-lg text-xs border transition-colors",
           selectedSports.length === 0 ? "bg-accent/10 text-accent border-accent/20" : "border-border text-muted hover:text-primary")}>
-        Alla
+        All
       </button>
       {sports.map(s => (
         <button key={s} onClick={() => setSelectedSports(prev =>
@@ -270,7 +283,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
 
   const monthRangeFilter = (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[11px] text-muted uppercase tracking-wide">Period</span>
+      <span className="text-[11px] text-muted uppercase tracking-wide">Month range</span>
       <select value={monthFrom} onChange={e => setMonthFrom(Number(e.target.value))}
         className="text-xs rounded-lg border border-border bg-surface px-2 py-1 text-primary">
         {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
@@ -289,7 +302,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
         <button key={m} onClick={() => setMetric(m)}
           className={cn("px-3 py-1 rounded-md transition-colors",
             metric === m ? "bg-accent/10 text-accent" : "text-muted hover:text-primary")}>
-          {m === "distance" ? "km" : "tid"}
+          {m === "distance" ? "km" : "time"}
         </button>
       ))}
     </div>
@@ -305,7 +318,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
           <Link href="/stats" className="text-sm text-muted hover:text-primary transition-colors">
             ← Stats
           </Link>
-          <h1 className="text-xl font-semibold text-primary">Volymutforskaren</h1>
+          <h1 className="text-xl font-semibold text-primary">Volume Explorer</h1>
           <div className="ml-auto">{metricToggle}</div>
         </div>
 
@@ -328,7 +341,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
             {/* Controls */}
             <div className="rounded-xl border border-border p-4 space-y-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] text-muted uppercase tracking-wide">År</span>
+                <span className="text-[11px] text-muted uppercase tracking-wide">Year</span>
                 {availableYears.map(yr => (
                   <button key={yr} onClick={() => toggleYear(yr)}
                     className={cn("px-3 py-1 rounded-lg text-sm font-medium border transition-colors",
@@ -352,7 +365,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                   <Tooltip content={<ChartTooltip metric={metric} />} />
                   <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
                   {avgLine != null && (
-                    <ReferenceLine y={avgLine} stroke="#94A3B8" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "snitt", position: "insideTopRight", fontSize: 10, fill: "#94A3B8" }} />
+                    <ReferenceLine y={avgLine} stroke="#94A3B8" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "avg", position: "insideTopRight", fontSize: 10, fill: "#94A3B8" }} />
                   )}
                   {selectedYears.map(yr => (
                     <Bar key={yr} dataKey={String(yr)} name={String(yr)}
@@ -371,8 +384,8 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                     <p className="text-xs font-semibold text-muted">{s.year}</p>
                   </div>
                   <p className="text-2xl font-semibold font-mono text-primary">{fmtShort(s.total, metric)}</p>
-                  <p className="text-[11px] text-muted">Snitt {fmtShort(s.avg, metric)}/mån</p>
-                  <p className="text-[11px] text-muted">Bästa {s.bestMonth}</p>
+                  <p className="text-[11px] text-muted">Avg {fmtShort(s.avg, metric)}/month</p>
+                  <p className="text-[11px] text-muted">Best: {s.bestMonth}</p>
                 </div>
               ))}
               {/* YoY comparison if exactly 2 years */}
@@ -387,7 +400,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                       {up ? "+" : ""}{delta}%
                     </p>
                     <p className="text-[11px] text-muted">
-                      {up ? "+" : ""}{fmtShort(Math.abs(b.total - a.total), metric)} {up ? "mer" : "mindre"}
+                      {up ? "+" : ""}{fmtShort(Math.abs(b.total - a.total), metric)} {up ? "more" : "less"}
                     </p>
                   </div>
                 );
@@ -401,7 +414,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
           <div className="space-y-4">
             <div className="rounded-xl border border-border p-4 space-y-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] text-muted uppercase tracking-wide">År</span>
+                <span className="text-[11px] text-muted uppercase tracking-wide">Year</span>
                 {availableYears.map(yr => (
                   <button key={yr} onClick={() => toggleYear(yr)}
                     className={cn("px-3 py-1 rounded-lg text-sm font-medium border transition-colors",
@@ -415,7 +428,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
             </div>
 
             <div className="rounded-xl border border-border p-4">
-              <p className="text-[11px] text-muted mb-3">Ackumulerat {metric === "distance" ? "km" : "timmar"} från 1 jan — nuläge markerat med streckad linje</p>
+              <p className="text-[11px] text-muted mb-3">Accumulated {metric === "distance" ? "km" : "hours"} from Jan 1 — dotted line marks today</p>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={cumulativeData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -424,7 +437,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                   <Tooltip content={<ChartTooltip metric={metric} />} />
                   <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
                   {currentMonth < 12 && (
-                    <ReferenceLine x={MONTHS[currentMonth - 1]} stroke="#94A3B8" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "idag", position: "insideTopRight", fontSize: 10, fill: "#94A3B8" }} />
+                    <ReferenceLine x={MONTHS[currentMonth - 1]} stroke="#94A3B8" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "today", position: "insideTopRight", fontSize: 10, fill: "#94A3B8" }} />
                   )}
                   {selectedYears.map(yr => (
                     <Line key={yr} dataKey={String(yr)} name={String(yr)}
@@ -438,7 +451,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
             {/* YTD comparison table */}
             <div className="rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-surface-2">
-                <p className="text-sm font-semibold text-primary">Läge per {MONTHS[currentMonth - 1]}</p>
+                <p className="text-sm font-semibold text-primary">YTD through {MONTHS[currentMonth - 1]}</p>
               </div>
               <div className="divide-y divide-border">
                 {selectedYears.map(yr => {
@@ -471,7 +484,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
           <div className="space-y-4">
             <div className="rounded-xl border border-border p-4 space-y-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] text-muted uppercase tracking-wide">År</span>
+                <span className="text-[11px] text-muted uppercase tracking-wide">Year</span>
                 {availableYears.map(yr => (
                   <button key={yr} onClick={() => setSingleYear(yr)}
                     className={cn("px-3 py-1 rounded-lg text-sm font-medium border transition-colors",
@@ -505,7 +518,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
             {sportsSummary.length > 0 && (
               <div className="rounded-xl border border-border overflow-hidden">
                 <div className="px-4 py-3 border-b border-border bg-surface-2">
-                  <p className="text-sm font-semibold text-primary">{singleYear} — sportfördelning ({MONTHS[monthFrom - 1]}–{MONTHS[monthTo - 1]})</p>
+                  <p className="text-sm font-semibold text-primary">{singleYear} — sport breakdown ({MONTHS[monthFrom - 1]}–{MONTHS[monthTo - 1]})</p>
                 </div>
                 <div className="divide-y divide-border">
                   {sportsSummary.map(s => (
@@ -530,31 +543,30 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
           <div className="space-y-4">
             <div className="rounded-xl border border-border p-4 space-y-4">
               {/* Period A */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: YEAR_COLORS[0] }} />
                   <span className="text-xs font-semibold text-primary">Period A</span>
+                  <span className="text-xs text-muted font-mono">{labelA}</span>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                   <input type="month" value={periodA.start}
-                    onChange={e => setPeriodA(p => ({ ...p, start: e.target.value, label: e.target.value.slice(0, 4) === p.end.slice(0, 4) ? p.label : e.target.value.slice(0, 4) }))}
+                    onChange={e => setPeriodA(p => ({ ...p, start: e.target.value }))}
                     className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary" />
                   <span className="text-xs text-muted">–</span>
                   <input type="month" value={periodA.end}
                     onChange={e => setPeriodA(p => ({ ...p, end: e.target.value }))}
                     className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary" />
-                  <input type="text" value={periodA.label} placeholder="Etikett"
-                    onChange={e => setPeriodA(p => ({ ...p, label: e.target.value }))}
-                    className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary w-24" />
                 </div>
               </div>
               {/* Period B */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: YEAR_COLORS[1] }} />
                   <span className="text-xs font-semibold text-primary">Period B</span>
+                  <span className="text-xs text-muted font-mono">{labelB}</span>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                   <input type="month" value={periodB.start}
                     onChange={e => setPeriodB(p => ({ ...p, start: e.target.value }))}
                     className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary" />
@@ -562,11 +574,13 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                   <input type="month" value={periodB.end}
                     onChange={e => setPeriodB(p => ({ ...p, end: e.target.value }))}
                     className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary" />
-                  <input type="text" value={periodB.label} placeholder="Etikett"
-                    onChange={e => setPeriodB(p => ({ ...p, label: e.target.value }))}
-                    className="text-xs rounded-lg border border-border bg-surface px-2 py-1.5 text-primary w-24" />
                 </div>
               </div>
+              {ytdEqualized && (
+                <p className="text-[11px] text-accent bg-accent/5 rounded-lg px-3 py-1.5">
+                  YTD equalized — comparing first {compareLen} month{compareLen !== 1 ? "s" : ""} of each period for a fair comparison
+                </p>
+              )}
               {sharedSportFilter}
             </div>
 
@@ -578,8 +592,8 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                   <YAxis tickFormatter={tickFmt} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={48} />
                   <Tooltip content={<ChartTooltip metric={metric} />} />
                   <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
-                  <Bar dataKey={periodA.label} fill={YEAR_COLORS[0]} radius={[3, 3, 0, 0]} maxBarSize={40} />
-                  <Bar dataKey={periodB.label} fill={YEAR_COLORS[1]} radius={[3, 3, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey={labelA} fill={YEAR_COLORS[0]} radius={[3, 3, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey={labelB} fill={YEAR_COLORS[1]} radius={[3, 3, 0, 0]} maxBarSize={40} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -593,6 +607,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                     <p className="text-xs font-semibold text-muted">{s.label}</p>
                   </div>
                   <p className="text-2xl font-semibold font-mono text-primary">{fmtShort(s.total, metric)}</p>
+                  {ytdEqualized && <p className="text-[10px] text-muted">first {compareLen} months</p>}
                 </div>
               ))}
               {(() => {
@@ -607,7 +622,7 @@ export function VolumeClient({ records, sports, availableYears }: Props) {
                       {up ? "+" : ""}{delta}%
                     </p>
                     <p className="text-[11px] text-muted">
-                      {up ? "+" : ""}{fmtShort(Math.abs(b.total - a.total), metric)} {up ? "mer" : "mindre"}
+                      {up ? "+" : ""}{fmtShort(Math.abs(b.total - a.total), metric)} {up ? "more" : "less"}
                     </p>
                   </div>
                 );
