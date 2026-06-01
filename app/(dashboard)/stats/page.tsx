@@ -165,9 +165,9 @@ export default async function StatsPage() {
       : paceZones;
     const acwr = fitnessCache.acwr ?? null;
     const extraViz = (fitnessCache.extraVizJson ?? null) as {
-      heatmapData: { week: string; km: number; timeSec?: number }[];
+      heatmapData: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
       monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
-      intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
+      intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number; bySport?: Record<string, { easyMin: number; tempoMin: number; hardMin: number }> }[];
       vdotTrend: { month: string; vdot: number }[];
       terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
       perfByDistYear: { distance: string; period: string; time: number }[];
@@ -589,19 +589,22 @@ export default async function StatsPage() {
 
   // ── NEW VISUALIZATIONS ────────────────────────────────────────────────
 
-  // Activity heatmap: weekly km + timeSec for last 3 years
-  const heatmapData: { week: string; km: number; timeSec: number }[] = [];
+  // Activity heatmap: weekly km + timeSec + bySport for last 3 years
+  const heatmapData: { week: string; km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }[] = [];
   {
-    const wm = new Map<string, { km: number; timeSec: number }>();
+    const wm = new Map<string, { km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }>();
     const threeYearsAgo = subDays(now, 3 * 365);
     for (const a of activities as A[]) {
       if (a.startDate < threeYearsAgo) continue;
       const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      const e = wm.get(wk) ?? { km: 0, timeSec: 0 };
+      const e = wm.get(wk) ?? { km: 0, timeSec: 0, bySport: {} };
       e.km += a.distance / 1000; e.timeSec += a.movingTime;
+      const sport = normalizeSport(a.sportType);
+      if (!e.bySport[sport]) e.bySport[sport] = { km: 0, timeSec: 0 };
+      e.bySport[sport].km += a.distance / 1000; e.bySport[sport].timeSec += a.movingTime;
       wm.set(wk, e);
     }
-    for (const [week, v] of wm) heatmapData.push({ week, km: Math.round(v.km * 10) / 10, timeSec: Math.round(v.timeSec) });
+    for (const [week, v] of wm) heatmapData.push({ week, km: Math.round(v.km * 10) / 10, timeSec: Math.round(v.timeSec), bySport: Object.fromEntries(Object.entries(v.bySport).map(([s, d]) => [s, { km: Math.round(d.km * 10) / 10, timeSec: Math.round(d.timeSec) }])) });
     heatmapData.sort((a, b) => a.week.localeCompare(b.week));
   }
 
@@ -629,23 +632,33 @@ export default async function StatsPage() {
     }
   }
 
-  // Monthly intensity profile: % easy/tempo/hard by month (§2B)
-  const intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[] = [];
+  // Monthly intensity profile with bySport breakdown
+  const intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number; bySport: Record<string, { easyMin: number; tempoMin: number; hardMin: number }> }[] = [];
   {
     const lt1 = computedHrZones.z3[0], lt2 = computedHrZones.z4[0];
-    const mm = new Map<string, { easy: number; tempo: number; hard: number }>();
+    type IB = { easy: number; tempo: number; hard: number };
+    const mm = new Map<string, { total: IB; bySport: Record<string, IB> }>();
     for (const a of activities as A[]) {
       if (!a.averageHeartrate || a.distance < 2000) continue;
       const key = format(a.startDate, "yyyy-MM");
-      if (!mm.has(key)) mm.set(key, { easy: 0, tempo: 0, hard: 0 });
+      if (!mm.has(key)) mm.set(key, { total: { easy: 0, tempo: 0, hard: 0 }, bySport: {} });
       const e = mm.get(key)!;
       const min = a.movingTime / 60;
-      if (a.averageHeartrate < lt1) e.easy += min;
-      else if (a.averageHeartrate < lt2) e.tempo += min;
-      else e.hard += min;
+      const sport = normalizeSport(a.sportType);
+      if (!e.bySport[sport]) e.bySport[sport] = { easy: 0, tempo: 0, hard: 0 };
+      const bucket = (b: IB) => {
+        if (a.averageHeartrate! < lt1) b.easy += min;
+        else if (a.averageHeartrate! < lt2) b.tempo += min;
+        else b.hard += min;
+      };
+      bucket(e.total); bucket(e.bySport[sport]);
     }
     for (const [month, d] of [...mm.entries()].sort(([a],[b])=>a.localeCompare(b)).slice(-24)) {
-      intensityProfile.push({ month, easyMin: Math.round(d.easy), tempoMin: Math.round(d.tempo), hardMin: Math.round(d.hard) });
+      intensityProfile.push({
+        month,
+        easyMin: Math.round(d.total.easy), tempoMin: Math.round(d.total.tempo), hardMin: Math.round(d.total.hard),
+        bySport: Object.fromEntries(Object.entries(d.bySport).map(([s, b]) => [s, { easyMin: Math.round(b.easy), tempoMin: Math.round(b.tempo), hardMin: Math.round(b.hard) }])),
+      });
     }
   }
 
@@ -803,9 +816,9 @@ function renderStats(
   modelPredictions?: Record<string, { label: string; meters: number; peak: number }[]>,
   modelVdots?: Record<string, number>,
   extraViz?: {
-    heatmapData: { week: string; km: number; timeSec?: number }[];
+    heatmapData: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
-    intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
+    intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number; bySport?: Record<string, { easyMin: number; tempoMin: number; hardMin: number }> }[];
     vdotTrend: { month: string; vdot: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];

@@ -258,18 +258,21 @@ export async function updateVO2maxAndPaces(userId: string) {
   const evLt1 = ezHz?.z3?.[0] ?? Math.round(maxHR * 0.78);
   const evLt2 = ezHz?.z4?.[0] ?? Math.round(maxHR * 0.88);
 
-  const heatmapData: { week: string; km: number; timeSec: number }[] = [];
+  const heatmapData: { week: string; km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }[] = [];
   {
-    const wm = new Map<string, { km: number; timeSec: number }>();
+    const wm = new Map<string, { km: number; timeSec: number; bySport: Record<string, { km: number; timeSec: number }> }>();
     const threeYearsAgo = subDays(now, 3 * 365);
     for (const a of activities as Act[]) {
       if (a.startDate < threeYearsAgo) continue;
       const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      const e = wm.get(wk) ?? { km: 0, timeSec: 0 };
+      const e = wm.get(wk) ?? { km: 0, timeSec: 0, bySport: {} };
       e.km += a.distance / 1000; e.timeSec += a.movingTime;
+      const sport = normalizeActivitySport(a.sportType);
+      if (!e.bySport[sport]) e.bySport[sport] = { km: 0, timeSec: 0 };
+      e.bySport[sport].km += a.distance / 1000; e.bySport[sport].timeSec += a.movingTime;
       wm.set(wk, e);
     }
-    for (const [week, v] of wm) heatmapData.push({ week, km: Math.round(v.km * 10) / 10, timeSec: Math.round(v.timeSec) });
+    for (const [week, v] of wm) heatmapData.push({ week, km: Math.round(v.km * 10) / 10, timeSec: Math.round(v.timeSec), bySport: Object.fromEntries(Object.entries(v.bySport).map(([s, d]) => [s, { km: Math.round(d.km * 10) / 10, timeSec: Math.round(d.timeSec) }])) });
     heatmapData.sort((a, b) => a.week.localeCompare(b.week));
   }
 
@@ -296,21 +299,31 @@ export async function updateVO2maxAndPaces(userId: string) {
     }
   }
 
-  const intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[] = [];
+  type IntensityBucket = { easy: number; tempo: number; hard: number };
+  const intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number; bySport: Record<string, { easyMin: number; tempoMin: number; hardMin: number }> }[] = [];
   {
-    const mm = new Map<string, { easy: number; tempo: number; hard: number }>();
+    const mm = new Map<string, { total: IntensityBucket; bySport: Record<string, IntensityBucket> }>();
     for (const a of activities as Act[]) {
       if (!a.averageHeartrate || a.distance < 2000) continue;
       const key = format(a.startDate, "yyyy-MM");
-      if (!mm.has(key)) mm.set(key, { easy: 0, tempo: 0, hard: 0 });
+      if (!mm.has(key)) mm.set(key, { total: { easy: 0, tempo: 0, hard: 0 }, bySport: {} });
       const e = mm.get(key)!;
       const min = a.movingTime / 60;
-      if (a.averageHeartrate < evLt1) e.easy += min;
-      else if (a.averageHeartrate < evLt2) e.tempo += min;
-      else e.hard += min;
+      const sport = normalizeActivitySport(a.sportType);
+      if (!e.bySport[sport]) e.bySport[sport] = { easy: 0, tempo: 0, hard: 0 };
+      const bucket = (b: IntensityBucket) => {
+        if (a.averageHeartrate! < evLt1) b.easy += min;
+        else if (a.averageHeartrate! < evLt2) b.tempo += min;
+        else b.hard += min;
+      };
+      bucket(e.total); bucket(e.bySport[sport]);
     }
     for (const [month, d] of [...mm.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-24)) {
-      intensityProfile.push({ month, easyMin: Math.round(d.easy), tempoMin: Math.round(d.tempo), hardMin: Math.round(d.hard) });
+      intensityProfile.push({
+        month,
+        easyMin: Math.round(d.total.easy), tempoMin: Math.round(d.total.tempo), hardMin: Math.round(d.total.hard),
+        bySport: Object.fromEntries(Object.entries(d.bySport).map(([s, b]) => [s, { easyMin: Math.round(b.easy), tempoMin: Math.round(b.tempo), hardMin: Math.round(b.hard) }])),
+      });
     }
   }
 

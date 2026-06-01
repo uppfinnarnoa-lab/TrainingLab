@@ -62,9 +62,9 @@ interface Props {
   easyPaceTrend: EasyPacePoint[];
   statZonesLaps: StatisticalZoneResult | null;
   extraViz: {
-    heatmapData: { week: string; km: number; timeSec?: number }[];
+    heatmapData: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
-    intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number }[];
+    intensityProfile: { month: string; easyMin: number; tempoMin: number; hardMin: number; bySport?: Record<string, { easyMin: number; tempoMin: number; hardMin: number }> }[];
     vdotTrend: { month: string; vdot: number }[];
     terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
     perfByDistYear: { distance: string; period: string; time: number }[];
@@ -207,11 +207,11 @@ export function StatsClient(props: Props) {
           {/* 3-year monthly overlay — respects sport filter + volume mode */}
           <MonthlyOverlayCard data={extraViz?.monthlyOverlay ?? []} mode={volumeMode} sportFilter={sportFilter} />
 
-          {/* Monthly intensity profile */}
-          <IntensityProfileCard data={extraViz?.intensityProfile ?? []} />
+          {/* Monthly intensity profile — respects sport filter */}
+          <IntensityProfileCard data={extraViz?.intensityProfile ?? []} sportFilter={sportFilter} />
 
-          {/* Activity heatmap — respects volume mode */}
-          <ActivityHeatmapCard data={extraViz?.heatmapData ?? []} mode={volumeMode} />
+          {/* Activity heatmap — respects sport filter + volume mode */}
+          <ActivityHeatmapCard data={extraViz?.heatmapData ?? []} mode={volumeMode} sportFilter={sportFilter} />
         </div>
       )}
 
@@ -986,15 +986,17 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult | null }) {
 
 // ── NEW VISUALIZATION COMPONENTS ──────────────────────────────────────────────
 
-function ActivityHeatmapCard({ data, mode = "distance" }: { data: { week: string; km: number; timeSec?: number }[]; mode?: "distance" | "time" }) {
+function ActivityHeatmapCard({ data, mode = "distance", sportFilter = null }: { data: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[]; mode?: "distance" | "time"; sportFilter?: string | null }) {
   if (data.length === 0) return (
     <div className="rounded-xl border border-border p-4 space-y-3">
       <p className="text-sm font-semibold text-primary">Activity heatmap — last 3 years</p>
       <p className="text-xs text-muted py-4 text-center">No data available yet.</p>
     </div>
   );
-  const getValue = (d: { km: number; timeSec?: number }) =>
-    mode === "time" ? (d.timeSec ?? 0) / 3600 : d.km;
+  const getValue = (d: { km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }) => {
+    const src = sportFilter && d.bySport ? (d.bySport[sportFilter] ?? { km: 0, timeSec: 0 }) : d;
+    return mode === "time" ? (src.timeSec ?? 0) / 3600 : (src.km ?? 0);
+  };
   const maxVal = Math.max(...data.map(d => getValue(d)), 1);
   const years = [...new Set(data.map(d => d.week.slice(0, 4)))].sort().slice(-3);
   const color = (v: number) => {
@@ -1063,7 +1065,8 @@ function MonthlyOverlayCard({
   const COLORS = ["#818CF8","#6EE7B7","#F472B6"];
 
   const getValue = (d: typeof data[number]) => {
-    const src = sportFilter ? (d.bySport?.[sportFilter] ?? { km: 0, timeSec: 0 }) : d;
+    // If sportFilter is set but bySport is missing (old cache), fall back to total
+    const src = sportFilter && d.bySport ? (d.bySport[sportFilter] ?? { km: 0, timeSec: 0 }) : d;
     return mode === "time" ? ((src.timeSec ?? 0) / 3600) : (src.km ?? 0);
   };
   const fmtTip = (d: typeof data[number], yr: number, mo: string) => {
@@ -1112,7 +1115,7 @@ function MonthlyOverlayCard({
   );
 }
 
-function IntensityProfileCard({ data }: { data: { month: string; easyMin: number; tempoMin: number; hardMin: number }[] }) {
+function IntensityProfileCard({ data, sportFilter = null }: { data: { month: string; easyMin: number; tempoMin: number; hardMin: number; bySport?: Record<string, { easyMin: number; tempoMin: number; hardMin: number }> }[]; sportFilter?: string | null }) {
   if (data.length === 0) return (
     <div className="rounded-xl border border-border p-4 space-y-3">
       <p className="text-sm font-semibold text-primary">Monthly intensity distribution (last 12 months)</p>
@@ -1120,28 +1123,31 @@ function IntensityProfileCard({ data }: { data: { month: string; easyMin: number
     </div>
   );
   const last12 = data.slice(-12);
-  const CHART_H = 80; // px
-  const maxTotal = Math.max(...last12.map(d => d.easyMin + d.tempoMin + d.hardMin), 1);
+  const CHART_H = 80;
+  // If sportFilter set and bySport exists, use sport-specific buckets; else use total
+  const resolve = (d: typeof last12[number]) =>
+    sportFilter && d.bySport ? (d.bySport[sportFilter] ?? { easyMin: 0, tempoMin: 0, hardMin: 0 }) : d;
+  const maxTotal = Math.max(...last12.map(d => { const r = resolve(d); return r.easyMin + r.tempoMin + r.hardMin; }), 1);
 
   return (
     <div className="rounded-xl border border-border p-4 space-y-3">
       <p className="text-sm font-semibold text-primary">Monthly intensity distribution (last 12 months)</p>
       <div className="flex gap-2">
-        {/* Bars */}
         <div className="flex-1 flex items-end gap-1" style={{ height: CHART_H }}>
           {last12.map(d => {
-            const totalMin = d.easyMin + d.tempoMin + d.hardMin;
+            const r = resolve(d);
+            const totalMin = r.easyMin + r.tempoMin + r.hardMin;
             const scaledH = (totalMin / maxTotal) * CHART_H;
-            const easyFrac  = totalMin > 0 ? d.easyMin  / totalMin : 0;
-            const tempoFrac = totalMin > 0 ? d.tempoMin / totalMin : 0;
-            const hardFrac  = totalMin > 0 ? d.hardMin  / totalMin : 0;
+            const easyFrac  = totalMin > 0 ? r.easyMin  / totalMin : 0;
+            const tempoFrac = totalMin > 0 ? r.tempoMin / totalMin : 0;
+            const hardFrac  = totalMin > 0 ? r.hardMin  / totalMin : 0;
             const easyPx  = Math.round(scaledH * easyFrac);
             const tempoPx = Math.round(scaledH * tempoFrac);
             const hardPx  = Math.round(scaledH * hardFrac);
-            const monthLabel = d.month.slice(5, 7); // "MM" part
+            const monthLabel = d.month.slice(5, 7);
             return (
               <div key={d.month} className="flex-1 flex flex-col items-stretch justify-end"
-                title={`${d.month}: Easy ${Math.round(d.easyMin/60)}h · Tempo ${Math.round(d.tempoMin/60)}h · Hard ${Math.round(d.hardMin/60)}h`}>
+                title={`${d.month}: Easy ${Math.round(r.easyMin/60)}h · Tempo ${Math.round(r.tempoMin/60)}h · Hard ${Math.round(r.hardMin/60)}h`}>
                 <div className="flex flex-col justify-end rounded-sm overflow-hidden">
                   {hardPx  > 0 && <div style={{ height: hardPx,  backgroundColor: "#EF4444" }} />}
                   {tempoPx > 0 && <div style={{ height: tempoPx, backgroundColor: "#FBBF24" }} />}
