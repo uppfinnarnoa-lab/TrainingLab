@@ -29,16 +29,16 @@ export function ActivityMap({ polyline, color }: Props) {
   useEffect(() => {
     if (!ref.current || typeof window === "undefined") return;
 
-    // Capture ref so the cleanup closure always has access to the same element
     const container = ref.current;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let map: any = null;
+    // aborted is set true by cleanup before the async import resolves —
+    // prevents a second map from being created in the same container (React strict-mode double-invoke)
+    let aborted = false;
 
     import("leaflet").then(L => {
-      // Component may have unmounted while the dynamic import was resolving
-      if (!container.isConnected) return;
+      if (aborted || !container.isConnected) return;
 
-      // Fix default icon paths (Leaflet webpack quirk)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (L.Icon.Default.prototype as any)._getIconUrl;
       L.Icon.Default.mergeOptions({
@@ -61,10 +61,11 @@ export function ActivityMap({ polyline, color }: Props) {
       L.circleMarker(coords[coords.length - 1], { radius: 6, color: "#EF4444", fillColor: "#EF4444", fillOpacity: 1, weight: 2 }).addTo(map);
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
       // Allow CSS to settle before Leaflet measures the container
-      setTimeout(() => map?.invalidateSize(), 200);
+      setTimeout(() => { if (!aborted) map?.invalidateSize(); }, 200);
     });
 
     return () => {
+      aborted = true;
       map?.remove();
       map = null;
     };
