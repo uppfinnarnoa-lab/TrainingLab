@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { RefreshCw, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { OverviewCard } from "@/components/stats/overview-card";
 import { FitnessMetrics } from "@/components/stats/fitness-metrics";
 import { WeeklyVolumeChart } from "@/components/charts/WeeklyVolumeChart";
@@ -1056,7 +1057,7 @@ function MonthlyOverlayCard({
 }) {
   if (data.length === 0) return (
     <div className="rounded-xl border border-border p-4 space-y-3">
-      <p className="text-sm font-semibold text-primary">3-year monthly volume overlay</p>
+      <Link href="/stats/volume" className="text-sm font-semibold text-primary hover:text-accent transition-colors">3-year monthly volume overlay →</Link>
       <p className="text-xs text-muted py-4 text-center">No data available yet.</p>
     </div>
   );
@@ -1082,7 +1083,7 @@ function MonthlyOverlayCard({
   return (
     <div className="rounded-xl border border-border p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-primary">3-year monthly volume overlay</p>
+        <Link href="/stats/volume" className="text-sm font-semibold text-primary hover:text-accent transition-colors">3-year monthly volume overlay →</Link>
         <div className="flex gap-3">
           {years.map((yr, i) => (
             <span key={yr} className="flex items-center gap-1 text-xs text-muted">

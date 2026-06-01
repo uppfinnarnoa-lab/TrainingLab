@@ -1835,6 +1835,24 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 - `docs/planning/zone-estimator-overhaul.md` archived to `docs/planning/archive/`.
 - `docs/planning/IDEAS.md` archived (superseded by NOTES.md + IMPLEMENTATION_PLAN.md section 12).
 
+**Session 2026-06-01b — Volume Explorer (`/stats/volume`):**
+
+**Feature:** Dedicated page for exploring and comparing training volume. Accessible by clicking the "3-year monthly volume overlay" card title on the Stats/Volume tab.
+
+**Route:** `app/(dashboard)/stats/volume/page.tsx` (server) + `app/(dashboard)/stats/volume/volume-client.tsx` (client).
+
+**Data:** Server component queries all activities (sportType, distance, movingTime, startDate — no large fields) and aggregates to `VolumeRecord[]` (`{ year, month, sport, km, timeSec }`). Covers full history (not capped at 3 years like the stats overview card).
+
+**Four view modes (tabs):**
+1. **Year comparison** — grouped monthly bar chart, multi-year selection, month-range filter (e.g., OL season Apr–Oct). Shows YoY delta labels ("+12%") above bars. Summary cards: total, avg/month, best month per year. Average-volume reference line.
+2. **Cumulative YTD** — line chart, accumulated km/hours from Jan 1 through each month. Null for future months in the current year. Best for "am I ahead of last year?" comparison. Automatic dotted reference line for same date last year.
+3. **Sport breakdown** — stacked bar chart for a single year, sport color-coded. Pie-like summary table showing % per sport for the selected period.
+4. **Period comparison** — define two custom date ranges (YYYY-MM to YYYY-MM) and compare them side by side. Periods can span different months of different years (e.g., "OL season 2024" Apr–Oct vs "OL season 2025" Apr–Oct).
+
+**Cross-cutting controls:** metric toggle (km / hours), sport filter (multi-select chips), month range (From/To selects for modes 1, 3, 4). Navigation: "← Stats" back link.
+
+**Navigation hook:** `MonthlyOverlayCard` title in `stats-client.tsx` becomes a `Link` to `/stats/volume`.
+
 **Session 2026-06-01 (LT trend stabilization + temperature stats + map fix + volume toggles):**
 
 **LT/AT pace trend — ALL HL-auto algorithm:**
