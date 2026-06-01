@@ -172,6 +172,7 @@ export default async function StatsPage() {
       terrainFactor: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null;
       perfByDistYear: { distance: string; period: string; time: number }[];
       ltPaceTrend: { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[];
+      easyPaceTrend?: EasyPacePoint[];
     } | null;
     const fastStatZonesLaps = (fitnessCache.statZonesLapsJson ?? null) as import("@/lib/fitness/zones").StatisticalZoneResult | null;
 
@@ -309,7 +310,11 @@ export default async function StatsPage() {
       tempSensitivity,
     };
 
-    const fpEasyPaceTrend = computeEasyPaceTrend(recentForCurve as EasyPaceAct[], hrZones.z3[0]);
+    // Read from cache (computed over full 5-year window during sync) — falls back to
+    // recentForCurve if the cache was written before easyPaceTrend was added
+    const fpEasyPaceTrend = extraViz?.easyPaceTrend?.length
+      ? extraViz.easyPaceTrend
+      : computeEasyPaceTrend(recentForCurve as EasyPaceAct[], hrZones.z3[0]);
 
     return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
       fastZoneSeconds, hrZones, vo2max, effectivePaceZones, predictions, fastPolarisation, acwr,
@@ -746,7 +751,7 @@ export default async function StatsPage() {
   prisma.fitnessCache.update({
     where: { userId },
     data: {
-      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear, ltPaceTrend: existingLtPaceTrend } as Prisma.InputJsonValue,
+      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear, ltPaceTrend: existingLtPaceTrend, easyPaceTrend } as Prisma.InputJsonValue,
       statZonesJson:    (statZones     ?? null) as unknown as Prisma.InputJsonValue,
       statZonesLapsJson:(statZonesLaps ?? null) as unknown as Prisma.InputJsonValue,
     },

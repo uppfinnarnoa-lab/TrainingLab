@@ -414,7 +414,41 @@ export async function updateVO2maxAndPaces(userId: string) {
     ltPaceTrend.push(...smoothed);
   }
 
-  const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear: [], ltPaceTrend };
+  // ── Easy pace trend (all 5 years — cached so fast path gets full history) ──
+  type EasyPacePoint = { month: string; medianGap: number; avgHR: number; count: number };
+  const easyPaceTrend: EasyPacePoint[] = [];
+  {
+    const lt1HR = hz?.z3?.[0] ?? Math.round(maxHR * 0.83);
+    const byMonth = new Map<string, Array<{ gap: number; hr: number }>>();
+    for (const a of activities) {
+      if (!a.averageHeartrate || a.isRace) continue;
+      if (!/run|trail/i.test(a.sportType)) continue;
+      if (a.averageHeartrate >= lt1HR) continue;
+      if (a.distance < 6000 || a.movingTime < 1200) continue;
+      const rawPace = a.movingTime / (a.distance / 1000);
+      const grade = Math.min(0.15, Math.max(0, a.totalElevationGain / a.distance));
+      const gap = rawPace / (1 + grade * 0.033);
+      const month = format(a.startDate, "yyyy-MM");
+      if (!byMonth.has(month)) byMonth.set(month, []);
+      byMonth.get(month)!.push({ gap, hr: a.averageHeartrate });
+    }
+    for (const [month, pts] of [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      if (pts.length < 3) continue;
+      const sorted = [...pts].sort((a, b) => a.gap - b.gap);
+      const mid = Math.floor(sorted.length / 2);
+      const medianGap = sorted.length % 2 === 0
+        ? (sorted[mid - 1].gap + sorted[mid].gap) / 2
+        : sorted[mid].gap;
+      easyPaceTrend.push({
+        month,
+        medianGap: Math.round(medianGap),
+        avgHR: Math.round(pts.reduce((s, p) => s + p.hr, 0) / pts.length),
+        count: pts.length,
+      });
+    }
+  }
+
+  const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear: [], ltPaceTrend, easyPaceTrend };
 
   // ── Persist to cache ───────────────────────────────────────────────────
   const sharedFields = {
