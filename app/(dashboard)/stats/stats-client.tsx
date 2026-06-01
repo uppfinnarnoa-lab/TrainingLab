@@ -91,8 +91,15 @@ export function StatsClient(props: Props) {
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
 
-  // Filter weeklyVolumes by selected sport
-  const allSports = [...new Set(Object.values(props.weeklyVolumes).flatMap(w => Object.keys(w)))].sort();
+  // Sports from current year's monthly overlay (always fresh) — broader than weeklyVolumes (12 weeks only)
+  const currentYr = new Date().getFullYear();
+  const allSports = (() => {
+    const fromOverlay = extraViz?.monthlyOverlay
+      ?.filter(m => m.year === currentYr && m.bySport)
+      .flatMap(m => Object.keys(m.bySport!));
+    const fromWeekly = Object.values(props.weeklyVolumes).flatMap(w => Object.keys(w));
+    return [...new Set([...(fromOverlay ?? []), ...fromWeekly])].sort();
+  })();
   const filteredVolumes = sportFilter
     ? Object.fromEntries(Object.entries(props.weeklyVolumes).map(([wk, sports]) => [
         wk,
@@ -172,11 +179,10 @@ export function StatsClient(props: Props) {
           </div>
 
           {/* Quick chart preview */}
-          <SectionCard title="Weekly volume" action={
+          <SectionCard title="Weekly volume" href="/stats/volume?mode=weekly" action={
             <div className="flex gap-1 items-center">
               <SportFilter sports={allSports} selected={sportFilter} onChange={setSportFilter} />
               <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
-              <Link href="/stats/volume?mode=weekly" className="text-xs text-muted hover:text-accent transition-colors ml-1">Explore →</Link>
             </div>
           }>
             <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
@@ -197,9 +203,7 @@ export function StatsClient(props: Props) {
             <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
           </div>
 
-          <SectionCard title="Weekly volume" action={
-            <Link href="/stats/volume?mode=weekly" className="text-xs text-muted hover:text-accent transition-colors">Explore →</Link>
-          }>
+          <SectionCard title="Weekly volume" href="/stats/volume?mode=weekly">
             <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
           </SectionCard>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -547,20 +551,24 @@ function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | nul
   );
 }
 
-function SectionCard({ title, children, action, tips }: {
+function SectionCard({ title, children, action, tips, href }: {
   title: string;
   children: React.ReactNode;
   action?: React.ReactNode;
   tips?: typeof tooltips[string][];
+  href?: string;
 }) {
   return (
-    <div className="rounded-xl bg-surface border border-border p-5 space-y-4">
-      <div className="flex items-center gap-2">
+    <div className={cn("rounded-xl bg-surface border border-border p-5 space-y-4 transition-colors relative",
+      href && "hover:border-accent/40")}>
+      {/* Full-card link overlay — sits at z-0 so buttons/charts above it stay interactive */}
+      {href && <Link href={href} className="absolute inset-0 rounded-xl z-0" aria-hidden tabIndex={-1} />}
+      <div className="relative z-10 flex items-center gap-2">
         <h2 className="text-sm font-semibold text-primary flex-1">{title}</h2>
         {tips?.map((tip, i) => <MetricTooltip key={i} tip={tip} />)}
         {action}
       </div>
-      {children}
+      <div className="relative z-10">{children}</div>
     </div>
   );
 }
