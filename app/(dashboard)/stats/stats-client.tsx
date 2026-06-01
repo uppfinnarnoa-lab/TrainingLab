@@ -17,7 +17,7 @@ import type { DailyLoad } from "@/lib/fitness/training-load";
 import { tsbLabel } from "@/lib/fitness/training-load";
 import type { HRZones, PaceZones, StatisticalZoneResult } from "@/lib/fitness/zones";
 import type { VO2maxEstimate } from "@/lib/fitness/vo2max";
-import type { WeatherStats, EasyPacePoint } from "@/app/(dashboard)/stats/page";
+import type { WeatherStats, WeatherBand, EasyPacePoint } from "@/app/(dashboard)/stats/page";
 import { cn } from "@/lib/utils";
 
 interface SumData { km: number; timeSec: number; count: number }
@@ -388,9 +388,6 @@ export function StatsClient(props: Props) {
             }
           </SectionCard>
 
-          {/* VDOT trend over time */}
-          <VdotTrendCard data={extraViz?.vdotTrend ?? []} />
-
           {/* LT/AT tempo development over time */}
           <div className="rounded-xl border border-border p-4 space-y-3">
             <p className="text-sm font-semibold text-primary">LT/AT tempo-utveckling</p>
@@ -410,13 +407,17 @@ export function StatsClient(props: Props) {
 }
 
 function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | null }) {
-  if (!weatherStats || !weatherStats.byTemp || !weatherStats.byWind ||
-      (!weatherStats.byTemp.some(b => b.count > 0) && !weatherStats.byWind.some(b => b.count > 0))) return (
+  const hasAnyData = weatherStats && (
+    weatherStats.byTemp.some(b => b.count > 0) ||
+    weatherStats.byWind.some(b => b.count > 0)
+  );
+  if (!hasAnyData) return (
     <div className="rounded-xl bg-surface border border-border p-5 space-y-5">
       <p className="text-sm font-semibold text-primary">Weather profile</p>
       <p className="text-xs text-muted py-4 text-center">No weather data — run Backfill weather data in Settings.</p>
     </div>
   );
+
   function fmtPace(sec: number | null): string {
     if (!sec) return "—";
     const m = Math.floor(sec / 60);
@@ -424,84 +425,98 @@ function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | nul
     return `${m}:${String(s).padStart(2, "0")}/km`;
   }
 
-  const tempBands  = weatherStats.byTemp.filter(b => b.count > 0);
-  const windBands  = weatherStats.byWind.filter(b => b.count > 0);
+  const tempBands  = weatherStats!.byTemp.filter(b => b.count > 0);
+  const windBands  = weatherStats!.byWind.filter(b => b.count > 0);
+  const precipBands = (weatherStats!.byPrecip ?? []).filter(b => b.count > 0);
+  const hrNormBands = (weatherStats!.hrNormByTemp ?? []).filter(b => b.count > 0);
 
-  // Fastest (min sec/km) and slowest (max sec/km) pace per group — used for both
-  // bar width (longer = faster) and color coding
-  const tempsWithPace = tempBands.filter(b => b.avgPaceSecPerKm != null);
-  const fastestTempPace = tempsWithPace.length > 0
-    ? Math.min(...tempsWithPace.map(b => b.avgPaceSecPerKm!)) : null;
-  const slowestTempPace = tempsWithPace.length > 0
-    ? Math.max(...tempsWithPace.map(b => b.avgPaceSecPerKm!)) : null;
-  const windsWithPace = windBands.filter(b => b.avgPaceSecPerKm != null);
-  const fastestWindPace = windsWithPace.length > 0
-    ? Math.min(...windsWithPace.map(b => b.avgPaceSecPerKm!)) : null;
-  const slowestWindPace = windsWithPace.length > 0
-    ? Math.max(...windsWithPace.map(b => b.avgPaceSecPerKm!)) : null;
+  function fastest(bands: WeatherBand[]): number | null {
+    const p = bands.filter(b => b.avgPaceSecPerKm != null).map(b => b.avgPaceSecPerKm!);
+    return p.length > 0 ? Math.min(...p) : null;
+  }
+  function slowest(bands: WeatherBand[]): number | null {
+    const p = bands.filter(b => b.avgPaceSecPerKm != null).map(b => b.avgPaceSecPerKm!);
+    return p.length > 0 ? Math.max(...p) : null;
+  }
 
-  // Bar width encodes relative speed: fastest band = 100%, slowest = 15% minimum.
-  // Scale over the pace range so small differences remain visible.
-  function paceBarWidth(pace: number | null, fastest: number | null, slowest: number | null): number {
-    if (!pace || !fastest || !slowest) return 20;
-    const range = slowest - fastest;
+  function paceBarWidth(pace: number | null, fast: number | null, slow: number | null): number {
+    if (!pace || !fast || !slow) return 20;
+    const range = slow - fast;
     if (range < 1) return 75;
-    return Math.round((slowest - pace) / range * 85 + 15);
+    return Math.round((slow - pace) / range * 85 + 15);
   }
 
-  // Hardcoded colors (not CSS vars) so they work in inline styles regardless of theme
-  function paceBarColor(sec: number | null, fastest: number | null): string {
-    if (!sec || !fastest) return "#94A3B8"; // muted grey
-    const diff = sec - fastest;
-    if (diff < 5)  return "#6EE7B7"; // green — within 5 s/km of best
-    if (diff < 15) return "#FBBF24"; // amber — moderate slowdown
-    return "#F87171";                // red — 15+ s/km slower
-  }
-
-  function paceTextColor(sec: number | null, fastest: number | null): string {
-    if (!sec || !fastest) return "#94A3B8";
-    const diff = sec - fastest;
+  function paceBarColor(sec: number | null, fast: number | null): string {
+    if (!sec || !fast) return "#94A3B8";
+    const diff = sec - fast;
     if (diff < 5)  return "#6EE7B7";
     if (diff < 15) return "#FBBF24";
     return "#F87171";
   }
+  function paceTextColor(sec: number | null, fast: number | null): string {
+    return paceBarColor(sec, fast);
+  }
+
+  function BandRow({ band, fast, slow, labelW }: { band: WeatherBand; fast: number | null; slow: number | null; labelW: string }) {
+    const barColor = paceBarColor(band.avgPaceSecPerKm, fast);
+    const textColor = paceTextColor(band.avgPaceSecPerKm, fast);
+    return (
+      <div className="flex items-center gap-3">
+        <span className={`text-xs text-muted shrink-0 ${labelW}`}>{band.label}</span>
+        <div className="flex-1 relative h-5 flex items-center">
+          <div className="h-2 rounded-full bg-surface-2 w-full" />
+          <div className="absolute h-2 rounded-full transition-all"
+            style={{ width: `${paceBarWidth(band.avgPaceSecPerKm, fast, slow)}%`, backgroundColor: barColor, opacity: 0.7 }} />
+        </div>
+        <span className="text-xs font-mono font-semibold w-16 text-right shrink-0" style={{ color: textColor }}>
+          {fmtPace(band.avgPaceSecPerKm)}
+        </span>
+        <span className="text-[10px] text-muted w-10 text-right shrink-0">{band.count}×</span>
+      </div>
+    );
+  }
+
+  const fastTemp = fastest(tempBands), slowTemp = slowest(tempBands);
+  const fastWind = fastest(windBands), slowWind = slowest(windBands);
+  const fastPrecip = fastest(precipBands), slowPrecip = slowest(precipBands);
+  const fastHR = fastest(hrNormBands), slowHR = slowest(hrNormBands);
+
+  const coldSensitivity = weatherStats!.coldSensitivity;
 
   return (
     <div className="rounded-xl bg-surface border border-border p-5 space-y-5">
       <div>
         <p className="text-sm font-semibold text-primary">Weather profile</p>
-        <p className="text-[10px] text-muted mt-0.5">Pace adjusted for fitness drift — OL sessions excluded. Temp analysis: calm wind only (&lt;20 km/h). Wind analysis: moderate temp only (0–25°C). Green = fastest band, red = 15+ s/km slower.</p>
+        <p className="text-[10px] text-muted mt-0.5">Pace adjusted for fitness drift — OL sessions excluded. Temp: calm wind only (&lt;20 km/h). Wind: 0–25°C only. Precip: 0–25°C only. Green = fastest, red = 15+ s/km slower.</p>
       </div>
+
+      {coldSensitivity !== null && (
+        <div className="flex gap-3 flex-wrap">
+          <div className="rounded-lg border border-border px-3 py-2 space-y-0.5">
+            <p className="text-[10px] text-muted uppercase tracking-wide">Cold penalty</p>
+            <p className="text-sm font-semibold font-mono" style={{ color: coldSensitivity > 5 ? "#7DD3FC" : "#94A3B8" }}>
+              {coldSensitivity > 0 ? "+" : ""}{coldSensitivity}s/km
+            </p>
+            <p className="text-[10px] text-muted">per 5°C below 5°C</p>
+          </div>
+        </div>
+      )}
 
       {tempBands.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted uppercase tracking-wide">Adjusted pace by temperature</p>
           <div className="space-y-1.5">
-            {tempBands.map(band => {
-              const barColor = paceBarColor(band.avgPaceSecPerKm, fastestTempPace);
-              const textColor = paceTextColor(band.avgPaceSecPerKm, fastestTempPace);
-              return (
-                <div key={band.label} className="flex items-center gap-3">
-                  <span className="text-xs text-muted w-20 shrink-0">{band.label}</span>
-                  <div className="flex-1 relative h-5 flex items-center">
-                    <div className="h-2 rounded-full bg-surface-2 w-full" />
-                    <div
-                      className="absolute h-2 rounded-full transition-all"
-                      style={{
-                        width: `${paceBarWidth(band.avgPaceSecPerKm, fastestTempPace, slowestTempPace)}%`,
-                        backgroundColor: barColor,
-                        opacity: 0.7,
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs font-mono font-semibold w-16 text-right shrink-0"
-                    style={{ color: textColor }}>
-                    {fmtPace(band.avgPaceSecPerKm)}
-                  </span>
-                  <span className="text-[10px] text-muted w-10 text-right shrink-0">{band.count}×</span>
-                </div>
-              );
-            })}
+            {tempBands.map(band => <BandRow key={band.label} band={band} fast={fastTemp} slow={slowTemp} labelW="w-20" />)}
+          </div>
+        </div>
+      )}
+
+      {hrNormBands.length >= 3 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted uppercase tracking-wide">Pace at 70–80% max HR by temperature</p>
+          <p className="text-[10px] text-muted -mt-1">Effort-controlled — no fitness drift correction needed</p>
+          <div className="space-y-1.5">
+            {hrNormBands.map(band => <BandRow key={band.label} band={band} fast={fastHR} slow={slowHR} labelW="w-20" />)}
           </div>
         </div>
       )}
@@ -510,31 +525,16 @@ function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | nul
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted uppercase tracking-wide">Adjusted pace by wind (km/h)</p>
           <div className="space-y-1.5">
-            {windBands.map(band => {
-              const barColor = paceBarColor(band.avgPaceSecPerKm, fastestWindPace);
-              const textColor = paceTextColor(band.avgPaceSecPerKm, fastestWindPace);
-              return (
-                <div key={band.label} className="flex items-center gap-3">
-                  <span className="text-xs text-muted w-28 shrink-0">{band.label}</span>
-                  <div className="flex-1 relative h-5 flex items-center">
-                    <div className="h-2 rounded-full bg-surface-2 w-full" />
-                    <div
-                      className="absolute h-2 rounded-full transition-all"
-                      style={{
-                        width: `${paceBarWidth(band.avgPaceSecPerKm, fastestWindPace, slowestWindPace)}%`,
-                        backgroundColor: barColor,
-                        opacity: 0.7,
-                      }}
-                    />
-                  </div>
-                  <span className="text-xs font-mono font-semibold w-16 text-right shrink-0"
-                    style={{ color: textColor }}>
-                    {fmtPace(band.avgPaceSecPerKm)}
-                  </span>
-                  <span className="text-[10px] text-muted w-10 text-right shrink-0">{band.count}×</span>
-                </div>
-              );
-            })}
+            {windBands.map(band => <BandRow key={band.label} band={band} fast={fastWind} slow={slowWind} labelW="w-28" />)}
+          </div>
+        </div>
+      )}
+
+      {precipBands.length >= 2 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted uppercase tracking-wide">Adjusted pace by precipitation</p>
+          <div className="space-y-1.5">
+            {precipBands.map(band => <BandRow key={band.label} band={band} fast={fastPrecip} slow={slowPrecip} labelW="w-28" />)}
           </div>
         </div>
       )}

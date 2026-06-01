@@ -74,6 +74,48 @@ async function loadRacePBs(userId: string): Promise<RacePB[]> {
   return [...bestPerDist.values()];
 }
 
+type LTPacePointSmooth = { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number };
+
+function smoothLTTrend(points: LTPacePointSmooth[]): LTPacePointSmooth[] {
+  if (points.length < 3) return points;
+  const sorted = [...points].sort((a, b) => a.month.localeCompare(b.month));
+
+  const monthDiff = (a: string, b: string) => {
+    const [ay, am] = a.split("-").map(Number);
+    const [by, bm] = b.split("-").map(Number);
+    return Math.abs((by - ay) * 12 + (bm - am));
+  };
+
+  // Pass 1: remove isolated single-month spikes (±15s from both neighbors)
+  const pass1: LTPacePointSmooth[] = sorted.map((p, i) => {
+    if (i === 0 || i === sorted.length - 1) return p;
+    const prev = sorted[i - 1], next = sorted[i + 1];
+    if (monthDiff(prev.month, p.month) !== 1 || monthDiff(p.month, next.month) !== 1) return p;
+    const lt2Spike = (p.lt2PaceSecPerKm - prev.lt2PaceSecPerKm > 15 && p.lt2PaceSecPerKm - next.lt2PaceSecPerKm > 15) ||
+                     (prev.lt2PaceSecPerKm - p.lt2PaceSecPerKm > 15 && next.lt2PaceSecPerKm - p.lt2PaceSecPerKm > 15);
+    const lt1Spike = (p.lt1PaceSecPerKm - prev.lt1PaceSecPerKm > 15 && p.lt1PaceSecPerKm - next.lt1PaceSecPerKm > 15) ||
+                     (prev.lt1PaceSecPerKm - p.lt1PaceSecPerKm > 15 && next.lt1PaceSecPerKm - p.lt1PaceSecPerKm > 15);
+    return {
+      ...p,
+      lt2PaceSecPerKm: lt2Spike ? Math.round((prev.lt2PaceSecPerKm + next.lt2PaceSecPerKm) / 2) : p.lt2PaceSecPerKm,
+      lt1PaceSecPerKm: lt1Spike ? Math.round((prev.lt1PaceSecPerKm + next.lt1PaceSecPerKm) / 2) : p.lt1PaceSecPerKm,
+    };
+  });
+
+  // Pass 2: cap improvement at 20s/month (physiological rate limit)
+  const pass2: LTPacePointSmooth[] = [pass1[0]];
+  for (let i = 1; i < pass1.length; i++) {
+    const prev = pass2[i - 1], curr = pass1[i];
+    if (monthDiff(prev.month, curr.month) !== 1) { pass2.push(curr); continue; }
+    pass2.push({
+      ...curr,
+      lt2PaceSecPerKm: curr.lt2PaceSecPerKm < prev.lt2PaceSecPerKm - 20 ? prev.lt2PaceSecPerKm - 20 : curr.lt2PaceSecPerKm,
+      lt1PaceSecPerKm: curr.lt1PaceSecPerKm < prev.lt1PaceSecPerKm - 20 ? prev.lt1PaceSecPerKm - 20 : curr.lt1PaceSecPerKm,
+    });
+  }
+  return pass2;
+}
+
 function normalizeActivitySport(t: string): string {
   const s = t.toLowerCase();
   if (s.includes("run") || s.includes("trail")) return "Running";
@@ -322,8 +364,8 @@ export async function updateVO2maxAndPaces(userId: string) {
       !/indoor|inomhus/i.test(a.name) &&
       !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name);
 
-    const buildTrendLaps = (olFilter: (a: TrendAct) => boolean) =>
-      (activities as TrendAct[])
+    const buildTrendLaps = (acts: TrendAct[], olFilter: (a: TrendAct) => boolean) =>
+      acts
         .filter(a => olFilter(a) && !WU_CD_RE.test(a.name) && Array.isArray(a.laps))
         .flatMap(a =>
           (a.laps as LapRow[])
@@ -339,31 +381,37 @@ export async function updateVO2maxAndPaces(userId: string) {
             }))
         );
 
-    // Bootstrap: name-only filter → preliminary LT1 → OL race pace threshold
-    const phase1Laps = buildTrendLaps(nameOnlyOlFilter);
-    const phase1 = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR);
-    const trendOlThreshold = phase1 ? Math.round(phase1.lt1PaceSecPerKm * 1.15) : 330;
-
-    const olFilterTrend = (a: TrendAct) =>
-      nameOnlyOlFilter(a) &&
-      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < trendOlThreshold));
-
-    const allTrendLaps = buildTrendLaps(olFilterTrend);
-
+    // Per-window bootstrap: OL threshold is computed from all acts up to windowEnd
+    // (same principle as LIVE calibration, just anchored to a historical point in time)
     for (let i = 0; i < 30; i++) {
       const windowEnd = subDays(now, i * 30);
       const month = format(windowEnd, "yyyy-MM");
       // Skip historical months already stored — only compute missing + always recompute current month
       if (month < currentMonth && historicalKeys.has(month)) continue;
-      const windowStart = subDays(windowEnd, 90);
-      const windowLaps = allTrendLaps.filter(l => l.startDate >= windowStart && l.startDate <= windowEnd);
-      if (windowLaps.length < 40) continue;
+
+      const actsUpToWindow = (activities as TrendAct[]).filter(a => a.startDate <= windowEnd);
+
+      const phase1Window = estimateZonesFromStatisticalAnalysis(
+        buildTrendLaps(actsUpToWindow, nameOnlyOlFilter), maxHR, restHR, windowEnd
+      );
+      const windowOlThreshold = phase1Window ? Math.round(phase1Window.lt1PaceSecPerKm * 1.15) : 330;
+      const windowOlFilter = (a: TrendAct) =>
+        nameOnlyOlFilter(a) &&
+        (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < windowOlThreshold));
+
+      const windowLaps = buildTrendLaps(actsUpToWindow, windowOlFilter);
       const result = estimateZonesFromStatisticalAnalysis(windowLaps, maxHR, restHR, windowEnd);
       if (result && !ltPaceTrend.find(p => p.month === month)) {
         ltPaceTrend.push({ month, lt1PaceSecPerKm: result.lt1PaceSecPerKm, lt2PaceSecPerKm: result.lt2PaceSecPerKm, r2: result.rSquared });
       }
     }
     ltPaceTrend.sort((a, b) => a.month.localeCompare(b.month));
+
+    // Smooth: remove single-month isolated spikes (±15s from both neighbors)
+    // then cap month-over-month improvement at 20s (physiological rate limit)
+    const smoothed = smoothLTTrend(ltPaceTrend);
+    ltPaceTrend.length = 0;
+    ltPaceTrend.push(...smoothed);
   }
 
   const extraVizJson = { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear: [], ltPaceTrend };

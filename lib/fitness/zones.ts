@@ -421,7 +421,7 @@ export function estimateZonesFromStatisticalAnalysis(
   const slopes = paceArr.slice(0, -1).map((p, i) => (hrArr[i] - hrArr[i + 1]) / (paceArr[i + 1] - p));
   const slopeMax = Math.max(...slopes);
   let bp1 = 1; // fallback: second bucket
-  for (let i = 0; i < slopes.length - 2; i++) {
+  for (let i = 1; i < slopes.length - 2; i++) {
     if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
   }
 
@@ -465,7 +465,7 @@ export function estimateZonesFromStatisticalAnalysis(
   }
 
   // Sanity: universal physiology — apply equally to all athletes
-  if (lt1HR >= lt2HR - 8) return null;       // minimum 8 bpm separation
+  if (lt1HR >= lt2HR - 5) return null;       // minimum 5 bpm separation
   if (lt2HR >= maxHR * 0.98) return null;
   if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70) return null;
   if (lt2PaceSecPerKm >= lt1PaceSecPerKm) return null;

@@ -47,10 +47,9 @@ export default async function StatsPage() {
         distance: { gte: 3000 },  // min 3 km — short efforts are too noisy
         isRace: false,             // exclude races (paced differently)
       },
-      select: { averageSpeed: true, weatherTemp: true, weatherWind: true, startDate: true, name: true, sportType: true, averageHeartrate: true },
+      select: { averageSpeed: true, weatherTemp: true, weatherWind: true, weatherPrecip: true, distance: true, startDate: true, name: true, sportType: true, averageHeartrate: true },
     }),
   ]);
-  const weatherStats = computeWeatherStats(weatherActs as WeatherAct[]);
 
   const bestPerDist = new Map<number, { distanceM: number; timeSec: number; date: Date }>();
   for (const r of allRacePBs) {
@@ -120,6 +119,29 @@ export default async function StatsPage() {
   const hrZones: HRZones = fitnessCache?.zones
     ? { ...(fitnessCache.zones as HRZones), maxHR, restHR }  // use calibrated zones
     : buildHRZones(maxHR, restHR);  // fallback: default formula
+
+  const weatherStats = computeWeatherStats(weatherActs as WeatherAct[], maxHR);
+
+  // ── tempSensitivity — computed from weatherActs (always fresh) so fast path gets it too ──
+  let tempSensitivity: number | null = null;
+  {
+    const lt1HR = hrZones.z3[0];
+    const pts = (weatherActs as WeatherAct[]).filter(a =>
+      a.averageSpeed && a.averageSpeed > 0 && a.averageHeartrate &&
+      a.averageHeartrate < lt1HR && a.weatherTemp != null && a.distance >= 4000
+    );
+    if (pts.length >= 10) {
+      const meanTemp = pts.reduce((s, a) => s + a.weatherTemp!, 0) / pts.length;
+      const meanPace = pts.reduce((s, a) => s + 1000 / a.averageSpeed!, 0) / pts.length;
+      let num = 0, den = 0;
+      for (const a of pts) {
+        const dt = a.weatherTemp! - meanTemp;
+        const dp = 1000 / a.averageSpeed! - meanPace;
+        num += dt * dp; den += dt * dt;
+      }
+      if (den > 0.01) tempSensitivity = Math.round(num / den * 5 * 10) / 10;
+    }
+  }
 
   if (cacheReady && fitnessCache) {
     // ── FAST PATH: read everything from cache ─────────────────────────────
@@ -284,7 +306,7 @@ export default async function StatsPage() {
       rampRate: fpRamp,
       injuryRisk: fpInjury,
       activeStreak: fpStreak,
-      tempSensitivity: null,
+      tempSensitivity,
     };
 
     const fpEasyPaceTrend = computeEasyPaceTrend(recentForCurve as EasyPaceAct[], hrZones.z3[0]);
@@ -548,31 +570,6 @@ export default async function StatsPage() {
     const acwrRisk = acwr > 1.5 ? 50 : acwr > 1.3 ? 30 : acwr < 0.8 ? 10 : 0;
     const rampRisk = rampRate !== null && rampRate > 20 ? 50 : rampRate !== null && rampRate > 10 ? 30 : 0;
     injuryRisk = Math.min(100, acwrRisk + rampRisk);
-  }
-
-  // Temperature sensitivity: regression of weatherTemp → pace (sec/km), last 4 years only
-  const fourYearsAgo = subDays(now, 4 * 365);
-  let tempSensitivity: number | null = null; // sec/km per 5°C above 15°C baseline
-  {
-    const pts = (activities as A[]).filter(a =>
-      a.averageSpeed && a.averageSpeed > 0 && /run|trail/i.test(a.sportType) &&
-      a.distance >= 4000 && a.averageHeartrate && a.averageHeartrate < lt1HR &&
-      a.startDate >= fourYearsAgo
-    );
-    if (pts.length >= 10) {
-      const meanTemp = pts.reduce((s, a) => s + (a.weatherTemp ?? 15), 0) / pts.length;
-      const meanPace = pts.reduce((s, a) => s + 1000 / a.averageSpeed!, 0) / pts.length;
-      let num = 0, den = 0;
-      for (const a of pts) {
-        const dt = (a.weatherTemp ?? 15) - meanTemp;
-        const dp = (1000 / a.averageSpeed!) - meanPace;
-        num += dt * dp; den += dt * dt;
-      }
-      if (den > 0.01) {
-        const slope = num / den; // sec/km per °C
-        tempSensitivity = Math.round(slope * 5 * 10) / 10; // per 5°C
-      }
-    }
   }
 
   // Active streak: consecutive days with ≥1 activity up to today
@@ -860,26 +857,27 @@ function buildOverview(_: OverviewResult): OverviewResult { return _; } // just 
 
 
 export interface WeatherBand { label: string; count: number; avgPaceSecPerKm: number | null }
-export interface WeatherStats { byTemp: WeatherBand[]; byWind: WeatherBand[] }
+export interface WeatherStats {
+  byTemp: WeatherBand[];
+  byWind: WeatherBand[];
+  byPrecip: WeatherBand[];
+  hrNormByTemp: WeatherBand[];
+  coldSensitivity: number | null;
+}
 
 type WeatherAct = {
   averageSpeed: number | null;
   weatherTemp: number | null;
   weatherWind: number | null;
+  weatherPrecip: number | null;
+  distance: number;
   startDate: Date;
   name: string;
   sportType: string;
   averageHeartrate: number | null;
 };
 
-/**
- * Compute weather-performance statistics while isolating confounders:
- *  - OL (orienteering) excluded — terrain varies wildly, not speed comparable
- *  - Fitness drift removed via rolling 12-week median pace residual
- *  - Only road/trail easy-to-moderate effort runs (not ultra-hard race efforts)
- */
-function computeWeatherStats(acts: WeatherAct[]): WeatherStats {
-  // Filter out OL sessions and non-running types — same pattern as HR zone estimator
+function computeWeatherStats(acts: WeatherAct[], maxHR: number): WeatherStats {
   const isOL = (a: WeatherAct) =>
     /virtualrun/i.test(a.sportType) ||
     /indoor|inomhus/i.test(a.name ?? "") ||
@@ -894,27 +892,21 @@ function computeWeatherStats(acts: WeatherAct[]): WeatherStats {
   );
 
   if (clean.length < 10) {
-    return { byTemp: [], byWind: [] };
+    return { byTemp: [], byWind: [], byPrecip: [], hrNormByTemp: [], coldSensitivity: null };
   }
 
-  // ── Fitness-drift correction ──────────────────────────────────────────────
-  // Compute rolling 12-week median pace. Each run's "adjusted pace" = raw pace
-  // minus (rolling median - overall median) so seasonal fitness changes are removed.
   const sorted = [...clean].sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
   const overallPaces = sorted.map(a => 1000 / a.averageSpeed!);
   const overallMedian = median(overallPaces);
 
-  // For each run, find median pace of runs in a ±6-week window
-  const adjustedPaces = sorted.map((a, i) => {
+  const adjustedPaces = sorted.map(a => {
     const rawPace = 1000 / a.averageSpeed!;
     const windowStart = a.startDate.getTime() - 42 * 86400_000;
     const windowEnd   = a.startDate.getTime() + 42 * 86400_000;
     const windowPaces = sorted
       .filter(b => b.startDate.getTime() >= windowStart && b.startDate.getTime() <= windowEnd)
       .map(b => 1000 / b.averageSpeed!);
-    const windowMed = median(windowPaces);
-    // Adjusted pace = raw pace - (local fitness level - overall average)
-    return rawPace - (windowMed - overallMedian);
+    return rawPace - (median(windowPaces) - overallMedian);
   });
 
   const TEMP_BANDS = [
@@ -925,13 +917,19 @@ function computeWeatherStats(acts: WeatherAct[]): WeatherStats {
     { label: "5–10°C",   test: (t: number) => t >= 5   && t < 10 },
     { label: "10–15°C",  test: (t: number) => t >= 10  && t < 15 },
     { label: "15–20°C",  test: (t: number) => t >= 15  && t < 20 },
-    { label: "> 20°C",   test: (t: number) => t >= 20 },
+    { label: "20–25°C",  test: (t: number) => t >= 20  && t < 25 },
+    { label: "> 25°C",   test: (t: number) => t >= 25 },
   ];
   const WIND_BANDS = [
     { label: "Calm (< 10)",      test: (w: number) => w < 10 },
     { label: "Light (10–20)",    test: (w: number) => w >= 10 && w < 20 },
     { label: "Moderate (20–30)", test: (w: number) => w >= 20 && w < 30 },
     { label: "Strong (> 30)",    test: (w: number) => w >= 30 },
+  ];
+  const PRECIP_BANDS = [
+    { label: "Dry (< 0.5 mm)",     test: (p: number) => p < 0.5 },
+    { label: "Light (0.5–2 mm)",   test: (p: number) => p >= 0.5 && p < 2 },
+    { label: "Rain (> 2 mm)",      test: (p: number) => p >= 2 },
   ];
 
   function computeBands(
@@ -949,21 +947,56 @@ function computeWeatherStats(acts: WeatherAct[]): WeatherStats {
           return true;
         });
       if (indices.length < 3) return { label: band.label, count: 0, avgPaceSecPerKm: null };
-      const paces = indices.map(({ i }) => adjustedPaces[i]);
-      const avg = paces.reduce((s, p) => s + p, 0) / paces.length;
+      const avg = indices.reduce((s, { i }) => s + adjustedPaces[i], 0) / indices.length;
       return { label: band.label, count: indices.length, avgPaceSecPerKm: Math.round(avg) };
     });
   }
 
+  // HR-normalized: pace at 70-80% maxHR — effort-controlled, no fitness drift correction needed
+  const hrLo = Math.round(maxHR * 0.70), hrHi = Math.round(maxHR * 0.80);
+  const hrNormByTemp: WeatherBand[] = TEMP_BANDS.map(band => {
+    const matches = sorted.filter(a => {
+      if (!a.averageHeartrate || !a.weatherTemp) return false;
+      if (!band.test(a.weatherTemp)) return false;
+      return a.averageHeartrate >= hrLo && a.averageHeartrate <= hrHi;
+    });
+    if (matches.length < 3) return { label: band.label, count: 0, avgPaceSecPerKm: null };
+    const avg = matches.reduce((s, a) => s + 1000 / a.averageSpeed!, 0) / matches.length;
+    return { label: band.label, count: matches.length, avgPaceSecPerKm: Math.round(avg) };
+  });
+
+  // Cold sensitivity: OLS regression on cold runs (< 10°C), sec/km per 5°C drop below 5°C
+  let coldSensitivity: number | null = null;
+  {
+    const coldPts = sorted.filter(a => a.weatherTemp != null && a.weatherTemp < 10);
+    if (coldPts.length >= 8) {
+      const coldIdx = coldPts.map(a => sorted.indexOf(a));
+      const temps = coldPts.map(a => a.weatherTemp!);
+      const paces = coldIdx.map(i => adjustedPaces[i]);
+      const mt = temps.reduce((s, t) => s + t, 0) / temps.length;
+      const mp = paces.reduce((s, p) => s + p, 0) / paces.length;
+      let num = 0, den = 0;
+      for (let i = 0; i < coldPts.length; i++) {
+        const dt = temps[i] - mt, dp = paces[i] - mp;
+        num += dt * dp; den += dt * dt;
+      }
+      if (den > 0.01) {
+        // Negative slope = slower at lower temps; report as positive penalty per 5°C drop
+        coldSensitivity = Math.round(-num / den * 5 * 10) / 10;
+      }
+    }
+  }
+
   return {
-    // Control for wind when studying temperature: only calm/light-wind runs (< 20 km/h).
-    // Removes the seasonal wind-temperature correlation (cold still days vs windy spring fronts).
     byTemp: computeBands(TEMP_BANDS, a => a.weatherTemp,
       a => a.weatherWind == null || a.weatherWind < 20),
-    // Control for temperature when studying wind: only moderate-temp runs (0–25°C).
-    // Removes extreme-cold/extreme-heat effects that would otherwise dominate the wind signal.
     byWind: computeBands(WIND_BANDS, a => a.weatherWind,
       a => a.weatherTemp != null && a.weatherTemp >= 0 && a.weatherTemp < 25),
+    // Precipitation: control for temperature (0–25°C) to avoid cold/rain conflation
+    byPrecip: computeBands(PRECIP_BANDS, a => a.weatherPrecip ?? 0,
+      a => a.weatherTemp != null && a.weatherTemp >= 0 && a.weatherTemp < 25),
+    hrNormByTemp,
+    coldSensitivity,
   };
 }
 
