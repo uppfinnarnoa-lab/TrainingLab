@@ -129,6 +129,12 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
       .filter(r => r.year === year && r.month === month && sportList.includes(r.sport))
       .reduce((s, r) => s + getValue(r), 0);
 
+  // Approximate current ISO week (day-of-year ÷ 7, capped at 52)
+  const currentIsoWeek = Math.min(52, Math.ceil(
+    (new Date(currentYear, currentMonth - 1, new Date().getDate()).getTime() -
+     new Date(currentYear, 0, 1).getTime()) / 604800000 + 1
+  ));
+
   // When the current year is selected, cap all years at the current month so
   // comparisons are fair (Jan–May 2026 vs Jan–May 2024, not Jan–May vs full year)
   const yearlyYtdMode = selectedYears.includes(currentYear);
@@ -294,9 +300,13 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
     });
   }, [weeklyRecords, weekRangeFrom, weekRangeTo, metric, selectedSports, sports]);
 
-  // Seasonal: align week 1-52 across selected years
+  // Seasonal: align week 1-52 across selected years.
+  // Cap at currentIsoWeek only when comparing with the current year.
+  const weeklySeasonalYtdMode = selectedYears.includes(currentYear);
+  const weekCap = weeklySeasonalYtdMode ? currentIsoWeek : 52;
+
   const weeklySeasonalData = useMemo(() => {
-    return Array.from({ length: 52 }, (_, i) => {
+    return Array.from({ length: weekCap }, (_, i) => {
       const wn = i + 1;
       const entry: Record<string, number | string> = { week: `W${wn}` };
       for (const yr of selectedYears) {
@@ -307,7 +317,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
       }
       return entry;
     });
-  }, [weeklyRecords, selectedYears, metric, selectedSports, sports]);
+  }, [weeklyRecords, selectedYears, metric, selectedSports, sports, weekCap]);
 
   const weeklyTimelineSummary = useMemo(() => {
     const total = weeklyTimelineData.reduce((s, d) => s + (d.total as number), 0);
@@ -485,7 +495,14 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
         )}
 
         {/* ── Cumulative YTD ──────────────────────────────────────────────── */}
-        {viewMode === "cumulative" && (
+        {viewMode === "cumulative" && (() => {
+          const cumulativeYtdMode = selectedYears.includes(currentYear);
+          // Cap months in table at currentMonth only when comparing with the current year
+          const tableMonths = cumulativeYtdMode ? currentMonth : 12;
+          const tableTitle = cumulativeYtdMode
+            ? `YTD through ${MONTHS[currentMonth - 1]}`
+            : "Full year";
+          return (
           <div className="space-y-4">
             <div className="rounded-xl border border-border p-4 space-y-3">
               <div className="flex items-center gap-2 flex-wrap">
@@ -503,7 +520,11 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
             </div>
 
             <div className="rounded-xl border border-border p-4">
-              <p className="text-[11px] text-muted mb-3">Accumulated {metric === "distance" ? "km" : "hours"} from Jan 1 — dotted line marks today</p>
+              <p className="text-[11px] text-muted mb-3">
+                {cumulativeYtdMode
+                  ? `Accumulated ${metric === "distance" ? "km" : "hours"} from Jan 1 — dotted line marks today`
+                  : `Accumulated ${metric === "distance" ? "km" : "hours"} from Jan 1 — full year comparison`}
+              </p>
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={cumulativeData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -511,7 +532,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
                   <YAxis tickFormatter={tickFmt} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={52} />
                   <Tooltip content={<ChartTooltip metric={metric} />} />
                   <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
-                  {currentMonth < 12 && (
+                  {cumulativeYtdMode && currentMonth < 12 && (
                     <ReferenceLine x={MONTHS[currentMonth - 1]} stroke="#94A3B8" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "today", position: "insideTopRight", fontSize: 10, fill: "#94A3B8" }} />
                   )}
                   {selectedYears.map(yr => (
@@ -523,24 +544,24 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
               </ResponsiveContainer>
             </div>
 
-            {/* YTD comparison table */}
+            {/* Summary table */}
             <div className="rounded-xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border bg-surface-2">
-                <p className="text-sm font-semibold text-primary">YTD through {MONTHS[currentMonth - 1]}</p>
+                <p className="text-sm font-semibold text-primary">{tableTitle}</p>
               </div>
               <div className="divide-y divide-border">
                 {selectedYears.map(yr => {
-                  const ytd = Array.from({ length: Math.min(currentMonth, 12) }, (_, i) => monthVal(yr, i + 1)).reduce((s, v) => s + v, 0);
+                  const total = Array.from({ length: tableMonths }, (_, i) => monthVal(yr, i + 1)).reduce((s, v) => s + v, 0);
                   const prevYr = selectedYears.find(y => y === yr - 1);
-                  const prevYtd = prevYr != null
-                    ? Array.from({ length: Math.min(currentMonth, 12) }, (_, i) => monthVal(prevYr, i + 1)).reduce((s, v) => s + v, 0)
+                  const prevTotal = prevYr != null
+                    ? Array.from({ length: tableMonths }, (_, i) => monthVal(prevYr, i + 1)).reduce((s, v) => s + v, 0)
                     : null;
-                  const delta = prevYtd != null && prevYtd > 0 ? Math.round(((ytd - prevYtd) / prevYtd) * 100) : null;
+                  const delta = prevTotal != null && prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
                   return (
                     <div key={yr} className="px-4 py-3 flex items-center gap-4">
                       <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: yearColor(yr, availableYears) }} />
                       <span className="text-sm font-semibold text-primary w-12">{yr}</span>
-                      <span className="font-mono text-primary">{fmtVal(ytd, metric)}</span>
+                      <span className="font-mono text-primary">{fmtVal(total, metric)}</span>
                       {delta != null && (
                         <span className="text-xs" style={{ color: delta >= 0 ? "#6EE7B7" : "#F87171" }}>
                           {delta >= 0 ? "+" : ""}{delta}% vs {yr - 1}
@@ -552,7 +573,8 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── Weekly volume ───────────────────────────────────────────────── */}
         {viewMode === "weekly" && (
@@ -649,7 +671,11 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
             {/* Seasonal chart */}
             {weeklySubMode === "seasonal" && (
               <div className="rounded-xl border border-border p-4">
-                <p className="text-[11px] text-muted mb-3">Week 1–52 aligned by calendar year — compare seasonal training patterns</p>
+                <p className="text-[11px] text-muted mb-3">
+                  {weeklySeasonalYtdMode
+                    ? `Weeks 1–${weekCap} (YTD) — all years capped at current week for fair comparison`
+                    : "Weeks 1–52 aligned by calendar year — compare seasonal training patterns"}
+                </p>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={weeklySeasonalData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="15%">
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
