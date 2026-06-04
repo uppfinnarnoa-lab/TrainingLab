@@ -44,17 +44,31 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const valid = await bcrypt.compare(parsed.data.password, user.passwordHash);
         if (!valid) return null;
 
-        return { id: user.id, email: user.email, name: user.name };
+        // Gate: only active accounts may log in
+        if (user.status === "pending") throw new Error("pending");
+        if (user.status === "rejected") throw new Error("rejected");
+
+        return { id: user.id, email: user.email, name: user.name, status: user.status, isAdmin: user.isAdmin };
       },
     }),
   ],
   callbacks: {
     jwt({ token, user }) {
-      if (user) token.id = user.id;
+      if (user) {
+        token.id = user.id;
+        // @ts-expect-error custom fields not in default User type
+        token.status = user.status;
+        // @ts-expect-error custom fields not in default User type
+        token.isAdmin = user.isAdmin;
+      }
       return token;
     },
     session({ session, token }) {
       if (token.id) session.user.id = token.id as string;
+      // @ts-expect-error custom fields not in default Session type
+      session.user.status = token.status;
+      // @ts-expect-error custom fields not in default Session type
+      session.user.isAdmin = token.isAdmin;
       return session;
     },
   },

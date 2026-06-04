@@ -10,6 +10,7 @@ import { AthleteProfileForm } from "./athlete-profile";
 import { ChangePasswordForm } from "./change-password";
 import { AppearanceSettings } from "./appearance-settings";
 import { AccountActions } from "./account-actions";
+import { UsersAdminSection } from "./users-admin";
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -148,6 +149,17 @@ export default async function SettingsPage() {
         </div>
         <ChangePasswordForm />
       </section>
+
+      {/* ── Users (admin only) ── */}
+      {isAdmin && (
+        <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
+          <div>
+            <h2 className="font-semibold text-primary">Users</h2>
+            <p className="text-xs text-muted mt-0.5">Approve or reject access requests</p>
+          </div>
+          <UsersAdminSection />
+        </section>
+      )}
 
       {/* ── Account actions ── */}
       <section className="rounded-2xl bg-surface border border-border p-6 space-y-4">
