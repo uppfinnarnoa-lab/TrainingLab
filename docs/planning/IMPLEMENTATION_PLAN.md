@@ -1890,6 +1890,25 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-05 — Production deployment + data migration:**
+
+**Deployment (training.helgars.se):**
+- nginx: self-signed cert replaced with wildcard `*.helgars.se` cert (provided by network admin). Both `training.helgars.se` and `theodal.helgars.se` use this cert.
+- PM2 ecosystem: fixed `script` from `node_modules/.bin/next` (shell script) to `node_modules/next/dist/bin/next` (JS entry point) — PM2 was trying to run a shell script with Node.
+- `AUTH_TRUST_HOST=true` added to `.env.local` — required by NextAuth v5 to trust the production domain.
+- Fixed 500 after login: `app/(dashboard)/page.tsx` was conflicting with `app/page.tsx` for the `/` route; Next.js resolved to the route group page which had no `page_client-reference-manifest.js`. Deleted `app/(dashboard)/page.tsx` — `app/page.tsx` handles the redirect correctly.
+- `middleware.ts`: added `api/strava/webhook` and `api/cron` to matcher exclusions — Strava's webhook validation server makes unauthenticated GET requests; middleware was redirecting them to `/login`, causing webhook registration to fail with Bad Request.
+
+**Data migration (dev → production):**
+- Exported 9 tables from local Docker PostgreSQL (`Activity`, `AthleteProfile`, `RaceRecord`, `PlannedWorkout`, `WorkoutTemplate`, `WorkoutSection`, `SportCategory`, `WorkoutType`, `TrainingBlock`) using `pg_dump --data-only`.
+- Remapped `userId` from local (`cmpcfsjn80000ru2wao5zjl4j`) to production (`cmpzodwvd0000u48ojwoqb71q`) via string replace.
+- Imported on production with `session_replication_role = replica` (FK constraint bypass — note: DB user lacks superuser, so this line was ignored; FK ordering in the dump was correct regardless).
+- Result: 2826 activities, 15 race records, 271 planned workouts, 16 templates, 1 athlete profile migrated successfully.
+- Not migrated: `StravaAccount`, `AppConfig`, `AISettings` (encrypted with local key — user re-entered credentials via Settings UI).
+
+**Sport categories as defaults for new users:**
+- `app/api/admin/users/[id]/route.ts`: when admin approves a user, admin's `SportCategory` and `WorkoutType` records are copied to the new user. Sport ID mapping preserved so `WorkoutType → SportCategory` FK stays correct.
+
 **Session 2026-06-04 — Multi-user support (registration, admin approval, data isolation):**
 
 **Schema:**
