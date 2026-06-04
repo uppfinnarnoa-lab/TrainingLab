@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { getStravaAuthUrl } from "@/lib/strava/client";
 import { getGarminAuthUrl } from "@/lib/garmin/client";
+import { getCredentials } from "@/lib/config";
 import { StravaConnectSection } from "./strava-connect";
 import { GarminConnectSection } from "./garmin-connect";
 import { AISettingsSection } from "./ai-settings";
@@ -41,11 +42,15 @@ export default async function SettingsPage() {
 
   const isAdmin = !!user?.isAdmin;
 
-  // Compute Strava auth URL — null if credentials not configured
-  const hasStravaClientId     = !!(appConfig?.stravaClientId     || process.env.STRAVA_CLIENT_ID);
-  const hasStravaClientSecret = !!(appConfig?.stravaClientSecret || process.env.STRAVA_CLIENT_SECRET);
-  const hasGarminClientId     = !!(appConfig?.garminClientId     || process.env.GARMIN_CLIENT_ID);
-  const hasGarminClientSecret = !!(appConfig?.garminClientSecret || process.env.GARMIN_CLIENT_SECRET);
+  // Resolve credentials via the same chain as all API calls:
+  // user's own AppConfig → admin's AppConfig → env vars.
+  // This ensures non-admin users see the "Connect with Strava" button
+  // even when only the admin has entered the developer credentials.
+  const creds = await getCredentials(userId);
+  const hasStravaClientId     = !!creds.stravaClientId;
+  const hasStravaClientSecret = !!creds.stravaClientSecret;
+  const hasGarminClientId     = !!creds.garminClientId;
+  const hasGarminClientSecret = !!creds.garminClientSecret;
 
   let stravaAuthUrl: string | null = null;
   if (hasStravaClientId && hasStravaClientSecret) {
