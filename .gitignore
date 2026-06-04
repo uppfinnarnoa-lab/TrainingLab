@@ -24,6 +24,12 @@
 .DS_Store
 *.pem
 
+# SSL certificates — never commit private keys
+Helgars Wildcard cert/
+*.key
+*private-key*
+*ca-bundle*
+
 # debug
 npm-debug.log*
 yarn-debug.log*
