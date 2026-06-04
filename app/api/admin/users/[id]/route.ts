@@ -32,5 +32,32 @@ export async function POST(
     select: { id: true, email: true, status: true },
   });
 
+  // On approval: copy admin's sport categories + workout types as defaults
+  if (parsed.data.action === "approve") {
+    const adminId = session.user.id!;
+    const [sports, types] = await Promise.all([
+      prisma.sportCategory.findMany({ where: { userId: adminId } }),
+      prisma.workoutType.findMany({ where: { userId: adminId } }),
+    ]);
+
+    // Map old sport IDs to new IDs for workout type FK
+    const sportIdMap = new Map<string, string>();
+    for (const sport of sports) {
+      const { id: _old, userId: _u, ...rest } = sport;
+      const created = await prisma.sportCategory.create({
+        data: { ...rest, userId: id },
+      });
+      sportIdMap.set(sport.id, created.id);
+    }
+    for (const type of types) {
+      const newSportId = sportIdMap.get(type.sportId);
+      if (!newSportId) continue;
+      const { id: _old, userId: _u, sportId: _s, ...rest } = type;
+      await prisma.workoutType.create({
+        data: { ...rest, userId: id, sportId: newSportId },
+      });
+    }
+  }
+
   return NextResponse.json(updated);
 }
