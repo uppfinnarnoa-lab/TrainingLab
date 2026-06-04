@@ -1890,6 +1890,50 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-04 — Multi-user support (registration, admin approval, data isolation):**
+
+**Schema:**
+- `UserStatus` enum (`pending` / `active` / `rejected`) added to `prisma/schema.prisma`.
+- `User.status: UserStatus @default(pending)` — new users start pending.
+- `User.isAdmin: Boolean` already existed; existing user set to `active + isAdmin = true` via one-time SQL.
+
+**Auth (`auth.ts`):**
+- Credentials provider now gates login on `status === "active"`. Throws `"pending"` / `"rejected"` errors for other statuses.
+- JWT callback stores `status` and `isAdmin`; session callback exposes them as `session.user.status` / `session.user.isAdmin`.
+
+**Middleware (`middleware.ts`):**
+- Rewrote from `export { auth as middleware }` to a full handler: non-logged-in → `/login`, logged-in but non-active → `/pending`, active on login/register page → `/dashboard`.
+
+**Registration flow:**
+- `app/(auth)/register/page.tsx` — name + email + password × 2 form; calls `/api/auth/register`.
+- `app/api/auth/register/route.ts` — validates input, rate-limits (5/hr/IP), hashes password, creates user with `status: pending`. Returns same response whether email exists or not (email enumeration prevention).
+- `app/(auth)/pending/page.tsx` — "Awaiting approval" page for pending users.
+- `app/(auth)/login/page.tsx` — updated with "Request access" link and human-readable pending/rejected error messages.
+
+**Admin UI:**
+- `app/(dashboard)/settings/users-admin.tsx` (client component) — shows pending requests (with Approve/Reject), active users (with Revoke), and rejected users (with Approve). Visible only in Settings when `session.user.isAdmin === true`.
+- `app/(dashboard)/settings/page.tsx` — imports `UsersAdminSection`, renders it inside a "Users" section gate on `isAdmin`.
+- `app/api/admin/users/route.ts` — `GET` returns all users sorted by status then date (admin only).
+- `app/api/admin/users/[id]/route.ts` — `POST { action: "approve" | "reject" | "revoke" }` sets status (admin only, cannot modify self).
+
+**Security:**
+- Admin status can only be set directly in the DB — no UI or API endpoint can grant it.
+- Rate limit on `/api/auth/register`: 5 attempts / hour / IP.
+- Email enumeration prevented on register.
+- `lib/config.ts`: fixed per-user credential cache (was a module-level singleton that stored one user at a time; changed to `Map<userId, {creds, at}>` so multiple concurrent users work correctly).
+
+**Strava/Garmin architecture:**
+- `lib/config.ts` already implemented the right pattern: (1) user's own AppConfig, (2) admin's AppConfig, (3) env vars. Admin sets Strava/Garmin client_id/secret once in Settings; all users use these app-level credentials to connect their personal accounts via OAuth. Each user's access/refresh tokens are stored separately and encrypted.
+- AI API keys are fully per-user — stored in `AISettings` table, never shared.
+
+**Deployment files updated:**
+- `deployment/README.md` — full rewrite: adds multi-user onboarding flow, Strava/API isolation table, updated first-run checklist, admin account creation instructions.
+- `deployment/deploy.sh` — changed `prisma migrate deploy` → `prisma db push --skip-generate` (project uses db-push workflow, not migration files).
+- `deployment/env.example` — added `ENCRYPTION_KEY`, clarified Strava/Garmin as optional (can be set in UI), clarified AI keys as per-user.
+
+**Plan archived:**
+- `docs/planning/multi-user-plan.md` — remains in planning folder (partially implemented: no email notifications, no GDPR tooling, no password reset UI — per plan scope).
+
 ### Documentation Written
 - `docs/api/auth.md` — auth + settings endpoints
 - `docs/api/strava.md` — sync + webhook endpoints

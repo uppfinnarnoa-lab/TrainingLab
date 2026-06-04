@@ -11,13 +11,13 @@ export interface AppCredentials {
   garminClientSecret: string;
 }
 
-let _cache: { userId: string; creds: AppCredentials; at: number } | null = null;
-const CACHE_TTL_MS = 30_000; // 30s — avoids a DB hit on every API call
+// Per-userId cache — avoids a DB hit on every API call
+const _cache = new Map<string, { creds: AppCredentials; at: number }>();
+const CACHE_TTL_MS = 30_000;
 
 export async function getCredentials(userId: string): Promise<AppCredentials> {
-  if (_cache && _cache.userId === userId && Date.now() - _cache.at < CACHE_TTL_MS) {
-    return _cache.creds;
-  }
+  const hit = _cache.get(userId);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.creds;
 
   // Try user's own config first, then fall back to the admin's config
   let config = await prisma.appConfig.findUnique({ where: { userId } });
@@ -36,11 +36,11 @@ export async function getCredentials(userId: string): Promise<AppCredentials> {
     garminClientSecret: (safeDecrypt(config?.garminClientSecret) ?? config?.garminClientSecret) || process.env.GARMIN_CLIENT_SECRET || "",
   };
 
-  _cache = { userId, creds, at: Date.now() };
+  _cache.set(userId, { creds, at: Date.now() });
   return creds;
 }
 
 // Invalidate cache when credentials are updated
 export function invalidateCredentialsCache() {
-  _cache = null;
+  _cache.clear();
 }

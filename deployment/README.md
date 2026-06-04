@@ -1,76 +1,50 @@
 # TrainingLab — Deployment Guide (Ubuntu + nginx)
 
 > **Target:** Ubuntu 22.04 LTS · nginx · PM2 · PostgreSQL · Let's Encrypt wildcard cert  
-> **Domain:** `training.helgars.se` — existing `*.helgars.se` cert reused from `theodal.helgars.se`
+> **Domain:** `training.helgars.se` — existing `*.helgars.se` cert reused from `theodal.helgars.se`  
+> **Multi-user:** Closed invite system — users register, admin (you) approves in Settings.
 
 ---
 
-## 1. Prerequisites (already in place)
+## ⚠ 0. SSL Cert — Sort This First
 
-The following are already configured on the server — no action needed:
-
-- nginx running with `theodal.helgars.se`
-- Wildcard cert `*.helgars.se` (Let's Encrypt, auto-renewing via certbot)
-- DNS A record `training.helgars.se` → server IP
-- Port 443 forwarded to this server
-
-Find the existing cert path (needed for Step 6):
-```bash
-grep -r "ssl_certificate" /etc/nginx/sites-enabled/
-```
-
----
-
-## ⚠ 1b. Fix Cert Renewal Before Deploying
-
-**The wildcard cert expires 15 June 2026. Sort this out first.**
-
-### Step A — Check if auto-renewal works at all
+**The wildcard cert expires 15 June 2026.**
 
 ```bash
 sudo certbot renew --dry-run
 ```
 
 - **"Congratulations, all renewals succeeded"** → auto-renewal works, nothing to do.
-- **"Challenge failed"** or error → continue to Step B.
+- **"Challenge failed"** → continue below.
 
-### Step B — Find out what DNS challenge method is used
+Wildcard certs require DNS-01 challenge. Check what certbot is configured to do:
 
-Wildcard certs (`*.helgars.se`) require DNS-01 challenge — certbot must create a TXT record
-`_acme-challenge.helgars.se` in DNS to prove you own the domain.
-
-Check what certbot is configured to do:
 ```bash
 sudo cat /etc/letsencrypt/renewal/helgars.se.conf
-# folder name may differ — check: ls /etc/letsencrypt/renewal/
 ```
 
-Look for the `authenticator =` line:
-- `dns-...` → DNS plugin configured, should work automatically
-- `manual` → renewal requires manual action (see Step D)
-- `standalone` or `webroot` → won't work for wildcards, cert was obtained manually
+Look for `authenticator =`:
+- `dns-...` → DNS plugin configured, should auto-renew.
+- `manual` → requires manual action each time (Step D below).
 
-### Step C — Check FortDDNS involvement
-
-Who controls the authoritative DNS for `helgars.se`?
-
-```bash
-dig NS helgars.se
-```
-
-- **Nameservers at your registrar** (Loopia, One.com, etc.): FortDDNS only updates the A record.
-  Cert renewal needs a registrar plugin, or a manual DNS edit at the registrar each time.
-- **Nameservers at FortDDNS**: FortDDNS controls DNS entirely. Check if they have an API for
-  certbot. Contact FortDDNS support to ask how others handle Let's Encrypt wildcard renewal.
-
-### Step D — Worst case: manual renewal (once per 90 days)
-
+**Manual renewal (worst case, once per 90 days):**
 ```bash
 sudo certbot certonly --manual --preferred-challenges dns -d "*.helgars.se"
 ```
+Certbot prints a TXT value — add it as `_acme-challenge.helgars.se` in DNS, wait a minute, press Enter. Set a calendar reminder for 60 days out.
 
-Certbot prints a TXT value — add it as `_acme-challenge.helgars.se` in DNS (at registrar or
-FortDDNS panel), wait a minute, then press Enter. Set a calendar reminder for 60 days out.
+---
+
+## 1. Prerequisites (already in place)
+
+- nginx with `theodal.helgars.se`
+- Wildcard cert `*.helgars.se`
+- DNS A record `training.helgars.se` → server IP
+
+Find existing cert path (needed for nginx config):
+```bash
+grep -r "ssl_certificate" /etc/nginx/sites-enabled/
+```
 
 ---
 
@@ -82,7 +56,6 @@ sudo apt update && sudo apt upgrade -y
 # Node.js 20
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
-node --version   # should be v20.x
 
 # pnpm + PM2
 sudo npm install -g pnpm pm2
@@ -103,11 +76,6 @@ CREATE USER traininglab WITH PASSWORD 'CHOOSE_A_STRONG_PASSWORD';
 GRANT ALL PRIVILEGES ON DATABASE traininglab TO traininglab;
 ALTER DATABASE traininglab OWNER TO traininglab;
 SQL
-```
-
-Test:
-```bash
-psql -U traininglab -h localhost -d traininglab
 ```
 
 ---
@@ -135,23 +103,15 @@ cp deployment/env.example /var/www/traininglab/.env.local
 nano /var/www/traininglab/.env.local
 ```
 
-```env
-# Database
-DATABASE_URL="postgresql://traininglab:YOUR_PASSWORD@localhost:5432/traininglab"
+**Required fields:**
+- `DATABASE_URL` — PostgreSQL connection string
+- `AUTH_SECRET` — generate with `openssl rand -base64 32`
+- `NEXTAUTH_URL` — your public domain (e.g. `https://training.helgars.se`)
+- `ENCRYPTION_KEY` — generate with `openssl rand -base64 32` (encrypts Strava/Garmin tokens)
 
-# NextAuth
-AUTH_SECRET="run: openssl rand -base64 32"
-NEXTAUTH_URL="https://training.helgars.se"
+**Strava/Garmin:** Either set in `.env.local` OR configure via Settings UI after first login. The env vars are a convenient alternative to the UI — both work identically.
 
-# Strava (from https://www.strava.com/settings/api)
-STRAVA_CLIENT_ID="your_client_id"
-STRAVA_CLIENT_SECRET="your_client_secret"
-STRAVA_REDIRECT_URI="https://training.helgars.se/api/strava/callback"
-
-# AI (optional — users can also enter via Settings UI)
-ANTHROPIC_API_KEY=""
-GOOGLE_AI_API_KEY=""
-```
+**AI keys:** Leave blank. Each user sets their own in Settings → AI Coach.
 
 ---
 
@@ -162,16 +122,33 @@ cd /var/www/traininglab
 
 pnpm install --frozen-lockfile
 pnpm prisma generate
-pnpm prisma migrate deploy
-pnpm tsx scripts/seed-user.ts    # creates admin user — run once only
+pnpm prisma db push          # creates all tables on the fresh DB (first time only)
 pnpm build
 ```
 
 ---
 
-## 7. PM2
+## 7. Create Admin Account
 
-Start using the config in this folder:
+After the DB is created, create your admin account from the command line:
+
+```bash
+npx tsx scripts/create-user.ts your@email.com yourpassword "Your Name"
+```
+
+Then make it admin:
+
+```bash
+npx prisma db execute --stdin --schema prisma/schema.prisma << 'EOF'
+UPDATE "User" SET status = 'active', "isAdmin" = true WHERE email = 'your@email.com';
+EOF
+```
+
+> **Never create accounts via the /register page for the admin user** — that creates a `pending` account that can't log in until approved.
+
+---
+
+## 8. PM2
 
 ```bash
 pm2 start deployment/ecosystem.config.js
@@ -181,17 +158,15 @@ pm2 startup   # run the sudo command it prints
 
 ---
 
-## 8. nginx Server Block
+## 9. nginx Server Block
 
-Create `/etc/nginx/sites-available/traininglab.conf`.
-**Replace the cert paths** with whatever Step 1 showed.
+Create `/etc/nginx/sites-available/traininglab.conf`. Replace cert paths with what Step 1 showed.
 
 ```nginx
 server {
     listen 443 ssl;
     server_name training.helgars.se;
 
-    # Reuse existing wildcard cert (same as theodal.helgars.se)
     ssl_certificate     /etc/letsencrypt/live/helgars.se/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/helgars.se/privkey.pem;
 
@@ -206,7 +181,6 @@ server {
         proxy_read_timeout  3600s;
     }
 
-    # Everything else
     location / {
         proxy_pass          http://localhost:3000;
         proxy_http_version  1.1;
@@ -221,78 +195,122 @@ server {
 Enable and reload:
 ```bash
 sudo ln -s /etc/nginx/sites-available/traininglab.conf /etc/nginx/sites-enabled/
-sudo nginx -t                   # must say "syntax is ok"
+sudo nginx -t
 sudo systemctl reload nginx
 ```
 
 ---
 
-## 9. Strava OAuth
+## 10. Strava OAuth Setup
+
+Strava credentials are shared at the app level — one Strava developer app for all users. Individual users each connect their own Strava account via OAuth.
 
 1. Go to [strava.com/settings/api](https://www.strava.com/settings/api)
 2. Set **Authorization Callback Domain** to: `training.helgars.se`
-3. Open the app → Settings → enter Client ID + Client Secret → Save
+3. Log in as admin → Settings → Strava → enter Client ID + Client Secret → Save
+
+> Alternatively, set `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` in `.env.local` instead.  
+> The env vars and the Settings UI are equivalent — whichever is set takes effect.
 
 ---
 
-## 10. Post-Deploy Checklist
+## 11. How Multi-User Works
+
+### Adding a new user
+
+1. Your friend visits `https://training.helgars.se/register`
+2. They fill in name, email, password → account created with `status: pending`
+3. You log in → Settings → **Users** → Approve their request
+4. They can now log in and connect their own Strava account
+
+### API isolation
+
+| Resource | Isolation |
+|----------|-----------|
+| Activity data | Per-user — completely separate DB rows |
+| Strava OAuth tokens | Per-user — each user's access/refresh tokens are encrypted separately |
+| Garmin tokens | Per-user |
+| AI API keys | Per-user — each user enters their own Claude/Gemini key |
+| Strava developer credentials | Shared app-level (admin sets once) — only used for OAuth handshake, not for data access |
+| Fitness cache / stats | Per-user |
+
+### Revoking access
+
+Settings → Users → Revoke (next to any active user). They are immediately blocked from logging in.
+
+---
+
+## 12. Post-Deploy Checklist
 
 ```
-[ ] https://training.helgars.se — padlock green, no browser warning
+[ ] https://training.helgars.se — padlock green, no warnings
 [ ] Log in as admin user
-[ ] Settings → Strava Client ID + Secret → Save
-[ ] Settings → Connect with Strava → authorize
-[ ] Settings → Sync new activities → confirm count
-[ ] Settings → Backfill all historical activities
-      (runs until Strava daily limit, auto-resumes nightly 00:30 UTC)
-[ ] Settings → Backfill weather data
+[ ] Settings → Strava → enter Client ID + Client Secret → Save
+[ ] Settings → Strava → Connect with Strava → authorize
+[ ] Settings → Strava → Sync new activities → confirm count
+[ ] Settings → Strava → Backfill all historical activities
+      (runs until Strava daily limit; resumes automatically each night at 00:30 UTC)
+[ ] Settings → Strava → Backfill weather data
 [ ] Stats page loads with data
+[ ] AI Coach: enter your Claude or Gemini API key in Settings → AI Coach
+[ ] Invite a friend: tell them to visit /register, then approve in Settings → Users
 [ ] PM2 survives reboot: sudo reboot → pm2 list
 ```
 
 ---
 
-## 11. Database Safety
+## 13. Updates (after first deploy)
 
-**The database is never touched by a redeploy.** `git pull` only updates code files — PostgreSQL runs separately and is not affected. `prisma migrate deploy` only applies new schema migrations (additive changes like new columns/tables) — it never drops data.
+Set up SSH key-based auth (do this once):
+```bash
+# On Windows (PowerShell):
+ssh-keygen -t ed25519 -C "windows-deploy"
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh noa@training.helgars.se "cat >> ~/.ssh/authorized_keys"
+```
 
-**Commands that WILL destroy data — never run these in production:**
+Then deploy without any password:
+```powershell
+ssh noa@training.helgars.se "/var/www/traininglab/deployment/deploy.sh"
+```
+
+The `deploy.sh` script: pulls latest code, regenerates Prisma client, applies schema changes (additive only), builds, reloads PM2.
+
+---
+
+## 14. Database Safety
+
+**The database is never touched by a `git pull`.**  `deploy.sh` uses `prisma db push` which:
+- Creates new tables/columns when added to the schema ✓
+- **Will drop columns/tables if you remove them from schema.prisma** ⚠
+
+**Safe schema workflow:** Only add new columns/tables. Never remove existing ones in production without first archiving the data.
+
+**Commands that WILL destroy data — never run in production:**
 ```bash
 pnpm prisma migrate reset   # ⚠ drops and recreates the entire database
-pnpm prisma db push         # ⚠ can drop columns/tables to match schema
-pnpm tsx scripts/seed-user.ts  # only run once on first deploy, not on updates
+pnpm prisma db push --force-reset  # ⚠ same
 ```
 
 **What persists across all redeploys:**
-- All PostgreSQL data (activities, user settings, cached stats, etc.)
-- `.env.local` (never in git, never touched by deploy)
+- All PostgreSQL data
+- `.env.local`
 - PM2 process config
 
 ---
 
-## 12. Updates (after first deploy)
+## 15. Database Backup
 
-> **Use SSH keys, never passwords in scripts.** Set up key-based auth:
-> ```bash
-> # On Windows (PowerShell):
-> ssh-keygen -t ed25519 -C "windows-deploy"
-> type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh noa@training.helgars.se "cat >> ~/.ssh/authorized_keys"
-> ```
-> Then deploy without any password:
-
-```powershell
-# From Windows:
-ssh noa@training.helgars.se "/var/www/traininglab/deployment/deploy.sh"
-```
-
-Or on the server directly:
 ```bash
-/var/www/traininglab/deployment/deploy.sh
+# Manual dump
+pg_dump -U traininglab traininglab | gzip > ~/traininglab-$(date +%F).sql.gz
+
+# Automated daily at 02:00 — add to crontab (crontab -e):
+0 2 * * * pg_dump -U traininglab traininglab | gzip > /var/backups/traininglab-$(date +\%F).sql.gz
 ```
 
 ---
 
-## 13. Monitoring & Logs
+## 16. Monitoring & Logs
 
 ```bash
 pm2 status
@@ -301,55 +319,6 @@ pm2 logs traininglab --lines 100
 
 sudo tail -f /var/log/nginx/access.log
 sudo tail -f /var/log/nginx/error.log
-
-tail -f /var/www/traininglab/deploy.log
-```
-
----
-
-## 14. Cert Renewal
-
-The wildcard cert auto-renews via certbot's systemd timer (~30 days before expiry).
-
-```bash
-sudo systemctl status certbot.timer    # should be active
-sudo certbot renew --dry-run           # test renewal manually
-```
-
-> If renewal fails, follow steps 1b above.
-
----
-
-## 15. First-Run App Setup
-
-After the server is up and you can reach https://training.helgars.se:
-
-```
-[ ] Log in as admin user (created by seed script)
-[ ] Settings → Change your password
-[ ] Settings → Strava → enter Client ID + Secret → Save
-[ ] Settings → Strava → Connect with Strava → authorize
-[ ] Settings → Strava → Sync new activities
-[ ] Settings → Strava → Backfill all historical activities (auto-resumes nightly)
-[ ] Settings → Strava → Backfill weather data
-[ ] Settings → Profile → fill in name, weight, height, experience
-[ ] Settings → HR Zones → enter max HR and resting HR
-[ ] Settings → Sports → verify/add sport types and workout types
-[ ] Settings → AI Coach → enter Anthropic or Google API key → test in Coach tab
-[ ] Stats page loads with data
-[ ] Dashboard shows recent activities
-```
-
----
-
-## 16. Database Backup
-
-```bash
-# Manual dump
-pg_dump -U traininglab traininglab | gzip > ~/traininglab-$(date +%F).sql.gz
-
-# Automated daily at 02:00 — add to crontab (crontab -e):
-0 2 * * * pg_dump -U traininglab traininglab | gzip > /var/backups/traininglab-$(date +\%F).sql.gz
 ```
 
 ---
@@ -364,18 +333,25 @@ pnpm exec next build --no-lint
 pm2 reload traininglab
 ```
 
-For DB rollback: restore from backup — never use `prisma migrate reset` in production.
+---
+
+## 18. Cert Renewal (routine)
+
+```bash
+sudo systemctl status certbot.timer    # should be active
+sudo certbot renew --dry-run           # test manually
+```
 
 ---
 
-## 18. Useful Commands
+## 19. Useful Commands
 
 ```bash
 pm2 restart traininglab
 pm2 reload traininglab         # zero-downtime reload
 pm2 stop traininglab
 
-sudo nginx -t                  # validate config syntax
+sudo nginx -t
 sudo systemctl reload nginx
 
 ss -tlnp | grep 3000           # confirm Next.js is listening
@@ -385,4 +361,4 @@ df -h
 
 ---
 
-*Last updated: 2026-05-28*
+*Last updated: 2026-06-04*

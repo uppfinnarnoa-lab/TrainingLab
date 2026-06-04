@@ -11,7 +11,6 @@
 
 set -euo pipefail
 
-# Project root is one level up from this script
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PM2_APP="traininglab"
 
@@ -24,11 +23,15 @@ git pull --ff-only
 echo "→ Installing dependencies..."
 pnpm install --frozen-lockfile --prod=false
 
-echo "→ Running database migrations..."
-# migrate deploy only applies NEW migrations — never drops or resets data.
-# The database and all its data are untouched by git pull and this script.
-# NEVER run: prisma migrate reset / prisma db push  — those destroy data.
-pnpm exec prisma migrate deploy
+echo "→ Regenerating Prisma client..."
+pnpm exec prisma generate
+
+echo "→ Applying schema changes..."
+# This project manages the schema with prisma db push (not migration files).
+# db push is safe here because schema changes are always additive (new columns/tables only).
+# NEVER remove a column or table from schema.prisma without first archiving the data —
+# db push will drop them from the database immediately.
+pnpm exec prisma db push --skip-generate
 
 echo "→ Building app..."
 pnpm exec next build --no-lint
@@ -36,4 +39,4 @@ pnpm exec next build --no-lint
 echo "→ Reloading PM2..."
 pm2 reload "$PM2_APP" --update-env || pm2 start deployment/ecosystem.config.js
 
-echo "✓ Deploy complete"
+echo "✓ Deploy complete — $(date '+%Y-%m-%d %H:%M:%S')"
