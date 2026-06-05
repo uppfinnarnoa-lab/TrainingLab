@@ -101,12 +101,9 @@ export function WorkoutPill({ workout, isPast, onClick, compact, onContextMenu, 
         </span>
       </div>
 
-      <div className="flex items-center gap-2 mt-0.5 pl-0.5 text-muted">
-        {workout.targetDuration  && <span>{formatDuration(workout.targetDuration)}</span>}
-        {workout.targetDistance  && <span>{formatDistance(workout.targetDistance)}</span>}
-        {isPast && workout.status === "planned" && (
-          <span className="ml-auto text-[10px] font-semibold text-warning">Log?</span>
-        )}
+      <div className="flex items-center flex-wrap gap-x-1.5 gap-y-0 mt-0.5 pl-0.5 text-muted overflow-hidden">
+        {workout.targetDuration  && <span className="shrink-0">{formatDuration(workout.targetDuration)}</span>}
+        {workout.targetDistance  && <span className="shrink-0">{formatDistance(workout.targetDistance)}</span>}
       </div>
 
       {isMissed && showStatus && workout.missedReason && (

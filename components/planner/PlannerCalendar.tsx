@@ -263,11 +263,15 @@ export function PlannerCalendar({
         </div>
       </div>
 
-      {/* Weekday headers — always 7 columns on mobile, sidebar mode only on md+ */}
-      <div className={cn(
-        "mb-1 gap-x-1 grid grid-cols-7",
-        summaryLayout === "sidebar" && "md:grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]"
-      )}>
+      {/* Weekday headers — always 7 columns on mobile, sidebar mode only on md+.
+          Sidebar mode uses minmax(140px,1fr) per day so columns are wide enough
+          to read workout names; the container scrolls horizontally if needed. */}
+      <div
+        className="mb-1 gap-x-1 grid grid-cols-7"
+        style={summaryLayout === "sidebar"
+          ? { gridTemplateColumns: "120px repeat(7, minmax(140px, 1fr))" }
+          : undefined}
+      >
         {summaryLayout === "sidebar" && <div className="hidden md:block" />}
         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => (
           <div key={d} className="text-center text-xs font-medium text-muted py-1">{d}</div>
@@ -306,10 +310,12 @@ export function PlannerCalendar({
                   <div className="flex-1 h-px bg-border" />
                 </div>
               )}
-              <div className={cn(
-                "gap-x-1 grid grid-cols-7",
-                isSidebar && "md:grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]"
-              )}>
+              <div
+                className="gap-x-1 grid grid-cols-7"
+                style={isSidebar
+                  ? { gridTemplateColumns: "120px repeat(7, minmax(140px, 1fr))" }
+                  : undefined}
+              >
                 {/* Sidebar summary column — hidden on mobile */}
                 {isSidebar && (
                   <div className="hidden md:flex items-stretch">
@@ -355,7 +361,7 @@ export function PlannerCalendar({
                         else if (templateId && onTemplateDrop) onTemplateDrop(templateId, key);
                       }}
                       className={cn(
-                        "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors",
+                        "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors overflow-hidden",
                         isDragOver
                           ? "border-accent bg-accent/10"
                           : isPasteMode
