@@ -196,7 +196,7 @@ export async function executeCoachTool(
 
       case "create_workout": {
         const date = new Date(input.date as string);
-        if (isNaN(date.getTime())) return { success: false, message: "Ogiltigt datum.", data: "error: invalid date" };
+        if (isNaN(date.getTime())) return { success: false, message: "Invalid date.", data: "error: invalid date" };
         const workout = await prisma.plannedWorkout.create({
           data: {
             userId,
@@ -213,7 +213,7 @@ export async function executeCoachTool(
         const dateStr = format(date, "EEE d MMM");
         return {
           success: true,
-          message: `Lade till: ${workout.name} · ${dateStr}`,
+          message: `Added: ${workout.name} · ${dateStr}`,
           data: `Created workout ${workout.id}: "${workout.name}" on ${dateStr}`,
         };
       }
@@ -230,7 +230,7 @@ export async function executeCoachTool(
           select: { id: true, name: true, sportType: true, date: true, targetDistance: true, targetDuration: true, notes: true },
         });
         if (workouts.length === 0) {
-          return { success: true, message: `Inga planerade pass de nästa ${days} dagarna.`, data: "No planned workouts." };
+          return { success: true, message: `No planned sessions in the next ${days} days.`, data: "No planned workouts." };
         }
         type W = { id: string; name: string; sportType: string; date: Date; targetDistance: number | null; targetDuration: number | null; notes: string | null };
         const list = (workouts as W[]).map(w => {
@@ -239,16 +239,16 @@ export async function executeCoachTool(
           const dur  = w.targetDuration ? ` ${Math.round(w.targetDuration / 60)}min` : "";
           return `${dateStr}: ${w.name} (${w.sportType})${dist}${dur} [id:${w.id}]`;
         }).join("\n");
-        return { success: true, message: `Plan (${days}d)`, data: list };
+        return { success: true, message: `Upcoming plan (${days}d)`, data: list };
       }
 
       case "delete_workout": {
         const wid = input.workoutId as string;
         const existing = await prisma.plannedWorkout.findUnique({ where: { id: wid }, select: { userId: true, name: true } });
         if (!existing || existing.userId !== userId)
-          return { success: false, message: "Pass hittades inte.", data: "error: not found" };
+          return { success: false, message: "Workout not found.", data: "error: not found" };
         await prisma.plannedWorkout.delete({ where: { id: wid } });
-        return { success: true, message: `Raderade: ${existing.name}`, data: `Deleted workout "${existing.name}"` };
+        return { success: true, message: `Deleted: ${existing.name}`, data: `Deleted workout "${existing.name}"` };
       }
 
       case "update_profile": {
@@ -279,7 +279,7 @@ export async function executeCoachTool(
           `Race predictions:\n${predStr}`,
           `Computed: ${fc.computedAt ? format(fc.computedAt, "d MMM yyyy HH:mm") : "unknown"}`,
         ].join("\n");
-        return { success: true, message: "Fitness summary hämtad", data };
+        return { success: true, message: "Fitness summary", data };
       }
 
       case "get_race_history": {
@@ -292,7 +292,7 @@ export async function executeCoachTool(
           orderBy: [{ distanceM: "asc" }, { date: "desc" }],
           select: { distance: true, distanceM: true, time: true, date: true, eventName: true },
         });
-        if (recs.length === 0) return { success: true, message: "Inga PBs", data: "No race records found." };
+        if (recs.length === 0) return { success: true, message: "No PBs", data: "No race records found." };
         // Group by distance
         const byDist = new Map<string, typeof recs>();
         for (const r of recs) {
@@ -306,7 +306,7 @@ export async function executeCoachTool(
           const mm = Math.floor(pb.time / 60), ss = pb.time % 60;
           lines.push(`${dist}: PB ${mm}:${String(ss).padStart(2,"0")} (${format(pb.date, "d MMM yyyy")}${pb.eventName ? " · " + pb.eventName : ""}) — ${rs.length} results`);
         }
-        return { success: true, message: `${recs.length} tävlingsresultat`, data: lines.join("\n") };
+        return { success: true, message: `${recs.length} race results`, data: lines.join("\n") };
       }
 
       case "get_readiness": {
@@ -354,7 +354,7 @@ export async function executeCoachTool(
           const actual = b.actualKm ? ` actual ${Math.round(b.actualKm)}km` : "";
           return `[${status}] ${b.name} (${b.blockType}) ${format(b.startDate, "d MMM")}–${format(b.endDate, "d MMM")}${kmTarget}${actual}`;
         });
-        return { success: true, message: "Träningsblock", data: lines.join("\n") };
+        return { success: true, message: "Training blocks", data: lines.join("\n") };
       }
 
       case "get_activities_in_range": {
@@ -378,8 +378,8 @@ export async function executeCoachTool(
         if (!confirmed) {
           const estTokens = count * 200; // ~200 tokens per activity with full detail
           const claudeCost = (estTokens / 1_000_000 * 3.0).toFixed(4);
-          const msg = `⚠️ Kostnadsvarning: Perioden ${format(dateFrom,"d MMM yyyy")}–${format(dateTo,"d MMM yyyy")} innehåller **${count} aktiviteter** ≈ ${estTokens.toLocaleString()} tokens ≈ $${claudeCost} (Claude) / gratis (Gemini). Vill du fortsätta? Svara "ja" för att bekräfta.`;
-          return { success: true, message: `${count} aktiviteter hittades — bekräftelse krävs`, data: msg };
+          const msg = `⚠️ Cost warning: Period ${format(dateFrom,"d MMM yyyy")}–${format(dateTo,"d MMM yyyy")} contains **${count} activities** ≈ ${estTokens.toLocaleString()} tokens ≈ $${claudeCost} (Claude) / free (Gemini). Continue? Reply "yes" to confirm.`;
+          return { success: true, message: `${count} activities found — confirmation required`, data: msg };
         }
 
         if (count > 500)
@@ -448,7 +448,7 @@ export async function executeCoachTool(
           lines.push("");
         }
 
-        return { success: true, message: `${acts.length} aktiviteter hämtade`, data: lines.join("\n") };
+        return { success: true, message: `${acts.length} activities fetched`, data: lines.join("\n") };
       }
 
       case "analyze_full_history": {
@@ -508,7 +508,7 @@ export async function executeCoachTool(
           `Total: ${Math.round(acts.reduce((s: number, act: { distance: number }) => s + act.distance/1000, 0))}km · ${acts.length} sessions`,
         ];
 
-        return { success: true, message: `${years}år historikanalys — ${acts.length} aktiviteter`, data: lines.join("\n") };
+        return { success: true, message: `${years}-year history analysis — ${acts.length} activities`, data: lines.join("\n") };
       }
 
       case "search_activities": {
@@ -574,7 +574,7 @@ export async function executeCoachTool(
           },
         });
         if (!act || act.userId !== userId)
-          return { success: false, message: "Aktiviteten hittades inte.", data: "error: not found" };
+          return { success: false, message: "Activity not found.", data: "error: not found" };
 
         const lines: string[] = [
           `Activity: ${act.name} (${act.sportType})`,
@@ -621,14 +621,14 @@ export async function executeCoachTool(
           }
         }
 
-        return { success: true, message: `Aktivitetsdetaljer: ${act.name}`, data: lines.join("\n") };
+        return { success: true, message: `Activity details: ${act.name}`, data: lines.join("\n") };
       }
 
       default:
-        return { success: false, message: `Okänt verktyg: ${toolName}`, data: `error: unknown tool ${toolName}` };
+        return { success: false, message: `Unknown tool: ${toolName}`, data: `error: unknown tool ${toolName}` };
     }
   } catch (e) {
     console.error(`[coach-tool] ${toolName} failed:`, e);
-    return { success: false, message: "Verktyget misslyckades.", data: `error: ${e instanceof Error ? e.message : "unknown"}` };
+    return { success: false, message: "Tool failed.", data: `error: ${e instanceof Error ? e.message : "unknown"}` };
   }
 }

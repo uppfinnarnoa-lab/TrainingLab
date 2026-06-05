@@ -143,8 +143,8 @@ export async function POST(req: NextRequest) {
   if (approvedAction) {
     const result = await executeCoachTool(approvedAction.toolName, approvedAction.toolInput, userId);
     toolEvent = { name: approvedAction.toolName, message: result.message, success: result.success };
-    messages.push({ role: "assistant", content: `[Verktyg utfört: ${approvedAction.toolName}] ${result.message}` });
-    messages.push({ role: "user", content: message }); // the "ja/godkänn" message is already there
+    messages.push({ role: "assistant", content: `[Tool executed: ${approvedAction.toolName}] ${result.message}` });
+    messages.push({ role: "user", content: message }); // the "yes/approve" message is already there
   }
 
   // ── Phase 2: Check for tool use (non-streaming) ──────────────────────
@@ -170,14 +170,14 @@ export async function POST(req: NextRequest) {
         if (toolUse) {
           if (WRITE_TOOLS.has(toolUse.name)) {
             toolEvent = { name: toolUse.name, message: describeAction(toolUse.name, toolUse.input), success: true, pending: true, pendingInput: toolUse.input };
-            messages.push({ role: "assistant", content: `[Inväntar godkännande: ${toolUse.name}] ${toolEvent.message}` });
+            messages.push({ role: "assistant", content: `[Awaiting approval: ${toolUse.name}] ${toolEvent.message}` });
           } else {
             const result = await executeCoachTool(toolUse.name, toolUse.input, userId);
             if (result.success) toolEvent = { name: toolUse.name, message: result.message, success: true };
             messages.push({ role: "assistant", content: `[Tool: ${toolUse.name}]\n${result.data}` });
             messages.push({ role: "user", content: result.success
-              ? "Analysera och svara på min fråga baserat på dessa data."
-              : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
+              ? "Analyze and answer my question based on this data."
+              : "Tool failed. Respond based on your existing context without assuming you have fresh data." });
           }
         }
       }
@@ -211,8 +211,8 @@ export async function POST(req: NextRequest) {
           if (result.success) toolEvent = { name: toolName, message: result.message, success: true };
           messages.push({ role: "assistant", content: `[Tool: ${toolName}]\n${result.data}` });
           messages.push({ role: "user", content: result.success
-            ? "Analysera och svara på min fråga baserat på dessa data."
-            : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
+            ? "Analyze and answer my question based on this data."
+            : "Tool failed. Respond based on your existing context without assuming you have fresh data." });
         }
       }
     } catch { /* tool check failed */ }
@@ -245,8 +245,8 @@ export async function POST(req: NextRequest) {
           if (result.success) toolEvent = { name: toolName, message: result.message, success: true };
           messages.push({ role: "assistant", content: `[Tool: ${toolName}]\n${result.data}` });
           messages.push({ role: "user", content: result.success
-            ? "Analysera och svara på min fråga baserat på dessa data."
-            : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
+            ? "Analyze and answer my question based on this data."
+            : "Tool failed. Respond based on your existing context without assuming you have fresh data." });
         }
       }
     } catch { /* tool check failed */ }
@@ -282,8 +282,8 @@ export async function POST(req: NextRequest) {
           if (toolResult.success) toolEvent = { name: fc.name, message: toolResult.message, success: true };
           messages.push({ role: "assistant", content: `[Tool: ${fc.name}]\n${toolResult.data}` });
           messages.push({ role: "user", content: toolResult.success
-            ? "Analysera och svara på min fråga baserat på dessa data."
-            : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
+            ? "Analyze and answer my question based on this data."
+            : "Tool failed. Respond based on your existing context without assuming you have fresh data." });
         }
       }
     } catch { /* tool check failed */ }
@@ -391,12 +391,12 @@ export async function POST(req: NextRequest) {
 function describeAction(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case "create_workout":
-      return `Lägg till "${input.name}" (${input.sportType}) den ${input.date}${input.targetDistanceKm ? ` · ${input.targetDistanceKm}km` : ""}${input.targetDurationMin ? ` · ${input.targetDurationMin}min` : ""}`;
+      return `Add "${input.name}" (${input.sportType}) on ${input.date}${input.targetDistanceKm ? ` · ${input.targetDistanceKm}km` : ""}${input.targetDurationMin ? ` · ${input.targetDurationMin}min` : ""}`;
     case "delete_workout":
-      return `Radera pass med ID ${input.workoutId}`;
+      return `Delete workout with ID ${input.workoutId}`;
     case "update_profile":
-      return `Uppdatera profil: ${Object.entries(input).map(([k, v]) => `${k}=${v}`).join(", ")}`;
+      return `Update profile: ${Object.entries(input).map(([k, v]) => `${k}=${v}`).join(", ")}`;
     default:
-      return `Utföra ${toolName}`;
+      return `Perform ${toolName}`;
   }
 }

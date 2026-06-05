@@ -1,6 +1,6 @@
 # Implementation Plan: LT Trend Window Stabilization
 
-**Status:** Awaiting approval  
+**Status:** Implemented 2026-06-01  
 **Scope:** `lib/fitness/cache.ts` · `lib/fitness/zones.ts` · `scripts/rolling-lt-test.ts` · DB cleanup  
 **Date:** 2026-06-01 (final — iterative investigation complete)
 

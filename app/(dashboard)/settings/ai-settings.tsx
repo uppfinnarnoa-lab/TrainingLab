@@ -179,7 +179,7 @@ export function AISettingsSection({
       <div className="space-y-3">
         <p className="text-sm font-medium text-primary">
           Gemini API key
-          {hasGeminiKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+          {hasGeminiKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registered</span>}
         </p>
         <SetupGuide steps={GEMINI_GUIDE} />
         <div className="relative">
@@ -187,7 +187,7 @@ export function AISettingsSection({
             type={showGemini ? "text" : "password"}
             value={geminiKey}
             onChange={(e) => setGeminiKey(e.target.value)}
-            placeholder={hasGeminiKey ? "Redan sparad — klistra in ny för att ändra" : "AIza..."}
+            placeholder={hasGeminiKey ? "Already saved — paste new key to replace" : "AIza..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowGemini(v => !v)}
@@ -227,7 +227,7 @@ export function AISettingsSection({
       <div className="space-y-3">
         <p className="text-sm font-medium text-primary">
           Claude API key
-          {hasClaudeKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+          {hasClaudeKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registered</span>}
         </p>
         <SetupGuide steps={CLAUDE_GUIDE} />
         <div className="relative">
@@ -235,7 +235,7 @@ export function AISettingsSection({
             type={showClaude ? "text" : "password"}
             value={claudeKey}
             onChange={(e) => setClaudeKey(e.target.value)}
-            placeholder={hasClaudeKey ? "Redan sparad — klistra in ny för att ändra" : "sk-ant-..."}
+            placeholder={hasClaudeKey ? "Already saved — paste new key to replace" : "sk-ant-..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowClaude(v => !v)}
@@ -271,7 +271,7 @@ export function AISettingsSection({
       <div className="space-y-3">
         <p className="text-sm font-medium text-primary">
           NVIDIA NIM API key
-          {hasNvidiaKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+          {hasNvidiaKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registered</span>}
         </p>
         <p className="text-xs text-muted">
           Free, rate-limited (40 req/min). Get your key at{" "}
@@ -284,7 +284,7 @@ export function AISettingsSection({
             type={showNvidia ? "text" : "password"}
             value={nvidiaKey}
             onChange={(e) => setNvidiaKey(e.target.value)}
-            placeholder={hasNvidiaKey ? "Redan sparad — klistra in ny för att ändra" : "nvapi-..."}
+            placeholder={hasNvidiaKey ? "Already saved — paste new key to replace" : "nvapi-..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowNvidia(v => !v)}
@@ -311,7 +311,7 @@ export function AISettingsSection({
       <div className="space-y-3">
         <p className="text-sm font-medium text-primary">
           Groq API key
-          {hasGroqKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+          {hasGroqKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registered</span>}
         </p>
         <p className="text-xs text-muted">
           Free tier, no credit card required. Get your key at{" "}
@@ -324,7 +324,7 @@ export function AISettingsSection({
             type={showGroq ? "text" : "password"}
             value={groqKey}
             onChange={(e) => setGroqKey(e.target.value)}
-            placeholder={hasGroqKey ? "Redan sparad — klistra in ny för att ändra" : "gsk_..."}
+            placeholder={hasGroqKey ? "Already saved — paste new key to replace" : "gsk_..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowGroq(v => !v)}

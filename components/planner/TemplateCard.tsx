@@ -49,8 +49,8 @@ export function TemplateCard({ template, onAddToDate, onDelete, onEdit, compact 
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Actions — always visible on mobile (hover unavailable on touch) */}
+        <div className="shrink-0 flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
           {onEdit && (
             <button
               onClick={() => onEdit(template)}

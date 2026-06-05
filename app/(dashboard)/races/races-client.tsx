@@ -131,19 +131,19 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
           className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white dark:text-background hover:opacity-90 transition"
         >
           <Plus size={15} />
-          Lägg till resultat
+          Add result
         </button>
 
         <button
           onClick={handleAutoLink}
           disabled={autoLinking}
           className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-medium text-muted hover:text-primary hover:border-accent/40 disabled:opacity-50 transition"
-          title="Koppla PRs till Strava-aktiviteter baserat på datum (±1 dag, ±20% distans)"
+          title="Link PRs to Strava activities based on date (±1 day, ±20% distance)"
         >
           {autoLinking ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
-          Koppla aktiviteter
+          Link activities
           {linkResult !== null && (
-            <span className="text-accent font-semibold">({linkResult.linked} kopplade)</span>
+            <span className="text-accent font-semibold">({linkResult.linked} linked)</span>
           )}
         </button>
       </div>
@@ -151,8 +151,8 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
       {records.length === 0 ? (
         <div className="rounded-2xl bg-surface border border-border p-12 text-center">
           <Trophy size={32} className="mx-auto text-muted mb-3" />
-          <p className="text-primary font-medium">Inga tävlingsresultat ännu</p>
-          <p className="text-sm text-muted mt-1">Lägg till dina PBs och tävlingsresultat manuellt ovan.</p>
+          <p className="text-primary font-medium">No race results yet</p>
+          <p className="text-sm text-muted mt-1">Add your PBs and race results manually above.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-6 sm:grid sm:grid-cols-[200px_1fr]">
@@ -187,10 +187,10 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
               <div className="rounded-2xl bg-surface border border-accent/30 p-5 flex items-center gap-4">
                 <Trophy size={24} className="text-warning shrink-0" />
                 <div className="flex-1">
-                  <p className="text-xs font-medium text-muted uppercase tracking-wide">Personbästa · {selectedDistance}</p>
+                  <p className="text-xs font-medium text-muted uppercase tracking-wide">Personal best · {selectedDistance}</p>
                   <p className="text-3xl font-semibold font-mono text-primary mt-1">{secToTimeStr(pb.time)}</p>
                   <p className="text-sm text-muted mt-0.5">
-                    {pb.eventName ?? "Tävling"} · {format(parseISO(pb.date), "d MMM yyyy")}
+                    {pb.eventName ?? "Race"} · {format(parseISO(pb.date), "d MMM yyyy")}
                   </p>
                 </div>
                 {pb.stravaActivityId && (
@@ -220,7 +220,7 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
               const domain: [number, number] = [Math.max(0, lo - pad), hi + pad];
               return (
                 <div className="rounded-xl bg-surface border border-border p-4">
-                  <p className="text-xs font-medium text-muted mb-3">Tidsutveckling</p>
+                  <p className="text-xs font-medium text-muted mb-3">Time progression</p>
                   <ResponsiveContainer width="100%" height={160}>
                     <LineChart data={chartData} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -252,8 +252,8 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface-2">
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted">Datum</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted hidden sm:table-cell">Lopp / Händelse</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted">Date</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted hidden sm:table-cell">Race / Event</th>
                     <th className="text-right px-4 py-2.5 text-xs font-medium text-muted">Tid</th>
                     <th className="text-right px-4 py-2.5 text-xs font-medium text-muted hidden sm:table-cell">vs PB</th>
                     <th className="px-4 py-2.5 w-24 hidden sm:table-cell" />
@@ -294,7 +294,7 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
                                 <button
                                   onClick={e => { e.stopPropagation(); unlinkActivity(r.id); }}
                                   className="p-1 rounded text-muted hover:text-error transition"
-                                  title="Koppla bort Strava-aktivitet"
+                                  title="Unlink Strava activity"
                                 >
                                   <Unlink size={13} />
                                 </button>
@@ -307,11 +307,11 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
                               <div className="flex items-center gap-0.5">
                                 <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); }}
                                   className="px-1.5 py-0.5 rounded text-[10px] text-muted hover:bg-surface-2 transition">
-                                  Nej
+                                  No
                                 </button>
                                 <button onClick={e => { e.stopPropagation(); deleteRecord(r.id); }}
                                   className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-error bg-error/10 hover:bg-error/20 transition">
-                                  Ja
+                                  Yes
                                 </button>
                               </div>
                             ) : (
@@ -431,12 +431,12 @@ function RaceModal({ record, onClose, onSave }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm rounded-2xl bg-surface border border-border shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-        <h3 className="font-semibold text-primary">{isEdit ? "Redigera resultat" : "Lägg till resultat"}</h3>
+        <h3 className="font-semibold text-primary">{isEdit ? "Edit result" : "Add result"}</h3>
 
         {/* Distance — only shown for new records */}
         {!isEdit && (
           <div>
-            <label className="text-xs text-muted mb-1 block">Distans</label>
+            <label className="text-xs text-muted mb-1 block">Distance</label>
             <select value={dist} onChange={e => setDist(e.target.value)} className={inp}>
               {PRESETS.map(p => <option key={p.label}>{p.label}</option>)}
             </select>
@@ -445,11 +445,11 @@ function RaceModal({ record, onClose, onSave }: {
         {!isEdit && dist === "Custom" && (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted mb-1 block">Etikett</label>
-              <input value={customDist} onChange={e => setCustomDist(e.target.value)} placeholder="t.ex. 7K" className={inp} />
+              <label className="text-xs text-muted mb-1 block">Label</label>
+              <input value={customDist} onChange={e => setCustomDist(e.target.value)} placeholder="e.g. 7K" className={inp} />
             </div>
             <div>
-              <label className="text-xs text-muted mb-1 block">Meter</label>
+              <label className="text-xs text-muted mb-1 block">Meters</label>
               <input type="number" value={customM} onChange={e => setCustomM(e.target.value)} placeholder="7000" className={inp} />
             </div>
           </div>
@@ -457,7 +457,7 @@ function RaceModal({ record, onClose, onSave }: {
 
         {/* Time */}
         <div>
-          <label className="text-xs text-muted mb-1 block">Tid (h:mm:ss)</label>
+          <label className="text-xs text-muted mb-1 block">Time (h:mm:ss)</label>
           <div className="flex items-center gap-2">
             <input type="number" min={0} max={9} value={hh} onChange={e => setHH(e.target.value)} className={`${inp} w-14 text-center font-mono`} placeholder="0" />
             <span className="text-muted font-semibold">:</span>
@@ -469,7 +469,7 @@ function RaceModal({ record, onClose, onSave }: {
 
         {/* Date */}
         <div>
-          <label className="text-xs text-muted mb-1 block">Datum</label>
+          <label className="text-xs text-muted mb-1 block">Date</label>
           <input
             type="date"
             value={date}
@@ -480,23 +480,23 @@ function RaceModal({ record, onClose, onSave }: {
 
         {/* Event name */}
         <div>
-          <label className="text-xs text-muted mb-1 block">Lopp / Händelse (valfritt)</label>
-          <input value={event} onChange={e => setEvent(e.target.value)} placeholder="t.ex. Stockholm Marathon" className={inp} />
+          <label className="text-xs text-muted mb-1 block">Race / Event (optional)</label>
+          <input value={event} onChange={e => setEvent(e.target.value)} placeholder="e.g. Stockholm Marathon" className={inp} />
         </div>
 
         {/* Link to Strava activity */}
         <div>
           <label className="text-xs text-muted mb-1 flex items-center gap-1.5">
             <Link2 size={11} />
-            Länka till Strava-aktivitet (valfritt)
+            Link to Strava activity (optional)
           </label>
           {loadingActivities ? (
             <div className="flex items-center gap-2 text-xs text-muted py-1">
-              <Loader2 size={12} className="animate-spin" /> Hämtar aktiviteter...
+              <Loader2 size={12} className="animate-spin" /> Loading activities...
             </div>
           ) : nearActivities.length > 0 ? (
             <select value={linkedActivity} onChange={e => setLinkedActivity(e.target.value)} className={inp}>
-              <option value="">— ingen länk —</option>
+              <option value="">— no link —</option>
               {nearActivities.map(a => (
                 <option key={a.stravaId} value={a.stravaId}>
                   {format(parseISO(a.date), "d MMM")} · {a.name} ({a.distanceKm} km)
@@ -505,25 +505,25 @@ function RaceModal({ record, onClose, onSave }: {
             </select>
           ) : (
             <p className="text-xs text-muted py-1">
-              {date ? "Inga löppass hittades ±3 dagar från detta datum." : "Välj ett datum för att se aktiviteter."}
+              {date ? "No running activities found ±3 days from this date." : "Select a date to see activities."}
             </p>
           )}
         </div>
 
         {/* Notes */}
         <div>
-          <label className="text-xs text-muted mb-1 block">Anteckningar (valfritt)</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Väder, form, kurs..." className={`${inp} resize-none`} />
+          <label className="text-xs text-muted mb-1 block">Notes (optional)</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Weather, fitness, course..." className={`${inp} resize-none`} />
         </div>
 
         <div className="flex gap-2 pt-2">
-          <button onClick={onClose} className="flex-1 py-2 text-sm text-muted hover:text-primary transition">Avbryt</button>
+          <button onClick={onClose} className="flex-1 py-2 text-sm text-muted hover:text-primary transition">Cancel</button>
           <button
             onClick={save}
             disabled={saving}
             className="flex-1 py-2 rounded-xl bg-accent text-sm font-semibold text-white dark:text-background hover:opacity-90 disabled:opacity-50 transition"
           >
-            {saving ? "Sparar…" : isEdit ? "Spara ändringar" : "Lägg till"}
+            {saving ? "Saving…" : isEdit ? "Save changes" : "Add"}
           </button>
         </div>
       </div>

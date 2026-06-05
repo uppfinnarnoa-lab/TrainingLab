@@ -72,7 +72,7 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
               <button
                 onClick={onMobileClose}
                 className="md:hidden p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
-                aria-label="Stäng mallar"
+                aria-label="Close templates"
               >
                 <X size={16} />
               </button>

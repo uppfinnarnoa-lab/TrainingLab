@@ -21,6 +21,10 @@ interface Props {
   currentLT2?: number; // currently calibrated LT2 pace (sec/km) for reference line
 }
 
+// Match planner zone colors: LT2 = zone 4 (orange), LT1 = zone 3 (amber)
+const LT2_COLOR = "#F97316";
+const LT1_COLOR = "#FBBF24";
+
 type Range = "1y" | "2y" | "all";
 const RANGES: { value: Range; label: string; months: number | null }[] = [
   { value: "1y",  label: "1Y",  months: 12 },
@@ -50,9 +54,9 @@ function CustomTooltip({ active, payload, label }: any) {
   const d = payload[0].payload as LTPacePoint & { projected?: boolean };
   return (
     <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-lg space-y-0.5">
-      <p className="font-semibold text-primary">{label}{d.projected ? " (projection)" : ""}</p>
-      <p className="text-accent">LT/Tröskel: {formatPace(d.lt2PaceSecPerKm)}/km</p>
-      <p className="text-sky-400">AT/Aerob: {formatPace(d.lt1PaceSecPerKm)}/km</p>
+      <p className="font-semibold text-primary">{label}{d.projected ? " (prognos)" : ""}</p>
+      <p style={{ color: LT2_COLOR }}>LT2: {formatPace(d.lt2PaceSecPerKm)}/km</p>
+      <p style={{ color: LT1_COLOR }}>LT1: {formatPace(d.lt1PaceSecPerKm)}/km</p>
       {!d.projected && <p className="text-muted">R²: {d.r2.toFixed(2)}</p>}
     </div>
   );
@@ -92,7 +96,7 @@ export function LTPaceTrendChart({ data, currentLT1, currentLT2 }: Props) {
   if (data.length === 0) {
     return (
       <p className="text-xs text-muted py-4 text-center">
-        No data — requires sufficient lap data in each monthly window.
+        Ingen data — kräver tillräckligt med laps per månadsruta.
       </p>
     );
   }
@@ -121,20 +125,20 @@ export function LTPaceTrendChart({ data, currentLT1, currentLT2 }: Props) {
         <div>
           {lastReal && (
             <p className="text-xs text-muted">
-              LT: <span className="text-accent font-mono">{formatPace(lastReal.lt2PaceSecPerKm)}/km</span>
+              LT2: <span className="font-mono" style={{ color: LT2_COLOR }}>{formatPace(lastReal.lt2PaceSecPerKm)}/km</span>
               {" · "}
-              AT: <span className="text-sky-400 font-mono">{formatPace(lastReal.lt1PaceSecPerKm)}/km</span>
+              LT1: <span className="font-mono" style={{ color: LT1_COLOR }}>{formatPace(lastReal.lt1PaceSecPerKm)}/km</span>
               {" · "}
               <span className="text-muted">R²: {lastReal.r2.toFixed(2)}</span>
             </p>
           )}
           {projected.length >= 2 && (
             <p className={`text-[10px] mt-0.5 ${improving ? "text-accent" : "text-orange-400"}`}>
-              3-month projection: {improving ? "improving" : "levelling/declining"}
+              3-månadersprognos: {improving ? "förbättring" : "platå/försämring"}
             </p>
           )}
           <p className="text-[10px] text-muted mt-0.5">
-            90-day rolling windows · lower sec/km = faster · dashed = projection
+            Rullande 90-dagarsfönster · lägre sek/km = snabbare · streckad = prognos
           </p>
         </div>
         <div className="flex gap-0.5 rounded-lg border border-border p-0.5">
@@ -155,7 +159,7 @@ export function LTPaceTrendChart({ data, currentLT1, currentLT2 }: Props) {
 
       {rangeFiltered.length < 3 ? (
         <p className="text-xs text-muted py-4 text-center">
-          Not enough data for the selected time range.
+          För lite data i valt tidsintervall.
         </p>
       ) : (
         <ResponsiveContainer width="100%" height={220}>
@@ -179,45 +183,46 @@ export function LTPaceTrendChart({ data, currentLT1, currentLT2 }: Props) {
 
             {/* Reference lines for currently calibrated zones */}
             {currentLT2 && (
-              <ReferenceLine y={currentLT2} stroke="var(--accent)" strokeDasharray="4 4" strokeOpacity={0.4}
-                label={{ value: "Cal LT", position: "insideTopRight", fontSize: 9, fill: "var(--accent)" }} />
+              <ReferenceLine y={currentLT2} stroke={LT2_COLOR} strokeDasharray="4 4" strokeOpacity={0.4}
+                label={{ value: "Kal LT2", position: "insideTopRight", fontSize: 9, fill: LT2_COLOR }} />
             )}
             {currentLT1 && (
-              <ReferenceLine y={currentLT1} stroke="#38bdf8" strokeDasharray="4 4" strokeOpacity={0.4}
-                label={{ value: "Cal AT", position: "insideTopRight", fontSize: 9, fill: "#38bdf8" }} />
+              <ReferenceLine y={currentLT1} stroke={LT1_COLOR} strokeDasharray="4 4" strokeOpacity={0.4}
+                label={{ value: "Kal LT1", position: "insideTopRight", fontSize: 9, fill: LT1_COLOR }} />
             )}
 
-            {/* Historical data — solid lines */}
+            {/* LT2 — solid line, orange (zone 4) */}
             <Line
               type="monotone"
               dataKey="lt2PaceSecPerKm"
-              stroke="var(--accent)"
+              stroke={LT2_COLOR}
               strokeWidth={2}
               dot={(props) => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const { cx, cy, payload } = props as any;
                 if (payload.projected) return <g key={`lt2-${cx}`} />;
-                return <circle key={`lt2-${cx}`} cx={cx} cy={cy} r={3} fill="var(--accent)" stroke="none" />;
+                return <circle key={`lt2-${cx}`} cx={cx} cy={cy} r={3} fill={LT2_COLOR} stroke="none" />;
               }}
               activeDot={{ r: 5 }}
               connectNulls={false}
-              name="LT/Tröskel"
+              name="LT2"
             />
+            {/* LT1 — dashed line, amber (zone 3) */}
             <Line
               type="monotone"
               dataKey="lt1PaceSecPerKm"
-              stroke="#38bdf8"
+              stroke={LT1_COLOR}
               strokeWidth={1.5}
               strokeDasharray="5 3"
               dot={(props) => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const { cx, cy, payload } = props as any;
                 if (payload.projected) return <g key={`lt1-${cx}`} />;
-                return <circle key={`lt1-${cx}`} cx={cx} cy={cy} r={2.5} fill="#38bdf8" stroke="none" />;
+                return <circle key={`lt1-${cx}`} cx={cx} cy={cy} r={2.5} fill={LT1_COLOR} stroke="none" />;
               }}
               activeDot={{ r: 4 }}
               connectNulls={false}
-              name="AT/Aerob"
+              name="LT1"
             />
           </LineChart>
         </ResponsiveContainer>

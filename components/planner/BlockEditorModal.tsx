@@ -182,11 +182,11 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
             <div className="flex items-center gap-2">
               <button onClick={() => setConfirmDelete(false)}
                 className="px-3 py-2 rounded-xl border border-border text-sm text-muted hover:bg-surface-2 transition">
-                Avbryt
+                Cancel
               </button>
               <button onClick={handleDelete} disabled={deleting}
                 className="px-3 py-2 rounded-xl border border-error/30 bg-error/10 text-sm font-semibold text-error hover:bg-error/20 transition flex items-center gap-1.5">
-                {deleting ? <Loader2 size={13} className="animate-spin" /> : "Bekräfta radering"}
+                {deleting ? <Loader2 size={13} className="animate-spin" /> : "Confirm deletion"}
               </button>
             </div>
           )}

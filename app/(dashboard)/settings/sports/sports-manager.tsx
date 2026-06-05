@@ -119,11 +119,11 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
                   <button
                     onClick={() => setConfirmDeleteSportId(null)}
                     className="px-2 py-0.5 rounded text-xs text-muted hover:bg-surface-2 transition"
-                  >Avbryt</button>
+                  >Cancel</button>
                   <button
                     onClick={e => { e.stopPropagation(); deleteSport(sport.id); }}
                     className="px-2 py-0.5 rounded text-xs font-semibold text-error bg-error/10 hover:bg-error/20 transition"
-                  >Radera</button>
+                  >Delete</button>
                 </div>
               ) : (
                 <button

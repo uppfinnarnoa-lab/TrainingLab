@@ -78,12 +78,12 @@ export function ChatInterface({
   const spendPct = monthlyBudget > 0 ? Math.min((totalSpend / monthlyBudget) * 100, 100) : 0;
 
   async function approveAction(action: ToolAction) {
-    const confirmText = `Ja, genomför: ${action.message}`;
+    const confirmText = `Yes, perform: ${action.message}`;
     await sendWithPayload(confirmText, { toolName: action.name, toolInput: action.pendingInput ?? {} });
   }
 
   async function rejectAction() {
-    await sendWithPayload("Nej, avbryt det.");
+    await sendWithPayload("No, cancel that.");
   }
 
   const sendWithPayload = useCallback(async (text: string, approvedAction?: { toolName: string; toolInput: Record<string, unknown> }) => {
@@ -111,9 +111,9 @@ export function ChatInterface({
       const err = await res.json().catch(() => ({ error: "Request failed" }));
       let errMsg = err.error ?? "Unknown error";
       if (err.error === "budget_exceeded")
-        errMsg = `Månadsbudget uppnådd ($${err.budget?.toFixed(2)}). Ändra i Inställningar.`;
+        errMsg = `Monthly budget reached ($${err.budget?.toFixed(2)}). Change it in Settings.`;
       else if (err.error === "no_api_key")
-        errMsg = "Ingen API-nyckel konfigurerad. Lägg till en i Inställningar → AI Coach.";
+        errMsg = "No API key configured. Add one in Settings → AI Coach.";
       setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: errMsg } : m));
       return;
     }
@@ -229,10 +229,10 @@ export function ChatInterface({
       <div className="flex items-center justify-center h-full p-8">
         <div className="max-w-sm text-center space-y-3">
           <Bot size={40} className="mx-auto text-muted" />
-          <p className="text-primary font-semibold">Ingen API-nyckel konfigurerad</p>
+          <p className="text-primary font-semibold">No API key configured</p>
           <p className="text-sm text-muted">
-            Lägg till en Claude- eller Gemini-nyckel i{" "}
-            <a href="/settings" className="text-accent hover:underline">Inställningar</a>.
+            Add a Claude or Gemini key in{" "}
+            <a href="/settings" className="text-accent hover:underline">Settings</a>.
           </p>
         </div>
       </div>
@@ -301,7 +301,7 @@ export function ChatInterface({
                     onClick={e => deleteConversation(c.id, e)}
                     disabled={deletingId === c.id}
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted/40 hover:text-error hover:bg-error/10 transition disabled:opacity-50"
-                    title="Radera chatt"
+                    title="Delete chat"
                   >
                     {deletingId === c.id
                       ? <Loader2 size={11} className="animate-spin" />
@@ -311,7 +311,7 @@ export function ChatInterface({
               </div>
             ))}
             {conversations.length === 0 && (
-              <p className="px-3 py-4 text-[10px] text-muted">Inga chattar ännu</p>
+              <p className="px-3 py-4 text-[10px] text-muted">No chats yet</p>
             )}
           </div>
         )}
@@ -346,7 +346,7 @@ export function ChatInterface({
               <Bot size={36} className="opacity-40" />
               <p className="text-sm">Fråga din tränare om din träning.</p>
               <div className="flex flex-wrap gap-2 justify-center mt-2">
-                {["Hur ser min form ut?", "Planera nästa 4 veckor", "Vad är mitt VO2max?", "Analysera min senaste vecka"].map(q => (
+                {["How is my fitness?", "Plan next 4 weeks", "What is my VO2max?", "Analyze my last week"].map(q => (
                   <button key={q}
                     onClick={() => { setInput(q); textareaRef.current?.focus(); }}
                     className="px-3 py-1.5 rounded-lg border border-border text-xs hover:border-accent/40 hover:text-primary transition">
@@ -406,17 +406,17 @@ export function ChatInterface({
               </div>
               <div className="divide-y divide-border/50 max-h-72 overflow-y-auto">
                 {[
-                  { name: "get_fitness_summary", label: "Fitness summary", desc: "VO2max, CTL, TSB, zones, predictions", hint: "ex: Visa min fitness-sammanfattning" },
-                  { name: "get_race_history", label: "Race history / PBs", desc: "All personal bests by distance", hint: "ex: Visa alla mina PBs" },
-                  { name: "get_readiness", label: "Readiness today", desc: "HRV, sleep, resting HR, TSB", hint: "ex: Hur är min återhämtning idag?" },
-                  { name: "get_training_blocks", label: "Training blocks", desc: "Current and upcoming training blocks", hint: "ex: Visa mina träningsblock" },
-                  { name: "get_upcoming_plan", label: "Upcoming plan", desc: "Planned sessions next 14 days", hint: "ex: Visa min träningsplan kommande 2 veckor" },
-                  { name: "search_activities", label: "Search activities", desc: "Find sessions by keyword, date, sport", hint: "ex: Hitta mina löppass från maj 2025" },
-                  { name: "get_activity_detail", label: "Activity detail", desc: "Full splits, HR, description for one session", hint: "ex: Visa detaljer om mitt senaste intervallpass" },
-                  { name: "get_activities_in_range", label: "Activities in range ⚠️ cost", desc: "ALL activities with full data — requires confirmation", hint: "ex: Analysera alla mina pass från maj 2025" },
-                  { name: "analyze_full_history", label: "Full history analysis", desc: "Multi-year aggregated stats", hint: "ex: Analysera min träningshistorik de senaste 3 åren" },
-                  { name: "create_workout", label: "Create workout", desc: "Add a session to the training plan", hint: "ex: Lägg till ett lätt löppass 10km på fredag" },
-                  { name: "get_upcoming_plan + delete_workout", label: "Delete workout", desc: "Remove a planned session", hint: "ex: Ta bort fredagens pass" },
+                  { name: "get_fitness_summary", label: "Fitness summary", desc: "VO2max, CTL, TSB, zones, predictions", hint: "e.g. Show my fitness summary" },
+                  { name: "get_race_history", label: "Race history / PBs", desc: "All personal bests by distance", hint: "e.g. Show all my PBs" },
+                  { name: "get_readiness", label: "Readiness today", desc: "HRV, sleep, resting HR, TSB", hint: "e.g. How is my recovery today?" },
+                  { name: "get_training_blocks", label: "Training blocks", desc: "Current and upcoming training blocks", hint: "e.g. Show my training blocks" },
+                  { name: "get_upcoming_plan", label: "Upcoming plan", desc: "Planned sessions next 14 days", hint: "e.g. Show my training plan for the next 2 weeks" },
+                  { name: "search_activities", label: "Search activities", desc: "Find sessions by keyword, date, sport", hint: "e.g. Find my runs from May 2025" },
+                  { name: "get_activity_detail", label: "Activity detail", desc: "Full splits, HR, description for one session", hint: "e.g. Show details for my last interval session" },
+                  { name: "get_activities_in_range", label: "Activities in range ⚠️ cost", desc: "ALL activities with full data — requires confirmation", hint: "e.g. Analyze all my sessions from May 2025" },
+                  { name: "analyze_full_history", label: "Full history analysis", desc: "Multi-year aggregated stats", hint: "e.g. Analyze my training history for the last 3 years" },
+                  { name: "create_workout", label: "Create workout", desc: "Add a session to the training plan", hint: "e.g. Add an easy 10km run on Friday" },
+                  { name: "get_upcoming_plan + delete_workout", label: "Delete workout", desc: "Remove a planned session", hint: "e.g. Remove Friday's session" },
                   { name: "update_profile", label: "Update profile", desc: "Change weight, goal, training years", hint: "ex: Uppdatera min vikt till 72kg" },
                 ].map(tool => (
                   <button

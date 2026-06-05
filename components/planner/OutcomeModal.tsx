@@ -6,10 +6,10 @@ import type { PlannedWorkout } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
 const MISS_REASONS = [
-  { value: "illness", label: "Sjukdom",  desc: "Sjuk, förkylning, virus" },
-  { value: "injury",  label: "Skada",    desc: "Smärta, skada, ont" },
-  { value: "fatigue", label: "Sliten",   desc: "Utmattad, överbelastad" },
-  { value: "other",   label: "Annat",    desc: "Annan anledning" },
+  { value: "illness", label: "Illness",  desc: "Sick, cold, virus" },
+  { value: "injury",  label: "Injury",   desc: "Pain, injury, soreness" },
+  { value: "fatigue", label: "Fatigue",  desc: "Exhausted, overloaded" },
+  { value: "other",   label: "Other",    desc: "Another reason" },
 ];
 
 interface Props {
@@ -41,7 +41,7 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
           <div>
             <p className="font-semibold text-primary">{workout.name}</p>
             <p className="text-xs text-muted mt-0.5">
-              {new Date(workout.date + "T00:00:00").toLocaleDateString("sv", {
+              {new Date(workout.date + "T00:00:00").toLocaleDateString("en", {
                 weekday: "long", day: "numeric", month: "long",
               })}
             </p>
@@ -50,7 +50,7 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
             {onEdit && (
               <button
                 onClick={() => { onClose(); onEdit(workout); }}
-                title="Redigera pass"
+                title="Edit session"
                 className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
               >
                 <Pencil size={15} />
@@ -65,14 +65,14 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
         <div className="p-5 space-y-3">
           {step === "choose" && (
             <>
-              <p className="text-sm text-muted">Genomförde du detta pass?</p>
+              <p className="text-sm text-muted">Did you complete this session?</p>
               <div className="space-y-2">
                 <button onClick={() => save("completed")} disabled={saving}
                   className="w-full flex items-center gap-3 py-3 px-4 rounded-xl bg-surface-2 border border-border hover:border-accent/40 transition text-left">
                   <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "#22C55E" }} />
                   <div>
-                    <p className="text-sm font-semibold text-primary">Genomfört</p>
-                    <p className="text-xs text-muted">Passet är klart</p>
+                    <p className="text-sm font-semibold text-primary">Completed</p>
+                    <p className="text-xs text-muted">Session done</p>
                   </div>
                   {saving && <Loader2 size={14} className="animate-spin ml-auto" />}
                 </button>
@@ -81,15 +81,15 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
                   className="w-full flex items-center gap-3 py-3 px-4 rounded-xl bg-surface-2 border border-border hover:border-error/30 transition text-left">
                   <div className="w-4 h-4 rounded-full" style={{ backgroundColor: "#EF4444" }} />
                   <div>
-                    <p className="text-sm font-semibold text-primary">Missades</p>
-                    <p className="text-xs text-muted">Passet genomfördes inte</p>
+                    <p className="text-sm font-semibold text-primary">Missed</p>
+                    <p className="text-xs text-muted">Session was not completed</p>
                   </div>
                 </button>
 
                 {workout.status !== "planned" && (
                   <button onClick={() => save("planned")} disabled={saving}
                     className="w-full py-2 rounded-xl border border-border text-sm text-muted hover:bg-surface-2 transition">
-                    Återställ till planerat
+                    Reset to planned
                   </button>
                 )}
               </div>
@@ -101,7 +101,7 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
                   className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-border text-xs text-muted hover:border-error/40 hover:text-error hover:bg-error/5 transition mt-1"
                 >
                   <Trash2 size={12} />
-                  Ta bort pass
+                  Delete session
                 </button>
               )}
             </>
@@ -109,16 +109,16 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
 
           {step === "confirm-delete" && (
             <>
-              <p className="text-sm text-primary font-medium">Ta bort passet?</p>
+              <p className="text-sm text-primary font-medium">Delete this session?</p>
               <p className="text-xs text-muted">
-                <span className="font-semibold text-primary">{workout.name}</span> raderas permanent. Det går inte att ångra.
+                <span className="font-semibold text-primary">{workout.name}</span> will be permanently deleted. This cannot be undone.
               </p>
               <div className="flex gap-2 pt-1">
                 <button
                   onClick={() => setStep("choose")}
                   className="flex-1 py-2 rounded-xl border border-border text-sm text-muted hover:bg-surface-2 transition"
                 >
-                  Avbryt
+                  Cancel
                 </button>
                 <button
                   onClick={async () => {
@@ -130,7 +130,7 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
                   className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-error/10 border border-error/30 text-sm font-semibold text-error hover:bg-error/20 transition"
                 >
                   {deleting && <Loader2 size={14} className="animate-spin" />}
-                  Ta bort
+                  Delete
                 </button>
               </div>
             </>
@@ -138,7 +138,7 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
 
           {step === "missed" && (
             <>
-              <p className="text-sm text-muted">Varför missades passet?</p>
+              <p className="text-sm text-muted">Why was this session missed?</p>
 
               <div className="grid grid-cols-2 gap-2">
                 {MISS_REASONS.map(r => (
@@ -156,11 +156,11 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
               </div>
 
               <div>
-                <label className="text-xs text-muted mb-1 block">Anteckning</label>
+                <label className="text-xs text-muted mb-1 block">Note</label>
                 <textarea
                   value={note}
                   onChange={e => setNote(e.target.value)}
-                  placeholder="Beskriv mer om du vill — t.ex. vilket ben, hur länge du känt av det..."
+                  placeholder="Describe more if you like — e.g. which leg, how long you've felt it..."
                   rows={2}
                   className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none"
                 />
@@ -169,14 +169,14 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
               <div className="flex gap-2">
                 <button onClick={() => setStep("choose")}
                   className="px-4 py-2 text-sm text-muted hover:text-primary transition">
-                  ← Tillbaka
+                  ← Back
                 </button>
                 <button
                   onClick={() => save("missed", reason || undefined, note || undefined)}
                   disabled={saving}
                   className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-error/10 border border-error/30 text-sm font-semibold text-error hover:bg-error/20 transition">
                   {saving && <Loader2 size={14} className="animate-spin" />}
-                  Spara som missat
+                  Mark as missed
                 </button>
               </div>
             </>

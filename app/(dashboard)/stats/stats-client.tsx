@@ -563,10 +563,12 @@ function SectionCard({ title, children, action, tips, href }: {
       href && "hover:border-accent/40")}>
       {/* Full-card link overlay — sits at z-0 so buttons/charts above it stay interactive */}
       {href && <Link href={href} className="absolute inset-0 rounded-xl z-0" aria-hidden tabIndex={-1} />}
-      <div className="relative z-10 flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-primary flex-1">{title}</h2>
-        {tips?.map((tip, i) => <MetricTooltip key={i} tip={tip} />)}
-        {action}
+      <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-primary">{title}</h2>
+        <div className="flex items-center gap-1 flex-wrap">
+          {tips?.map((tip, i) => <MetricTooltip key={i} tip={tip} />)}
+          {action}
+        </div>
       </div>
       <div className="relative z-10">{children}</div>
     </div>

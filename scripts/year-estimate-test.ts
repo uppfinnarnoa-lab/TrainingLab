@@ -184,7 +184,8 @@ function estimateZones(
   if (opts.useSlopeDetection) {
     const slopes = paceArr.slice(0, -1).map((p, i) => (hrArr[i] - hrArr[i + 1]) / (paceArr[i + 1] - p));
     const slopeMax = Math.max(...slopes);
-    for (let i = 0; i < slopes.length - 2; i++) {
+    // Start at i=1: prevents placing LT2 at the fastest bucket (bp1=0).
+    for (let i = 1; i < slopes.length - 2; i++) {
       if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
     }
     if (opts.verbose) {
@@ -235,7 +236,7 @@ function estimateZones(
 
   // ── Sanity checks ─────────────────────────────────────────────────────────
   // Universal (apply equally to all humans):
-  if (lt1HR >= lt2HR - 8) return null;
+  if (lt1HR >= lt2HR - 5) return null;
   if (lt2HR >= maxHR * 0.98) return null;
   if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70) return null;
   if (lt2PaceSecPerKm >= lt1PaceSecPerKm) return null;
@@ -343,14 +344,16 @@ async function main() {
 
   // ── Per-year ──────────────────────────────────────────────────────────────
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: currentYear - 2018 }, (_, i) => 2019 + i);
+  const years = Array.from({ length: currentYear - 2015 }, (_, i) => 2016 + i);
 
   for (const year of years) {
     const start = new Date(`${year}-01-01T00:00:00Z`);
     const end   = year < currentYear ? new Date(`${year}-12-31T23:59:59Z`) : new Date();
 
+    // Load ALL history up to year-end, asOf=end — same as live estimator but time-shifted.
+    // This gives old years sufficient effective weight (recent laps dominate via halfLife).
     const acts = await prisma.activity.findMany({
-      where: { userId: user.id, startDate: { gte: start, lte: end }, sportType: { contains: "run", mode: "insensitive" } },
+      where: { userId: user.id, startDate: { lte: end }, sportType: { contains: "run", mode: "insensitive" } },
       select: { name: true, sportType: true, startDate: true, laps: true, isRace: true, averageSpeed: true, weatherTemp: true },
     }) as ActFull[];
 

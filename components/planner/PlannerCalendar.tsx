@@ -134,7 +134,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
         ) : (
           <div className="flex items-center gap-1.5 px-1">
             <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-            <span className="text-xs text-muted">Löpande</span>
+            <span className="text-xs text-muted">Rolling</span>
           </div>
         )}
 
@@ -150,13 +150,13 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
               className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium text-muted hover:text-primary hover:bg-surface-2 transition"
             >
               <LayoutTemplate size={14} />
-              Mallar
+              Templates
             </button>
           )}
           {/* Rolling / month mode toggle */}
           <button
             onClick={toggleMode}
-            title={calendarMode === "month" ? "Byt till löpande 4-veckorsvy" : "Byt till månadsvy"}
+            title={calendarMode === "month" ? "Switch to rolling 4-week view" : "Switch to month view"}
             className={cn(
               "p-1.5 rounded-lg transition",
               calendarMode === "rolling"
@@ -189,7 +189,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
         summaryLayout === "sidebar" && "md:grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]"
       )}>
         {summaryLayout === "sidebar" && <div className="hidden md:block" />}
-        {["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"].map(d => (
+        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => (
           <div key={d} className="text-center text-xs font-medium text-muted py-1">{d}</div>
         ))}
       </div>
@@ -210,10 +210,10 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
             const now = new Date();
             const thisWeekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd");
             const wk = format(weekStart, "yyyy-MM-dd");
-            if (wk === format(startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Förra veckan";
-            if (wk === thisWeekStart) return "Denna vecka";
-            if (wk === format(startOfWeek(addWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Nästa vecka";
-            return "Om 2 veckor";
+            if (wk === format(startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Last week";
+            if (wk === thisWeekStart) return "This week";
+            if (wk === format(startOfWeek(addWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Next week";
+            return "In 2 weeks";
           })();
 
           return (
@@ -222,7 +222,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                 <div className="flex items-center gap-2 px-1 pt-1">
                   <span className={cn(
                     "text-xs font-semibold",
-                    rollingWeekLabel === "Denna vecka" ? "text-accent" : "text-muted"
+                    rollingWeekLabel === "This week" ? "text-accent" : "text-muted"
                   )}>
                     {rollingWeekLabel}
                   </span>
