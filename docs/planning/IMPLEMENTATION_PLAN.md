@@ -1890,6 +1890,37 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-05 — Mobile polish round 2 (hamburger, tooltips, Swedish→English, templates, sport filter):**
+
+**Hamburger button overlap (Coach + Planner):** Both full-bleed pages used `-my-6` which extended 24px up into the fixed hamburger button's area (hamburger occupies top 56px, but `-my-6` = 24px reduced the gap to 32px). Fixed by switching to `-mx-4 -mb-4 md:-m-6 h-[calc(100vh-56px)] md:h-screen` on mobile — preserves the full 56px (`pt-14`) gap above content while still removing side/bottom padding.
+
+**Stats tab navigation vertical scroll:** `overflow-x-auto` on the nav element was allowing touch events to scroll the nav vertically, intercepting page scroll. Fixed by adding `overflow-y-hidden` and `shrink-0` to each tab button (both `stats-client.tsx` and `volume-client.tsx`).
+
+**Sport filter overflow (Weekly volume card):** `SectionCard` header was a single flex row — the title + sport pills + toggle overflowed on mobile. Fixed by changing to `flex-wrap justify-between` so the controls group wraps below the title on narrow screens.
+
+**MetricTooltip — mobile unusable:** Old implementation used `onMouseEnter/Leave` only (no touch support), tooltip was `pointer-events-none` (couldn't interact or close), and positioned poorly near viewport edges. Rewrote `components/stats/metric-tooltip.tsx`:
+  - Click toggles visibility (touch-friendly)
+  - Transparent backdrop `div` (same z-layer minus 1) closes tooltip on tap-away
+  - Positioning: attempts right of button, flips left if off-screen; attempts below, flips above if would overflow viewport bottom
+  - `pointer-events-auto` on tooltip so users can read/scroll content
+
+**Mobile template access in Planner:** Drag-and-drop doesn't work on touch. Fixed:
+  - `components/planner/TemplateCard.tsx`: action buttons always visible on mobile (`opacity-100 md:opacity-0 md:group-hover:opacity-100`)
+  - `app/(dashboard)/planner/planner-client.tsx`: added `mobileTemplatePrefill` state; when `onAddToDate` is called while `mobileLibOpen=true` (mobile overlay), instead of creating a workout immediately, closes the overlay and opens `WorkoutBuilder` pre-filled with the template — user picks a date in the builder
+  - Calendar header "Templates" button changed from icon-only to labeled button with text
+
+**Swedish → English (full app):** Translated 70+ user-facing strings across 10 files:
+  - `components/planner/OutcomeModal.tsx`: fully rewritten — miss reasons (Illness/Injury/Fatigue/Other), all labels, confirmations, date locale `"sv"→"en"`
+  - `components/planner/BlockEditorModal.tsx`: "Avbryt"→"Cancel", "Bekräfta radering"→"Confirm deletion"
+  - `components/planner/PlannerCalendar.tsx`: weekday headers Mon–Sun, rolling labels (Last/This/Next week, In 2 weeks), "Löpande"→"Rolling", "Mallar"→"Templates", title attributes
+  - `components/planner/TemplateLibrary.tsx`: close button aria-label
+  - `components/coach/ChatInterface.tsx`: approve/reject confirmations, budget/API-key error messages, quick prompts, tool menu hint text, empty state, delete chat title
+  - `app/(dashboard)/races/races-client.tsx`: all modal field labels (Distance, Time, Date, Race/Event, Notes), action buttons (Add result, Link activities, Cancel, Save changes), table headers (Date, Race/Event), empty state, link/unlink tooltips, race name fallback
+  - `app/(dashboard)/settings/ai-settings.tsx`: "Registrerad"→"Registered", placeholder "Redan sparad…"→"Already saved — paste new key to replace"
+  - `app/(dashboard)/settings/sports/sports-manager.tsx`: "Avbryt"→"Cancel", "Radera"→"Delete"
+  - `app/api/coach/chat/route.ts`: AI context messages — `[Inväntar godkännande]`→`[Awaiting approval]`, `[Verktyg utfört]`→`[Tool executed]`, analysis prompt, tool-failure fallback prompt, `describeAction()` return values
+  - `lib/ai/tools.ts`: all tool result `message` fields shown in the chat UI — dates, "Lade till"→"Added", "Raderade"→"Deleted", "Inga PBs"→"No PBs", "Träningsblock"→"Training blocks", cost warning, activity counts, history analysis label, error messages
+
 **Session 2026-06-05 — Mobile responsiveness rework (Planner, Statistics, PB page):**
 
 **Root causes fixed:** Several components had fixed widths or CSS grids that forced the entire page to scroll horizontally on mobile viewports (375px).
