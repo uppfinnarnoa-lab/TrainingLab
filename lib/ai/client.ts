@@ -31,7 +31,6 @@ export const PRICING = {
     cacheRead:   0.30,   // 90% cheaper than input
   },
   gemini: {
-    // Free tier: $0 but rate-limited. Paid tier prices below:
     input:       0.075,  // standard input
     output:      0.30,
     cacheWrite:  0.075,  // same as input to create cache

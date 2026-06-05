@@ -36,7 +36,7 @@ export class GeminiClient implements AIClient {
     try {
       cachedContent = await this.getOrCreateCache(systemPrompt);
     } catch {
-      // Free tier or API error — proceed without cache
+      // Caching API unavailable — proceed without cache
     }
 
     if (cachedContent) {
