@@ -15,9 +15,11 @@ interface Props {
   onEditTemplate: (template: WorkoutTemplate) => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  // On mobile, tapping a template opens the builder instead of adding to today
+  onMobileSelectTemplate?: (templateId: string) => void;
 }
 
-export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTemplate, onNewTemplate, onEditTemplate, mobileOpen, onMobileClose }: Props) {
+export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTemplate, onNewTemplate, onEditTemplate, mobileOpen, onMobileClose, onMobileSelectTemplate }: Props) {
   const [query, setQuery] = useState("");
   const [activeSport, setActiveSport] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -152,7 +154,7 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
                     <TemplateCard
                       key={t.id}
                       template={t}
-                      onAddToDate={onAddToDate}
+                      onAddToDate={mobileOpen && onMobileSelectTemplate ? onMobileSelectTemplate : onAddToDate}
                       onDelete={onDeleteTemplate}
                       onEdit={onEditTemplate}
                       compact

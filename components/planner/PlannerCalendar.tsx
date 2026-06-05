@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft, CalendarRange, Calendar, LayoutTemplate } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft, CalendarRange, Calendar, LayoutTemplate, Copy, ClipboardPaste, Plus } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isToday,
-  isBefore, addMonths, subMonths, subWeeks, addWeeks,
+  addMonths, subMonths, subWeeks, addWeeks,
 } from "date-fns";
 import { WorkoutPill } from "./WorkoutPill";
 import { WeekSummaryStrip } from "./WeekSummaryStrip";
@@ -17,6 +17,23 @@ type CalendarMode = "month" | "rolling";
 const PREF_KEY = "planner_summary_layout";
 const MODE_KEY = "planner_calendar_mode";
 
+export interface CopiedWorkout {
+  name: string;
+  sportType: string;
+  targetDuration: number | null;
+  targetDistance: number | null;
+  notes: string | null;
+  color: string | null;
+  templateId: string | null;
+}
+
+interface ContextMenuState {
+  type: "workout" | "day";
+  x: number; y: number;
+  workout?: PlannedWorkout;
+  date?: string;
+}
+
 interface Props {
   workouts: PlannedWorkout[];
   blocks: TrainingBlock[];
@@ -26,13 +43,82 @@ interface Props {
   onWorkoutMove?: (workoutId: string, newDate: string) => void;
   weekRunActivities?: { date: string; distanceM: number }[];
   onOpenTemplates?: () => void;
+  copiedWorkout?: CopiedWorkout | null;
+  onPasteWorkout?: (date: string) => void;
+  onCopyWorkout?: (workout: PlannedWorkout) => void;
+  onClearCopy?: () => void;
 }
 
-export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove, weekRunActivities = [], onOpenTemplates }: Props) {
+function FloatingMenu({ items, x, y, onClose }: {
+  items: { label: string; icon?: React.ReactNode; onClick: () => void; danger?: boolean }[];
+  x: number; y: number; onClose: () => void;
+}) {
+  if (items.length === 0) { onClose(); return null; }
+  const safeTop  = Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 800) - items.length * 40 - 16);
+  const safeLeft = Math.min(x, (typeof window !== "undefined" ? window.innerWidth  : 1200) - 200);
+  return (
+    <>
+      <div className="fixed inset-0 z-[9990]" onClick={onClose} onContextMenu={e => { e.preventDefault(); onClose(); }} />
+      <div
+        className="fixed z-[9991] min-w-[168px] rounded-xl bg-surface border border-border shadow-xl py-1 overflow-hidden"
+        style={{ top: safeTop, left: safeLeft }}
+      >
+        {items.map((item, i) => (
+          <button
+            key={i}
+            onClick={() => { item.onClick(); onClose(); }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-surface-2 transition-colors",
+              item.danger ? "text-error" : "text-primary"
+            )}
+          >
+            {item.icon}
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+export function PlannerCalendar({
+  workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove,
+  weekRunActivities = [], onOpenTemplates,
+  copiedWorkout, onPasteWorkout, onCopyWorkout, onClearCopy,
+}: Props) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [summaryLayout, setSummaryLayout] = useState<SummaryLayout>("row");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
+  // Refs for keyboard shortcuts — avoid stale closures
+  const lastContextWorkout = useRef<PlannedWorkout | null>(null);
+  const hoveredDateRef     = useRef<string | null>(null);
+  const copiedRef          = useRef(copiedWorkout);
+  useEffect(() => { copiedRef.current = copiedWorkout; }, [copiedWorkout]);
+
+  // Keyboard shortcuts: Ctrl/Cmd+C to copy last right-clicked workout,
+  // Ctrl/Cmd+V to paste to hovered day, Escape to clear copy mode
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const el = e.target as HTMLElement;
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable) return;
+
+      if (e.key === "Escape") { setContextMenu(null); onClearCopy?.(); return; }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+        const w = lastContextWorkout.current;
+        if (w) { onCopyWorkout?.(w); e.preventDefault(); }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+        const d = hoveredDateRef.current;
+        if (copiedRef.current && d && onPasteWorkout) { onPasteWorkout(d); e.preventDefault(); }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCopyWorkout, onPasteWorkout, onClearCopy]);
 
   // Persist preferences
   useEffect(() => {
@@ -54,7 +140,6 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
     localStorage.setItem(MODE_KEY, next);
   }
 
-  // ── Day range — month or rolling 4-week window ──────────────────────────
   const days = useMemo(() => {
     if (calendarMode === "rolling") {
       const now = new Date();
@@ -70,7 +155,6 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
     });
   }, [calendarMode, currentMonth]);
 
-  // Group workouts by date string
   const byDate = useMemo(() => {
     const map = new Map<string, PlannedWorkout[]>();
     for (const w of workouts) {
@@ -81,14 +165,12 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
     return map;
   }, [workouts]);
 
-  // Pre-build a date→block map so blockForDate is O(1) per render
   const blockByDate = useMemo(() => {
     const map = new Map<string, TrainingBlock>();
     for (const b of blocks) {
       if (b.archived) continue;
-      // Walk every day in the block range and map it
-      const start = new Date(b.startDate + "T00:00:00");
-      const end   = new Date(b.endDate   + "T00:00:00");
+      const start  = new Date(b.startDate + "T00:00:00");
+      const end    = new Date(b.endDate   + "T00:00:00");
       const cursor = new Date(start);
       while (cursor <= end) {
         map.set(format(cursor, "yyyy-MM-dd"), b);
@@ -102,7 +184,6 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
     return blockByDate.get(format(date, "yyyy-MM-dd"));
   }
 
-  // Group days into weeks for the summary strip
   const weeks = useMemo(() => {
     const ws: Date[][] = [];
     for (let i = 0; i < days.length; i += 7) ws.push(days.slice(i, i + 7));
@@ -111,7 +192,6 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
 
   const today = format(new Date(), "yyyy-MM-dd");
 
-  // Rolling header label — "19 maj – 15 jun"
   const rollingLabel = useMemo(() => {
     if (calendarMode !== "rolling") return null;
     const first = days[0];
@@ -166,7 +246,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
           >
             {calendarMode === "rolling" ? <CalendarRange size={16} /> : <Calendar size={16} />}
           </button>
-          {/* Layout toggle — desktop only (sidebar mode makes no sense without the sidebar on mobile) */}
+          {/* Layout toggle — desktop only */}
           <button
             onClick={toggleLayout}
             title={summaryLayout === "row" ? "Switch to sidebar view" : "Switch to row view"}
@@ -197,14 +277,11 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
       {/* Calendar grid */}
       <div className="flex-1 overflow-y-auto space-y-2">
         {weeks.map((week, wi) => {
-          const weekStart = week[0];
+          const weekStart    = week[0];
           const weekWorkouts = week.flatMap(d => byDate.get(format(d, "yyyy-MM-dd")) ?? []);
-          const weekBlock = blockForDate(weekStart);
+          const weekBlock    = blockForDate(weekStart);
+          const isSidebar    = summaryLayout === "sidebar";
 
-          // sidebar mode: [summary col | 7 day cols]
-          const isSidebar = summaryLayout === "sidebar";
-
-          // Rolling mode: label each week relative to current week
           const rollingWeekLabel = (() => {
             if (calendarMode !== "rolling") return null;
             const now = new Date();
@@ -237,36 +314,41 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                 {isSidebar && (
                   <div className="hidden md:flex items-stretch">
                     {weekWorkouts.length > 0 ? (
-                      <WeekSummaryStrip
-                        weekStart={weekStart}
-                        workouts={weekWorkouts}
-                        block={weekBlock}
-                        compact
-                      />
+                      <WeekSummaryStrip weekStart={weekStart} workouts={weekWorkouts} block={weekBlock} compact />
                     ) : <div className="w-full" />}
                   </div>
                 )}
 
                 {/* Day cells */}
                 {week.map(day => {
-                  const key = format(day, "yyyy-MM-dd");
-                  const dayWorkouts = byDate.get(key) ?? [];
+                  const key          = format(day, "yyyy-MM-dd");
+                  const dayWorkouts  = byDate.get(key) ?? [];
                   const isCurrentMonth = calendarMode === "rolling" || isSameMonth(day, currentMonth);
-                  const isPast = key <= today; // today counts as past — shows outcome modal, not editor
-                  const blockHere = blockForDate(day);
-
-                  const isDragOver = dragOverDate === key;
+                  const isPast       = key <= today;
+                  const blockHere    = blockForDate(day);
+                  const isDragOver   = dragOverDate === key;
+                  const isPasteMode  = !!copiedWorkout;
 
                   return (
                     <div
                       key={key}
-                      onClick={() => onDayClick(key)}
-                      onDragOver={e => { if (key < today) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOverDate(key); }}
+                      onClick={() => {
+                        // In paste mode, tap a day to paste; otherwise open builder
+                        if (isPasteMode && onPasteWorkout) { onPasteWorkout(key); }
+                        else { onDayClick(key); }
+                      }}
+                      onMouseEnter={() => { hoveredDateRef.current = key; }}
+                      onMouseLeave={() => { hoveredDateRef.current = null; }}
+                      onContextMenu={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setContextMenu({ type: "day", x: e.clientX, y: e.clientY, date: key });
+                      }}
+                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOverDate(key); }}
                       onDragLeave={() => setDragOverDate(null)}
                       onDrop={e => {
                         e.preventDefault();
                         setDragOverDate(null);
-                        if (key < today) return;
                         const templateId = e.dataTransfer.getData("templateId");
                         const workoutId  = e.dataTransfer.getData("workoutId");
                         if (workoutId && onWorkoutMove) onWorkoutMove(workoutId, key);
@@ -276,26 +358,31 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                         "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors",
                         isDragOver
                           ? "border-accent bg-accent/10"
+                          : isPasteMode
+                          ? "border-accent/30 hover:border-accent hover:bg-accent/5"
                           : isToday(day)
                           ? "border-accent/50 bg-accent/5"
                           : "border-transparent hover:border-border hover:bg-surface",
                         !isCurrentMonth && "opacity-35"
                       )}
-                      style={blockHere && !isDragOver ? {
+                      style={blockHere && !isDragOver && !isPasteMode ? {
                         backgroundColor: `${blockHere.color}22`,
                         borderLeftColor: blockHere.color,
                         borderLeftWidth: "3px",
                         borderLeftStyle: "solid",
                       } : undefined}
                     >
-                      {/* Day number */}
-                      <div className="mb-1">
+                      {/* Day number — shows paste icon in paste mode on hover */}
+                      <div className="mb-1 flex items-center justify-between">
                         <span className={cn(
                           "text-xs font-medium w-5 h-5 flex items-center justify-center rounded-full",
                           isToday(day) ? "bg-accent text-white" : isPast ? "text-muted" : "text-primary"
                         )}>
                           {format(day, "d")}
                         </span>
+                        {isPasteMode && (
+                          <ClipboardPaste size={10} className="text-accent/50 shrink-0" />
+                        )}
                       </div>
 
                       {/* Workouts — show up to 5, compact when >3 */}
@@ -307,6 +394,13 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                             isPast={isPast}
                             onClick={onWorkoutClick}
                             compact={dayWorkouts.length > 3}
+                            onContextMenu={(e, workout) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              lastContextWorkout.current = workout;
+                              setContextMenu({ type: "workout", x: e.clientX, y: e.clientY, workout });
+                            }}
+                            onCopyRequest={onCopyWorkout}
                           />
                         ))}
                         {dayWorkouts.length > 5 && (
@@ -331,6 +425,44 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
           );
         })}
       </div>
+
+      {/* Floating context menu */}
+      {contextMenu && (
+        <FloatingMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={
+            contextMenu.type === "workout" && contextMenu.workout
+              ? [
+                  {
+                    label: "Copy  Ctrl+C",
+                    icon: <Copy size={14} />,
+                    onClick: () => {
+                      lastContextWorkout.current = contextMenu.workout!;
+                      onCopyWorkout?.(contextMenu.workout!);
+                    },
+                  },
+                ]
+              : contextMenu.type === "day" && contextMenu.date
+              ? [
+                  ...(copiedWorkout
+                    ? [{
+                        label: `Paste "${copiedWorkout.name}"  Ctrl+V`,
+                        icon: <ClipboardPaste size={14} />,
+                        onClick: () => onPasteWorkout?.(contextMenu.date!),
+                      }]
+                    : []),
+                  {
+                    label: "Add workout",
+                    icon: <Plus size={14} />,
+                    onClick: () => onDayClick(contextMenu.date!),
+                  },
+                ]
+              : []
+          }
+        />
+      )}
     </div>
   );
 }

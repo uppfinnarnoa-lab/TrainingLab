@@ -2,8 +2,9 @@
 
 import { useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { ClipboardX } from "lucide-react";
 import { TemplateLibrary } from "@/components/planner/TemplateLibrary";
-import { PlannerCalendar } from "@/components/planner/PlannerCalendar";
+import { PlannerCalendar, type CopiedWorkout } from "@/components/planner/PlannerCalendar";
 import { WorkoutBuilder, type BuilderData } from "@/components/planner/WorkoutBuilder";
 import { OutcomeModal } from "@/components/planner/OutcomeModal";
 import { BlockBanner } from "@/components/planner/BlockBanner";
@@ -11,6 +12,23 @@ import { BlockEditorModal } from "@/components/planner/BlockEditorModal";
 import type {
   SportCategory, WorkoutTemplate, PlannedWorkout, TrainingBlock,
 } from "@/lib/planner/types";
+
+// Normalize Strava/legacy sport type strings to user's sport category names
+function normalizeSportType(type: string, sports: SportCategory[]): string {
+  if (sports.some(s => s.name === type)) return type;
+  const ciMatch = sports.find(s => s.name.toLowerCase() === type.toLowerCase());
+  if (ciMatch) return ciMatch.name;
+  const STRAVA_MAP: Record<string, string> = {
+    Run: "Running", VirtualRun: "Running", TrailRun: "Running",
+    Ride: "Cycling", VirtualRide: "Cycling", EBikeRide: "Cycling",
+    NordicSki: "Skiing", BackcountrySki: "Skiing",
+    RollerSki: "Roller Skiing",
+    WeightTraining: "Strength", Workout: "Strength",
+  };
+  const alias = STRAVA_MAP[type];
+  if (alias && sports.some(s => s.name === alias)) return alias;
+  return type;
+}
 
 interface Props {
   sports: SportCategory[];
@@ -27,13 +45,19 @@ export function PlannerClient(props: Props) {
   const [, startTransition] = useTransition();
 
   const [templates, setTemplates] = useState(props.templates);
-  const [workouts, setWorkouts]   = useState(props.workouts);
+  // Normalize sport types on load so "Run" → "Running" etc.
+  const [workouts, setWorkouts]   = useState(() =>
+    props.workouts.map(w => ({ ...w, sportType: normalizeSportType(w.sportType, props.sports) }))
+  );
   const [blocks, setBlocks]       = useState(props.blocks);
 
   // Mobile template library overlay
   const [mobileLibOpen, setMobileLibOpen] = useState(false);
   // When a template is tapped on mobile, pre-fill the builder instead of drag-dropping
   const [mobileTemplatePrefill, setMobileTemplatePrefill] = useState<WorkoutTemplate | null>(null);
+
+  // Copy-paste state
+  const [copiedWorkout, setCopiedWorkout] = useState<CopiedWorkout | null>(null);
 
   // Modals
   const [builderDate, setBuilderDate]           = useState<string | null>(null);
@@ -118,7 +142,45 @@ export function PlannerClient(props: Props) {
     });
     if (!res.ok) return;
     const w: PlannedWorkout = await res.json();
-    setWorkouts(prev => [...prev, w].sort((a, b) => a.date.localeCompare(b.date)));
+    const normalized = { ...w, sportType: normalizeSportType(w.sportType, props.sports) };
+    setWorkouts(prev => [...prev, normalized].sort((a, b) => a.date.localeCompare(b.date)));
+  }
+
+  // ── Copy / paste workouts ──────────────────────────────────────────
+  function handleCopyWorkout(workout: PlannedWorkout) {
+    setCopiedWorkout({
+      name: workout.name,
+      sportType: workout.sportType,
+      targetDuration: workout.targetDuration,
+      targetDistance: workout.targetDistance,
+      notes: workout.notes,
+      color: workout.color,
+      templateId: workout.templateId,
+    });
+  }
+
+  async function handlePasteWorkout(date: string) {
+    if (!copiedWorkout) return;
+    await createWorkout({
+      date,
+      name: copiedWorkout.name,
+      sportType: copiedWorkout.sportType,
+      templateId: copiedWorkout.templateId ?? null,
+      targetDuration: copiedWorkout.targetDuration,
+      targetDistance: copiedWorkout.targetDistance,
+      notes: copiedWorkout.notes,
+      color: copiedWorkout.color,
+    });
+  }
+
+  // ── Mobile: tap template in overlay → open builder pre-filled ─────
+  function handleMobileTemplateSelect(templateId: string) {
+    const template = templates.find(t => t.id === templateId);
+    if (!template) return;
+    setMobileLibOpen(false);
+    setMobileTemplatePrefill(template);
+    setBuilderDate(null);
+    setShowBuilder(true);
   }
 
   // ── Move workout to another date ──────────────────────────────────
@@ -312,6 +374,26 @@ export function PlannerClient(props: Props) {
         onEditBlock={b => setEditingBlock(b)}
       />
 
+      {/* Copy mode banner — shows when a workout is copied */}
+      {copiedWorkout && (
+        <div className="border-b border-accent/30 bg-accent/5 px-4 py-2 flex items-center gap-2.5 shrink-0">
+          <ClipboardX size={13} className="text-accent shrink-0" />
+          <span className="text-xs text-accent font-medium flex-1">
+            &ldquo;{copiedWorkout.name}&rdquo; copied
+            <span className="ml-1 text-accent/70">
+              — right-click a day to paste
+              <span className="md:hidden"> or tap a day</span>
+            </span>
+          </span>
+          <button
+            onClick={() => setCopiedWorkout(null)}
+            className="text-xs text-muted hover:text-primary transition px-1"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       {/* Main two-panel layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Template library sidebar — hidden on mobile, toggle via calendar header button */}
@@ -324,6 +406,7 @@ export function PlannerClient(props: Props) {
           onEditTemplate={t => setEditingTemplate(t)}
           mobileOpen={mobileLibOpen}
           onMobileClose={() => setMobileLibOpen(false)}
+          onMobileSelectTemplate={handleMobileTemplateSelect}
         />
 
         {/* Calendar */}
@@ -337,6 +420,10 @@ export function PlannerClient(props: Props) {
             onWorkoutMove={handleMoveWorkout}
             weekRunActivities={props.weekRunActivities ?? []}
             onOpenTemplates={() => setMobileLibOpen(true)}
+            copiedWorkout={copiedWorkout}
+            onCopyWorkout={handleCopyWorkout}
+            onPasteWorkout={handlePasteWorkout}
+            onClearCopy={() => setCopiedWorkout(null)}
           />
         </div>
       </div>
