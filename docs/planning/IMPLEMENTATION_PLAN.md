@@ -1890,6 +1890,11 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-06 — Planner sidebar view: column width, overflow, remove Log? indicator:**
+
+- `components/planner/PlannerCalendar.tsx`: sidebar grid now uses `style={{ gridTemplateColumns: "120px repeat(7, minmax(140px, 1fr))" }}` (inline style, applied to both weekday header row and each week row). Replaces `md:grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]` where `1fr` was only ~86px — too narrow to read workout names. Minimum 140px per day = ~1100px total; calendar container has `overflow-auto` so it scrolls horizontally when viewport is narrower. Day cell div gains `overflow-hidden` to clip any pill content that overflows the cell boundary (was causing text to render outside rounded boxes).
+- `components/planner/WorkoutPill.tsx`: removed "Log?" / "Logga?" indicator entirely — past unlogged sessions are already visually distinct by status (no badge needed, just adds clutter). Meta row (duration + distance) changed from `flex gap-2` to `flex flex-wrap gap-x-1.5` with `shrink-0` on each item — items wrap to a new line when the cell is narrow instead of overflowing out of the pill.
+
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
 **Copy-paste workouts (Ctrl+C/V + right-click + long-press):**
