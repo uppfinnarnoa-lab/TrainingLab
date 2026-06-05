@@ -1890,6 +1890,20 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
+
+**Copy-paste workouts (Ctrl+C/V + right-click + long-press):**
+- `components/planner/WorkoutPill.tsx`: `onContextMenu` prop for right-click; 500ms long-press (`onTouchStart` timer) calls `onCopyRequest` with haptic feedback; `didLongPress` ref prevents click from firing after long-press; all workouts now draggable (removed `canDrag = workout.date >= today` guard).
+- `components/planner/PlannerCalendar.tsx`: new `CopiedWorkout` export type; `FloatingMenu` inline component for context menus. Right-click workout → "Copy (Ctrl+C)" menu item; right-click day → "Paste / Add workout" menu items. Day cells: paste mode changes click behavior (paste instead of builder), shows accent border + `ClipboardPaste` icon as visual affordance. Keyboard listener on `window`: Ctrl/Cmd+C copies last right-clicked workout (tracked via `lastContextWorkout` ref), Ctrl/Cmd+V pastes to hovered day (`hoveredDateRef`), Escape clears copy mode; refs avoid stale closure issues. Also removed `if (key < today) return` from `onDragOver`/`onDrop` so past days accept drops.
+- `app/(dashboard)/planner/planner-client.tsx`: `copiedWorkout: CopiedWorkout | null` state; `handleCopyWorkout`, `handlePasteWorkout` (calls `createWorkout` with copied data). Copy-mode banner between BlockBanner and calendar: shows workout name, "right-click a day / tap a day to paste" hint, Cancel button. Props wired to PlannerCalendar.
+
+**Sport type normalization (Run vs Running):**
+- `normalizeSportType(type, sports)` utility in PlannerClient: exact match → case-insensitive match → Strava alias map (`Run→Running`, `Ride→Cycling`, `NordicSki→Skiing`, `RollerSki→Roller Skiing`, `WeightTraining→Strength`). Applied on initial `workouts` state (lazy initializer) and after `createWorkout` API response. Eliminates duplicate sport rows in WeekSummaryStrip.
+
+**Drag past workouts:** Removed date restriction in WorkoutPill (`canDrag = true` always) and in PlannerCalendar drop handlers — any day (past or future) accepts drops.
+
+**Template mobile "Add" button fix:** Added `onMobileSelectTemplate?: (templateId: string) => void` prop to TemplateLibrary. When `mobileOpen`, TemplateCard's "+" button calls this instead of `onAddToDate`. `handleMobileTemplateSelect` in PlannerClient closes overlay, sets `mobileTemplatePrefill`, and opens builder atomically — no ambiguous `mobileLibOpen` closure check needed.
+
 **Session 2026-06-05 — Mobile polish round 2 (hamburger, tooltips, Swedish→English, templates, sport filter):**
 
 **Hamburger button overlap (Coach + Planner):** Both full-bleed pages used `-my-6` which extended 24px up into the fixed hamburger button's area (hamburger occupies top 56px, but `-my-6` = 24px reduced the gap to 32px). Fixed by switching to `-mx-4 -mb-4 md:-m-6 h-[calc(100vh-56px)] md:h-screen` on mobile — preserves the full 56px (`pt-14`) gap above content while still removing side/bottom padding.
