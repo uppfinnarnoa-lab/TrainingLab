@@ -112,14 +112,14 @@ export function StatsClient(props: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Tab nav */}
-      <nav className="flex gap-1 border-b border-border overflow-x-auto">
+      {/* Tab nav — overflow-x-auto + overflow-y-hidden prevents vertical scroll trapping on touch */}
+      <nav className="flex gap-1 border-b border-border overflow-x-auto overflow-y-hidden">
         {SECTIONS.map(s => (
           <button
             key={s}
             onClick={() => setSection(s)}
             className={cn(
-              "px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
+              "shrink-0 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
               section === s
                 ? "border-accent text-accent"
                 : "border-transparent text-muted hover:text-primary"

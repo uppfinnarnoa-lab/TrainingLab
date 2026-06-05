@@ -173,9 +173,11 @@ export async function POST(req: NextRequest) {
             messages.push({ role: "assistant", content: `[Inväntar godkännande: ${toolUse.name}] ${toolEvent.message}` });
           } else {
             const result = await executeCoachTool(toolUse.name, toolUse.input, userId);
-            toolEvent = { name: toolUse.name, message: result.message, success: result.success };
+            if (result.success) toolEvent = { name: toolUse.name, message: result.message, success: true };
             messages.push({ role: "assistant", content: `[Tool: ${toolUse.name}]\n${result.data}` });
-            messages.push({ role: "user", content: "Analysera och svara på min fråga baserat på dessa data." });
+            messages.push({ role: "user", content: result.success
+              ? "Analysera och svara på min fråga baserat på dessa data."
+              : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
           }
         }
       }
@@ -206,9 +208,11 @@ export async function POST(req: NextRequest) {
           messages.push({ role: "assistant", content: `[Inväntar godkännande: ${toolName}] ${toolEvent.message}` });
         } else {
           const result = await executeCoachTool(toolName, toolInput, userId);
-          toolEvent = { name: toolName, message: result.message, success: result.success };
+          if (result.success) toolEvent = { name: toolName, message: result.message, success: true };
           messages.push({ role: "assistant", content: `[Tool: ${toolName}]\n${result.data}` });
-          messages.push({ role: "user", content: "Analysera och svara på min fråga baserat på dessa data." });
+          messages.push({ role: "user", content: result.success
+            ? "Analysera och svara på min fråga baserat på dessa data."
+            : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
         }
       }
     } catch { /* tool check failed */ }
@@ -238,9 +242,11 @@ export async function POST(req: NextRequest) {
           messages.push({ role: "assistant", content: `[Inväntar godkännande: ${toolName}] ${toolEvent.message}` });
         } else {
           const result = await executeCoachTool(toolName, toolInput, userId);
-          toolEvent = { name: toolName, message: result.message, success: result.success };
+          if (result.success) toolEvent = { name: toolName, message: result.message, success: true };
           messages.push({ role: "assistant", content: `[Tool: ${toolName}]\n${result.data}` });
-          messages.push({ role: "user", content: "Analysera och svara på min fråga baserat på dessa data." });
+          messages.push({ role: "user", content: result.success
+            ? "Analysera och svara på min fråga baserat på dessa data."
+            : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
         }
       }
     } catch { /* tool check failed */ }
@@ -273,9 +279,11 @@ export async function POST(req: NextRequest) {
           messages.push({ role: "assistant", content: `[Inväntar godkännande: ${fc.name}] ${toolEvent.message}` });
         } else {
           const toolResult = await executeCoachTool(fc.name, fc.args as Record<string, unknown>, userId);
-          toolEvent = { name: fc.name, message: toolResult.message, success: toolResult.success };
+          if (toolResult.success) toolEvent = { name: fc.name, message: toolResult.message, success: true };
           messages.push({ role: "assistant", content: `[Tool: ${fc.name}]\n${toolResult.data}` });
-          messages.push({ role: "user", content: "Analysera och svara på min fråga baserat på dessa data." });
+          messages.push({ role: "user", content: toolResult.success
+            ? "Analysera och svara på min fråga baserat på dessa data."
+            : "Verktyget misslyckades. Svara baserat på din befintliga kontext utan att anta att du har färsk data." });
         }
       }
     } catch { /* tool check failed */ }

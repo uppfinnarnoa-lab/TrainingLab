@@ -177,17 +177,17 @@ export function AISettingsSection({
 
       {/* Gemini */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-primary">Gemini API key</p>
-          {hasGeminiKey && <span className="text-xs text-accent">Key saved ✓</span>}
-        </div>
+        <p className="text-sm font-medium text-primary">
+          Gemini API key
+          {hasGeminiKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+        </p>
         <SetupGuide steps={GEMINI_GUIDE} />
         <div className="relative">
           <input
             type={showGemini ? "text" : "password"}
             value={geminiKey}
             onChange={(e) => setGeminiKey(e.target.value)}
-            placeholder={hasGeminiKey ? "Enter new key to replace existing" : "AIza..."}
+            placeholder={hasGeminiKey ? "Redan sparad — klistra in ny för att ändra" : "AIza..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowGemini(v => !v)}
@@ -225,17 +225,17 @@ export function AISettingsSection({
 
       {/* Claude */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-primary">Claude API key</p>
-          {hasClaudeKey && <span className="text-xs text-accent">Key saved ✓</span>}
-        </div>
+        <p className="text-sm font-medium text-primary">
+          Claude API key
+          {hasClaudeKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+        </p>
         <SetupGuide steps={CLAUDE_GUIDE} />
         <div className="relative">
           <input
             type={showClaude ? "text" : "password"}
             value={claudeKey}
             onChange={(e) => setClaudeKey(e.target.value)}
-            placeholder={hasClaudeKey ? "Enter new key to replace existing" : "sk-ant-..."}
+            placeholder={hasClaudeKey ? "Redan sparad — klistra in ny för att ändra" : "sk-ant-..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowClaude(v => !v)}
@@ -269,10 +269,10 @@ export function AISettingsSection({
 
       {/* NVIDIA NIM */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-primary">NVIDIA NIM API key</p>
-          {hasNvidiaKey && <span className="text-xs text-accent">Key saved ✓</span>}
-        </div>
+        <p className="text-sm font-medium text-primary">
+          NVIDIA NIM API key
+          {hasNvidiaKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+        </p>
         <p className="text-xs text-muted">
           Free, rate-limited (40 req/min). Get your key at{" "}
           <a href="https://build.nvidia.com" target="_blank" rel="noopener noreferrer"
@@ -284,7 +284,7 @@ export function AISettingsSection({
             type={showNvidia ? "text" : "password"}
             value={nvidiaKey}
             onChange={(e) => setNvidiaKey(e.target.value)}
-            placeholder={hasNvidiaKey ? "Enter new key to replace existing" : "nvapi-..."}
+            placeholder={hasNvidiaKey ? "Redan sparad — klistra in ny för att ändra" : "nvapi-..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowNvidia(v => !v)}
@@ -309,10 +309,10 @@ export function AISettingsSection({
 
       {/* Groq */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-primary">Groq API key</p>
-          {hasGroqKey && <span className="text-xs text-accent">Key saved ✓</span>}
-        </div>
+        <p className="text-sm font-medium text-primary">
+          Groq API key
+          {hasGroqKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+        </p>
         <p className="text-xs text-muted">
           Free tier, no credit card required. Get your key at{" "}
           <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer"
@@ -324,7 +324,7 @@ export function AISettingsSection({
             type={showGroq ? "text" : "password"}
             value={groqKey}
             onChange={(e) => setGroqKey(e.target.value)}
-            placeholder={hasGroqKey ? "Enter new key to replace existing" : "gsk_..."}
+            placeholder={hasGroqKey ? "Redan sparad — klistra in ny för att ändra" : "gsk_..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowGroq(v => !v)}

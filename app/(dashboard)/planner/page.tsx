@@ -90,7 +90,7 @@ export default async function PlannerPage() {
   ];
 
   return (
-    <div className="-mx-6 -my-6 h-[calc(100vh-64px)] md:h-screen flex flex-col">
+    <div className="-mx-4 -mb-4 md:-m-6 h-[calc(100vh-56px)] md:h-screen flex flex-col">
       <PlannerClient
         sports={serialise(sports) as never}
         templates={serialise(templates) as never}

@@ -147,10 +147,10 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
           {onOpenTemplates && (
             <button
               onClick={onOpenTemplates}
-              title="Öppna mallar"
-              className="md:hidden p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
+              className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium text-muted hover:text-primary hover:bg-surface-2 transition"
             >
-              <LayoutTemplate size={16} />
+              <LayoutTemplate size={14} />
+              Mallar
             </button>
           )}
           {/* Rolling / month mode toggle */}

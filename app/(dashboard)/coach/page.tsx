@@ -61,8 +61,9 @@ export default async function CoachPage({
   }));
 
   return (
-    // Escape the dashboard's p-6 padding and fill the full viewport height
-    <div className="-mx-6 -my-6 h-screen flex flex-col">
+    // On mobile: keep pt-14 gap (clears the fixed hamburger button), remove side+bottom padding only.
+    // On desktop: remove all padding with -m-6 for full bleed.
+    <div className="-mx-4 -mb-4 md:-m-6 h-[calc(100vh-56px)] md:h-screen flex flex-col">
       <ChatInterface
         provider={provider}
         hasApiKey={hasApiKey}
