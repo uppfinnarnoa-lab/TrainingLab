@@ -113,7 +113,7 @@ export function StatsClient(props: Props) {
   return (
     <div className="space-y-6">
       {/* Tab nav */}
-      <nav className="flex gap-1 border-b border-border">
+      <nav className="flex gap-1 border-b border-border overflow-x-auto">
         {SECTIONS.map(s => (
           <button
             key={s}
@@ -721,7 +721,7 @@ function ZoneCalibrationButton({ initialLt1Pct = 83, initialLt2Pct = 89 }: { ini
   return (
     <div className="space-y-2">
       {/* Method selector */}
-      <div className="flex gap-1 rounded-lg border border-border p-0.5 text-xs">
+      <div className="flex flex-wrap gap-1 rounded-lg border border-border p-0.5 text-xs">
         {(["algorithmic", "pct_maxhr", "ai"] as CalibMethod[]).map(m => (
           <button key={m} onClick={() => setMethod(m)}
             className={cn("px-2.5 py-1 rounded-md transition-colors whitespace-nowrap",

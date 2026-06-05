@@ -30,6 +30,9 @@ export function PlannerClient(props: Props) {
   const [workouts, setWorkouts]   = useState(props.workouts);
   const [blocks, setBlocks]       = useState(props.blocks);
 
+  // Mobile template library overlay
+  const [mobileLibOpen, setMobileLibOpen] = useState(false);
+
   // Modals
   const [builderDate, setBuilderDate]           = useState<string | null>(null);
   const [showBuilder, setShowBuilder]           = useState(false);
@@ -298,7 +301,7 @@ export function PlannerClient(props: Props) {
 
       {/* Main two-panel layout */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Template library sidebar */}
+        {/* Template library sidebar — hidden on mobile, toggle via calendar header button */}
         <TemplateLibrary
           templates={templates}
           sports={props.sports}
@@ -306,10 +309,12 @@ export function PlannerClient(props: Props) {
           onDeleteTemplate={handleDeleteTemplate}
           onNewTemplate={() => openBuilder()}
           onEditTemplate={t => setEditingTemplate(t)}
+          mobileOpen={mobileLibOpen}
+          onMobileClose={() => setMobileLibOpen(false)}
         />
 
         {/* Calendar */}
-        <div className="flex-1 p-4 overflow-auto">
+        <div className="flex-1 p-3 md:p-4 overflow-auto">
           <PlannerCalendar
             workouts={workouts}
             blocks={blocks}
@@ -318,6 +323,7 @@ export function PlannerClient(props: Props) {
             onTemplateDrop={(templateId, date) => handleAddTemplateToDate(templateId, date)}
             onWorkoutMove={handleMoveWorkout}
             weekRunActivities={props.weekRunActivities ?? []}
+            onOpenTemplates={() => setMobileLibOpen(true)}
           />
         </div>
       </div>

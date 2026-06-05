@@ -401,7 +401,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
         </div>
 
         {/* View mode tabs */}
-        <div className="flex gap-1 border-b border-border">
+        <div className="flex gap-1 border-b border-border overflow-x-auto">
           {MODES.map(({ id, label }) => (
             <button key={id} onClick={() => setViewMode(id)}
               className={cn("px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",

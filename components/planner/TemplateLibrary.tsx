@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Search, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { TemplateCard } from "./TemplateCard";
 import type { WorkoutTemplate, SportCategory } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
@@ -13,9 +13,11 @@ interface Props {
   onDeleteTemplate: (id: string) => void;
   onNewTemplate: () => void;
   onEditTemplate: (template: WorkoutTemplate) => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTemplate, onNewTemplate, onEditTemplate }: Props) {
+export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTemplate, onNewTemplate, onEditTemplate, mobileOpen, onMobileClose }: Props) {
   const [query, setQuery] = useState("");
   const [activeSport, setActiveSport] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -55,18 +57,34 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
   }
 
   return (
-    <aside className="flex flex-col h-full border-r border-border bg-surface w-64 shrink-0">
+    <aside className={cn(
+      "flex flex-col border-r border-border bg-surface",
+      mobileOpen
+        ? "fixed inset-0 z-50 w-full"
+        : "hidden md:flex md:w-64 md:shrink-0 md:h-full"
+    )}>
       {/* Header */}
       <div className="p-3 border-b border-border space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-primary">Templates</p>
-          <button
-            onClick={onNewTemplate}
-            className="flex items-center gap-1 text-xs text-accent hover:underline"
-          >
-            <Plus size={13} />
-            New
-          </button>
+          <div className="flex items-center gap-2">
+            {mobileOpen && (
+              <button
+                onClick={onMobileClose}
+                className="md:hidden p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
+                aria-label="Stäng mallar"
+              >
+                <X size={16} />
+              </button>
+            )}
+            <button
+              onClick={onNewTemplate}
+              className="flex items-center gap-1 text-xs text-accent hover:underline"
+            >
+              <Plus size={13} />
+              New
+            </button>
+          </div>
         </div>
 
         {/* Search */}

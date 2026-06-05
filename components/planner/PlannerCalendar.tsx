@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft, CalendarRange, Calendar } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft, CalendarRange, Calendar, LayoutTemplate } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isToday,
@@ -25,9 +25,10 @@ interface Props {
   onTemplateDrop?: (templateId: string, date: string) => void;
   onWorkoutMove?: (workoutId: string, newDate: string) => void;
   weekRunActivities?: { date: string; distanceM: number }[];
+  onOpenTemplates?: () => void;
 }
 
-export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove, weekRunActivities = [] }: Props) {
+export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove, weekRunActivities = [], onOpenTemplates }: Props) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [summaryLayout, setSummaryLayout] = useState<SummaryLayout>("row");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
@@ -142,6 +143,16 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
         </h2>
 
         <div className="flex items-center gap-1">
+          {/* Mobile: open template library overlay */}
+          {onOpenTemplates && (
+            <button
+              onClick={onOpenTemplates}
+              title="Öppna mallar"
+              className="md:hidden p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
+            >
+              <LayoutTemplate size={16} />
+            </button>
+          )}
           {/* Rolling / month mode toggle */}
           <button
             onClick={toggleMode}
@@ -155,11 +166,11 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
           >
             {calendarMode === "rolling" ? <CalendarRange size={16} /> : <Calendar size={16} />}
           </button>
-          {/* Layout toggle */}
+          {/* Layout toggle — desktop only (sidebar mode makes no sense without the sidebar on mobile) */}
           <button
             onClick={toggleLayout}
             title={summaryLayout === "row" ? "Switch to sidebar view" : "Switch to row view"}
-            className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
+            className="hidden md:inline-flex p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
           >
             {summaryLayout === "row" ? <PanelLeft size={16} /> : <AlignJustify size={16} />}
           </button>
@@ -172,12 +183,12 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
         </div>
       </div>
 
-      {/* Weekday headers */}
+      {/* Weekday headers — always 7 columns on mobile, sidebar mode only on md+ */}
       <div className={cn(
-        "mb-1 gap-x-1",
-        summaryLayout === "sidebar" ? "grid grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]" : "grid grid-cols-7"
+        "mb-1 gap-x-1 grid grid-cols-7",
+        summaryLayout === "sidebar" && "md:grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]"
       )}>
-        {summaryLayout === "sidebar" && <div />}
+        {summaryLayout === "sidebar" && <div className="hidden md:block" />}
         {["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"].map(d => (
           <div key={d} className="text-center text-xs font-medium text-muted py-1">{d}</div>
         ))}
@@ -219,12 +230,12 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                 </div>
               )}
               <div className={cn(
-                "gap-x-1",
-                isSidebar ? "grid grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]" : "grid grid-cols-7"
+                "gap-x-1 grid grid-cols-7",
+                isSidebar && "md:grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]"
               )}>
-                {/* Sidebar summary column */}
+                {/* Sidebar summary column — hidden on mobile */}
                 {isSidebar && (
-                  <div className="flex items-stretch">
+                  <div className="hidden md:flex items-stretch">
                     {weekWorkouts.length > 0 ? (
                       <WeekSummaryStrip
                         weekStart={weekStart}
@@ -262,7 +273,7 @@ export function PlannerCalendar({ workouts, blocks, onDayClick, onWorkoutClick, 
                         else if (templateId && onTemplateDrop) onTemplateDrop(templateId, key);
                       }}
                       className={cn(
-                        "min-h-[88px] rounded-xl p-1.5 cursor-pointer border transition-colors",
+                        "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors",
                         isDragOver
                           ? "border-accent bg-accent/10"
                           : isToday(day)

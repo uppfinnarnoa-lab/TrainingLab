@@ -11,7 +11,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // main gets its own scroll via overflow-y-auto
     <div className="flex h-screen">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-background min-w-0">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden bg-background min-w-0">
         <div className="max-w-7xl mx-auto p-4 pt-14 md:p-6">{children}</div>
       </main>
     </div>

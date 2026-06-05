@@ -155,9 +155,9 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
           <p className="text-sm text-muted mt-1">Lägg till dina PBs och tävlingsresultat manuellt ovan.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-[200px_1fr] gap-6">
-          {/* Distance sidebar */}
-          <div className="space-y-1">
+        <div className="flex flex-col gap-6 sm:grid sm:grid-cols-[200px_1fr]">
+          {/* Distance selector — horizontal pill row on mobile, vertical list on desktop */}
+          <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-col sm:overflow-visible sm:pb-0 sm:gap-0 sm:space-y-1">
             {distances.map(([dist, rs]) => {
               const best = rs.reduce<RaceRecord | null>((b, r) => !b || r.time < b.time ? r : b, null);
               return (
@@ -165,17 +165,17 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
                   key={dist}
                   onClick={() => setSelected(dist)}
                   className={cn(
-                    "w-full text-left px-3 py-2.5 rounded-xl transition",
+                    "shrink-0 sm:shrink sm:w-full text-left px-3 py-2 sm:py-2.5 rounded-xl transition border",
                     selectedDistance === dist
-                      ? "bg-accent/10 border border-accent/30"
-                      : "hover:bg-surface-2 border border-transparent"
+                      ? "bg-accent/10 border-accent/30"
+                      : "hover:bg-surface-2 border-transparent"
                   )}
                 >
-                  <p className={cn("text-sm font-semibold", selectedDistance === dist ? "text-accent" : "text-primary")}>
+                  <p className={cn("text-sm font-semibold whitespace-nowrap sm:whitespace-normal", selectedDistance === dist ? "text-accent" : "text-primary")}>
                     {dist}
                   </p>
                   {best && <p className="text-xs font-mono text-muted">{secToTimeStr(best.time)}</p>}
-                  <p className="text-xs text-muted">{rs.length} resultat</p>
+                  <p className="text-xs text-muted hidden sm:block">{rs.length} resultat</p>
                 </button>
               );
             })}
@@ -253,33 +253,41 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
                 <thead>
                   <tr className="border-b border-border bg-surface-2">
                     <th className="text-left px-4 py-2.5 text-xs font-medium text-muted">Datum</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted">Lopp / Händelse</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-muted hidden sm:table-cell">Lopp / Händelse</th>
                     <th className="text-right px-4 py-2.5 text-xs font-medium text-muted">Tid</th>
-                    <th className="text-right px-4 py-2.5 text-xs font-medium text-muted">vs PB</th>
-                    <th className="px-4 py-2.5 w-24" />
+                    <th className="text-right px-4 py-2.5 text-xs font-medium text-muted hidden sm:table-cell">vs PB</th>
+                    <th className="px-4 py-2.5 w-24 hidden sm:table-cell" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {distanceRecords.slice().reverse().map(r => {
                     const delta = pb ? r.time - pb.time : 0;
                     return (
-                      <tr key={r.id} className="hover:bg-surface-2 transition-colors group">
-                        <td className="px-4 py-2.5 text-muted">{format(parseISO(r.date), "d MMM yyyy")}</td>
-                        <td className="px-4 py-2.5 text-primary max-w-[200px] truncate">
+                      <tr
+                        key={r.id}
+                        className="hover:bg-surface-2 transition-colors group cursor-pointer sm:cursor-default"
+                        onClick={() => setEditRecord(r)}
+                      >
+                        <td className="px-4 py-2.5 text-muted whitespace-nowrap">
+                          <span className="hidden sm:inline">{format(parseISO(r.date), "d MMM yyyy")}</span>
+                          <span className="sm:hidden">{format(parseISO(r.date), "d MMM yy")}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-primary max-w-[200px] truncate hidden sm:table-cell">
                           {r.eventName ?? "—"}
                         </td>
                         <td className="px-4 py-2.5 text-right font-mono font-semibold text-primary">
                           {secToTimeStr(r.time)}
                           {r.id === pb?.id && <Trophy size={12} className="inline ml-1 text-warning" />}
                         </td>
-                        <td className={cn("px-4 py-2.5 text-right font-mono text-sm", delta === 0 ? "text-accent" : "text-muted")}>
+                        <td className={cn("px-4 py-2.5 text-right font-mono text-sm hidden sm:table-cell", delta === 0 ? "text-accent" : "text-muted")}>
                           {delta === 0 ? "PB" : `+${secToTimeStr(delta)}`}
                         </td>
-                        <td className="px-4 py-2.5">
+                        <td className="px-4 py-2.5 hidden sm:table-cell">
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition justify-end">
                             {r.stravaActivityId && (
                               <>
                                 <a href={`https://www.strava.com/activities/${r.stravaActivityId}`} target="_blank" rel="noopener noreferrer"
+                                  onClick={e => e.stopPropagation()}
                                   className="p-1 rounded text-muted hover:text-accent transition">
                                   <ExternalLink size={13} />
                                 </a>
@@ -292,22 +300,22 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
                                 </button>
                               </>
                             )}
-                            <button onClick={() => setEditRecord(r)} className="p-1 rounded text-muted hover:text-primary transition">
+                            <button onClick={e => { e.stopPropagation(); setEditRecord(r); }} className="p-1 rounded text-muted hover:text-primary transition">
                               <Edit2 size={13} />
                             </button>
                             {confirmDeleteId === r.id ? (
                               <div className="flex items-center gap-0.5">
-                                <button onClick={() => setConfirmDeleteId(null)}
+                                <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); }}
                                   className="px-1.5 py-0.5 rounded text-[10px] text-muted hover:bg-surface-2 transition">
                                   Nej
                                 </button>
-                                <button onClick={() => deleteRecord(r.id)}
+                                <button onClick={e => { e.stopPropagation(); deleteRecord(r.id); }}
                                   className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-error bg-error/10 hover:bg-error/20 transition">
                                   Ja
                                 </button>
                               </div>
                             ) : (
-                              <button onClick={() => deleteRecord(r.id)} className="p-1 rounded text-muted hover:text-error transition">
+                              <button onClick={e => { e.stopPropagation(); deleteRecord(r.id); }} className="p-1 rounded text-muted hover:text-error transition">
                                 <Trash2 size={13} />
                               </button>
                             )}

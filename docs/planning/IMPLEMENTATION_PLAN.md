@@ -1890,6 +1890,18 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-05 — Mobile responsiveness rework (Planner, Statistics, PB page):**
+
+**Root causes fixed:** Several components had fixed widths or CSS grids that forced the entire page to scroll horizontally on mobile viewports (375px).
+
+- `app/(dashboard)/layout.tsx`: Added `overflow-x-hidden` to `<main>` as a safety net — prevents any child component from causing page-level horizontal scroll.
+- `app/(dashboard)/stats/stats-client.tsx`: Tab nav (`flex gap-1 border-b`) → added `overflow-x-auto` so 5 tabs scroll within the nav bar on mobile instead of overflowing the page. ZoneCalibration method-selector buttons → added `flex-wrap` so the 3 long-text buttons reflow onto multiple lines on narrow screens.
+- `app/(dashboard)/stats/volume/volume-client.tsx`: View mode tab row → added `overflow-x-auto` (same fix as stats tab nav; 5 modes with long labels: "Year vs Year", "Cumulative", etc.).
+- `app/(dashboard)/races/races-client.tsx`: `grid grid-cols-[200px_1fr]` → `flex flex-col gap-6 sm:grid sm:grid-cols-[200px_1fr]` — stacks on mobile, two-column on `sm+`. Distance sidebar: horizontal pill row on mobile (`flex gap-2 overflow-x-auto`), vertical list on desktop (`sm:flex-col`). History table: "Lopp/Händelse" and "vs PB" columns hidden on mobile (`hidden sm:table-cell`); date uses shorter `d MMM yy` format on mobile via `sm:hidden`/`hidden sm:inline`; actions column hidden on mobile (replaced by row click → opens edit modal). `e.stopPropagation()` added to all button clicks inside table rows to prevent unwanted modal trigger on desktop.
+- `components/planner/TemplateLibrary.tsx`: Added `mobileOpen?: boolean` + `onMobileClose?: () => void` props. On mobile the sidebar is `hidden md:flex` by default; when `mobileOpen=true` it becomes `fixed inset-0 z-50 w-full` (full-screen overlay). Added close button (`X` icon) in the header that's visible only when `mobileOpen` on mobile.
+- `components/planner/PlannerCalendar.tsx`: Added `onOpenTemplates?: () => void` prop + `LayoutTemplate` import. Mobile-only button appears in calendar header to open template overlay. Layout toggle button (sidebar/row mode) hidden on mobile (`hidden md:inline-flex`) since sidebar mode requires the 256px library to be visible. Weekday header and week row grids: always `grid-cols-7` on mobile; sidebar 8-column grid only on `md+` via `md:grid-cols-[120px_1fr...]`. Sidebar WeekSummaryStrip column: `hidden md:flex` so it doesn't consume space on mobile. Day cell: `min-h-[70px] md:min-h-[88px]` and `p-1 md:p-1.5` for smaller but usable cells on mobile.
+- `app/(dashboard)/planner/planner-client.tsx`: Added `mobileLibOpen` state; passes `mobileOpen`/`onMobileClose` to `TemplateLibrary` and `onOpenTemplates` to `PlannerCalendar`. Calendar padding reduced to `p-3 md:p-4` on mobile.
+
 **Session 2026-06-05 — Production deployment + data migration:**
 
 **Deployment (training.helgars.se):**
