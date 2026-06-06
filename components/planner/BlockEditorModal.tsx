@@ -23,7 +23,7 @@ const PRESET_COLORS = [
 
 interface Props {
   initial?: Partial<TrainingBlock>;
-  onSave: (data: Partial<TrainingBlock>) => Promise<void>;
+  onSave: (data: Partial<TrainingBlock>) => Promise<boolean>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
 }
@@ -37,8 +37,9 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
   const [endDate, setEnd]     = useState(initial?.endDate?.slice(0, 10) ?? "");
   const [notes, setNotes]     = useState(initial?.notes ?? "");
   const [kmPerWeek, setKm]    = useState(initial?.targetKmPerWeek ? String(initial.targetKmPerWeek) : "");
-  const [saving, setSaving]     = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [deleting, setDeleting]   = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Auto-update color when type changes (unless manually changed)
@@ -52,18 +53,21 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
 
   async function handleSave() {
     if (!name.trim() || !startDate || !endDate) return;
+    if (!isRaceType && startDate > endDate) return;
     setSaving(true);
-    await onSave({
+    setSaveError(false);
+    const ok = await onSave({
       name: name.trim(),
       blockType,
       color,
       startDate,
-      endDate: effectiveEndDate, // race = single day
+      endDate: effectiveEndDate,
       notes: notes || null,
       targetKmPerWeek: !isRaceType && kmPerWeek ? parseFloat(kmPerWeek) : null,
     });
     setSaving(false);
-    onClose();
+    if (ok) onClose();
+    else setSaveError(true);
   }
 
   async function handleDelete() {
@@ -76,8 +80,9 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
 
   const isRaceType = blockType === "race";
   const effectiveEndDate = isRaceType ? startDate : endDate;
-  const weeks = !isRaceType && startDate && endDate
-    ? Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (7 * 86400000)) + 1)
+  const invalidDateRange = !isRaceType && !!startDate && !!endDate && startDate > endDate;
+  const weeks = !isRaceType && startDate && endDate && !invalidDateRange
+    ? Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (7 * 86400000)) + 1
     : null;
 
   return (
@@ -134,8 +139,11 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
               </div>
             )}
           </div>
-          {weeks && (
+          {weeks != null && (
             <p className="text-xs text-muted -mt-2">{weeks} week{weeks !== 1 ? "s" : ""}</p>
+          )}
+          {invalidDateRange && (
+            <p className="text-xs text-error -mt-2">End date must be after start date.</p>
           )}
 
           {/* Target km/week — hidden for races */}
@@ -190,11 +198,12 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
               </button>
             </div>
           )}
+          {saveError && <p className="text-xs text-error">Failed to save — please try again.</p>}
           <div className="flex-1" />
           <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-primary transition">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving || !name.trim() || !startDate || !endDate}
+          <button onClick={handleSave} disabled={saving || !name.trim() || !startDate || !endDate || invalidDateRange}
             className="px-5 py-2 rounded-xl text-sm font-semibold text-white dark:text-background hover:opacity-90 disabled:opacity-40 transition"
             style={{ backgroundColor: color }}>
             {saving ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}

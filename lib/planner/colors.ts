@@ -42,7 +42,7 @@ export function workoutColor(sportName: string, typeName?: string | null): strin
 
   // Non-running sports → colour by sport
   if (/cycl|ride|cykel|bike/.test(s)) return "#FB923C";       // orange
-  if (/orienteer|ol\b/.test(s))        return "#14B8A6";       // teal (distinct from tempo)
+  if (/orienteer|orientering|ol\b/.test(s)) return "#14B8A6";   // teal (distinct from tempo)
   if (/strength|styrka|gym|weight/.test(s)) return "#D97706";  // amber (distinct from orange)
   if (/nordicski|klassisk|backcountry|längdski/.test(s)) return "#BAE6FD"; // ice blue
   if (/rollerski|rullski/.test(s))     return "#38BDF8";       // sky blue

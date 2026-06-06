@@ -15,7 +15,7 @@ const MISS_REASONS = [
 interface Props {
   workout: PlannedWorkout;
   onClose: () => void;
-  onSave: (id: string, status: string, missedReason?: string, missedNote?: string) => Promise<void>;
+  onSave: (id: string, status: string, missedReason?: string, missedNote?: string) => Promise<boolean>;
   onDelete?: (id: string) => void;
   onEdit?: (workout: PlannedWorkout) => void;
 }
@@ -26,12 +26,15 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
   const [note, setNote]         = useState(workout.missedNote ?? "");
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   async function save(status: string, r?: string, n?: string) {
     setSaving(true);
-    await onSave(workout.id, status, r, n);
+    setSaveError(false);
+    const ok = await onSave(workout.id, status, r, n);
     setSaving(false);
-    onClose();
+    if (ok) onClose();
+    else setSaveError(true);
   }
 
   return (
@@ -123,7 +126,7 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
                 <button
                   onClick={async () => {
                     setDeleting(true);
-                    onDelete!(workout.id);
+                    await onDelete!(workout.id);
                     onClose();
                   }}
                   disabled={deleting}
@@ -181,6 +184,9 @@ export function OutcomeModal({ workout, onClose, onSave, onDelete, onEdit }: Pro
               </div>
             </>
           )}
+        {saveError && (
+          <p className="px-5 pb-4 text-xs text-error">Failed to save — please try again.</p>
+        )}
         </div>
       </div>
     </div>

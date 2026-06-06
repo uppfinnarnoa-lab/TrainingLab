@@ -59,6 +59,8 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, o
 
   const [name, setName]           = useState(editTemplate?.name ?? "");
   const [sportId, setSportId]     = useState(editTemplate?.sportId ?? sports[0]?.id ?? "");
+  // "__race__" is a synthetic UI value meaning "Race type, any sport" — saved as typeId=null + color=#FBBF24
+  const RACE_ID = "__race__";
   const [typeId, setTypeId]           = useState<string | null>(editTemplate?.typeId ?? null);
   const [description, setDescription] = useState(editTemplate?.description ?? "");
   const [sections, setSections]       = useState<NewSection[]>(
@@ -77,7 +79,8 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, o
   const selectedType  = selectedSport?.workoutTypes.find(t => t.id === typeId);
 
   // Auto-computed color from sport + type — used when saving
-  const autoColor = workoutColor(selectedSport?.name ?? "", selectedType?.name ?? null);
+  const effectiveTypeName = typeId === RACE_ID ? "Race" : (selectedType?.name ?? null);
+  const autoColor = workoutColor(selectedSport?.name ?? "", effectiveTypeName);
 
   // ── Section helpers ────────────────────────────────────────────────
   function addSection() {
@@ -124,7 +127,7 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, o
   function handleSave() {
     if (!name.trim()) return;
     onSave({
-      name: name.trim(), sportId, typeId, description, color: autoColor,
+      name: name.trim(), sportId, typeId: typeId === RACE_ID ? null : typeId, description, color: autoColor,
       sections: sections.map(({ _key, ...s }, i) => ({ ...s, order: i })),
       saveAsTemplate, date: date || undefined,
     });
@@ -174,13 +177,14 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, o
               </label>
               <select value={typeId ?? ""} onChange={e => setTypeId(e.target.value || null)} className={inputCls}>
                 <option value="">No type</option>
+                <option value={RACE_ID}>Race 🏆</option>
                 {selectedSport?.workoutTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
 
             {/* Date */}
             <div>
-              <label className="text-xs font-medium text-muted mb-1 block">Date (leave blank to add to library only)</label>
+              <label className="text-xs font-medium text-muted mb-1 block">{plannedWorkoutMode ? "Date" : "Date (leave blank to add to library only)"}</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
             </div>
 

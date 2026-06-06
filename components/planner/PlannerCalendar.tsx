@@ -416,6 +416,7 @@ export function PlannerCalendar({
                             isPast={isPast}
                             onClick={onWorkoutClick}
                             compact={dayWorkouts.length > 3}
+                            inMoveMode={!!moveWorkout}
                             onContextMenu={(e, workout) => {
                               e.preventDefault();
                               e.stopPropagation();

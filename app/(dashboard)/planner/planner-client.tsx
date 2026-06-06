@@ -44,6 +44,12 @@ export function PlannerClient(props: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
+  const [plannerError, setPlannerError] = useState<string | null>(null);
+  function showError(msg: string) {
+    setPlannerError(msg);
+    setTimeout(() => setPlannerError(null), 4000);
+  }
+
   const [templates, setTemplates] = useState(props.templates);
   // Normalize sport types on load so "Run" → "Running" etc.
   const [workouts, setWorkouts]   = useState(() =>
@@ -140,7 +146,7 @@ export function PlannerClient(props: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) return;
+    if (!res.ok) { showError("Failed to save workout — please try again."); return; }
     const w: PlannedWorkout = await res.json();
     const normalized = { ...w, sportType: normalizeSportType(w.sportType, props.sports) };
     setWorkouts(prev => [...prev, normalized].sort((a, b) => a.date.localeCompare(b.date)));
@@ -215,13 +221,9 @@ export function PlannerClient(props: Props) {
 
   // ── Save workout from builder ──────────────────────────────────────
   async function handleBuilderSave(data: BuilderData) {
-    setShowBuilder(false);
-
     let templateId: string | null = null;
 
     if (data.saveAsTemplate) {
-      // Create template first
-      const sport = props.sports.find(s => s.id === data.sportId);
       const res = await fetch("/api/planner/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -243,10 +245,7 @@ export function PlannerClient(props: Props) {
 
     if (data.date) {
       const sport = props.sports.find(s => s.id === data.sportId);
-      if (!sport) {
-        console.error("Sport not found for id:", data.sportId);
-        return;
-      }
+      if (!sport) return;
       await createWorkout({
         date: data.date,
         name: data.name,
@@ -257,6 +256,8 @@ export function PlannerClient(props: Props) {
       });
     }
 
+    setShowBuilder(false);
+    setMobileTemplatePrefill(null);
     startTransition(() => router.refresh());
   }
 
@@ -264,22 +265,23 @@ export function PlannerClient(props: Props) {
   async function handleDeleteTemplate(id: string) {
     const res = await fetch(`/api/planner/templates/${id}`, { method: "DELETE" });
     if (res.ok) setTemplates(prev => prev.filter(t => t.id !== id));
+    else showError("Failed to delete template — please try again.");
   }
 
   // ── Status save (past workouts) ────────────────────────────────────
   async function handleOutcomeSave(
     id: string, status: string, missedReason?: string, missedNote?: string
-  ) {
+  ): Promise<boolean> {
     const res = await fetch(`/api/planner/workouts/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, missedReason: missedReason ?? null, missedNote: missedNote ?? null }),
     });
-    if (res.ok) {
-      const updated: PlannedWorkout = await res.json();
-      setWorkouts(prev => prev.map(w => w.id === id ? { ...w, ...updated } : w));
-    }
+    if (!res.ok) return false;
+    const updated: PlannedWorkout = await res.json();
+    setWorkouts(prev => prev.map(w => w.id === id ? { ...w, ...updated } : w));
     setStatusWorkout(null);
+    return true;
   }
 
   // ── Edit save (future workouts via WorkoutBuilder) ──────────────────
@@ -327,33 +329,33 @@ export function PlannerClient(props: Props) {
 
   // ── Delete workout ─────────────────────────────────────────────────
   async function handleDeleteWorkout(id: string) {
-    await fetch(`/api/planner/workouts/${id}`, { method: "DELETE" });
-    setWorkouts(prev => prev.filter(w => w.id !== id));
+    const res = await fetch(`/api/planner/workouts/${id}`, { method: "DELETE" });
+    if (res.ok) setWorkouts(prev => prev.filter(w => w.id !== id));
+    else showError("Failed to delete workout — please try again.");
   }
 
   // ── Block CRUD ─────────────────────────────────────────────────────
-  async function handleBlockSave(data: Partial<TrainingBlock>) {
+  async function handleBlockSave(data: Partial<TrainingBlock>): Promise<boolean> {
     if (editingBlock) {
       const res = await fetch(`/api/planner/blocks/${editingBlock.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (res.ok) {
-        const updated: TrainingBlock = await res.json();
-        setBlocks(prev => prev.map(b => b.id === updated.id ? updated : b));
-      }
+      if (!res.ok) return false;
+      const updated: TrainingBlock = await res.json();
+      setBlocks(prev => prev.map(b => b.id === updated.id ? updated : b));
     } else {
       const res = await fetch("/api/planner/blocks", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (res.ok) {
-        const created: TrainingBlock = await res.json();
-        setBlocks(prev => [...prev, created].sort((a, b) => a.startDate.localeCompare(b.startDate)));
-      }
+      if (!res.ok) return false;
+      const created: TrainingBlock = await res.json();
+      setBlocks(prev => [...prev, created].sort((a, b) => a.startDate.localeCompare(b.startDate)));
     }
     setEditingBlock(null); setShowNewBlock(false);
     startTransition(() => router.refresh());
+    return true;
   }
 
   async function handleBlockDelete() {
@@ -381,8 +383,8 @@ export function PlannerClient(props: Props) {
           <span className="text-xs text-accent font-medium flex-1">
             &ldquo;{copiedWorkout.name}&rdquo; copied
             <span className="ml-1 text-accent/70">
-              — right-click a day to paste
-              <span className="md:hidden"> or tap a day</span>
+              <span className="hidden md:inline">— click a day to paste (or right-click for options)</span>
+              <span className="md:hidden">— tap a day to paste</span>
             </span>
           </span>
           <button
@@ -391,6 +393,14 @@ export function PlannerClient(props: Props) {
           >
             Cancel
           </button>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {plannerError && (
+        <div className="border-b border-error/30 bg-error/5 px-4 py-2 flex items-center gap-2.5 shrink-0">
+          <span className="text-xs text-error font-medium flex-1">{plannerError}</span>
+          <button onClick={() => setPlannerError(null)} className="text-xs text-muted hover:text-primary transition px-1">✕</button>
         </div>
       )}
 
@@ -436,7 +446,7 @@ export function PlannerClient(props: Props) {
           hrZones={props.hrZoneRanges}
           initialDate={builderDate ?? undefined}
           editTemplate={mobileTemplatePrefill ?? undefined}
-          onSave={data => { setMobileTemplatePrefill(null); handleBuilderSave(data); }}
+          onSave={handleBuilderSave}
           onCancel={() => { setShowBuilder(false); setMobileTemplatePrefill(null); }}
         />
       )}

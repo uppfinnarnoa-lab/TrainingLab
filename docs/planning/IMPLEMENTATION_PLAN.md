@@ -1890,6 +1890,18 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-06 — Bug audit fixes (8 bugs) + Orienteering color + Race type:**
+
+Full audit documented in `docs/planning/bug-audit-2026-06-06.md`. All 8 confirmed bugs fixed:
+
+- `components/planner/OutcomeModal.tsx`: `onSave` return type changed to `Promise<boolean>`; modal only closes on `true`; `saveError` state shows inline error on failure. `await` added to `onDelete` call (was missing, closing modal before delete completed).
+- `components/planner/BlockEditorModal.tsx`: `onSave` returns `Promise<boolean>`; `handleSave` only calls `onClose()` on success. Added `invalidDateRange` check (`startDate > endDate`) — Save button disabled and inline error shown when invalid. Removed `Math.max(1, ...)` from week count so invalid ranges don't falsely show "1 week".
+- `app/(dashboard)/planner/planner-client.tsx`: `handleOutcomeSave` returns `boolean` (no longer calls `setStatusWorkout(null)` on failure). `handleBlockSave` returns `boolean`. `handleBuilderSave` moved `setShowBuilder(false)` to AFTER all fetches complete (was closing builder before fetches). `handleDeleteTemplate` and `handleDeleteWorkout` now call `showError(msg)` on non-OK responses. Added `plannerError` state + auto-dismiss error banner (4 s) for mutation failures. Copy-mode banner text corrected: "click a day to paste (or right-click for options)" on desktop, "tap a day to paste" on mobile.
+- `components/planner/WorkoutBuilder.tsx`: Date field label now reads "Date" (not "leave blank to add to library only") in `plannedWorkoutMode`. Added built-in "Race 🏆" type option (synthetic `__race__` id) for all sports — resolves to `typeId: null` + `color: #FBBF24` (yellow) when saved; `effectiveTypeName` ensures `autoColor` is computed correctly.
+- `components/planner/WorkoutPill.tsx`: Added `inMoveMode?: boolean` prop — when true, `onClick` does NOT call `stopPropagation()`, letting the day-cell click fire and complete the move.
+- `components/planner/PlannerCalendar.tsx`: Passes `inMoveMode={!!moveWorkout}` to WorkoutPill.
+- `lib/planner/colors.ts`: Orienteering regex extended from `orienteer|ol\b` to `orienteer|orientering|ol\b` — fixes Swedish sport name "Orientering" (single e) being unrecognized and falling through to the `#7DD3FC` fallback (same as Running). Now correctly returns teal `#14B8A6`.
+
 **Session 2026-06-06 — Mobile UX polish: 6 bug fixes across Volume Explorer, Planner, WorkoutBuilder, sidebar:**
 
 - `app/(dashboard)/stats/volume/volume-client.tsx`: Metric toggle labels capitalized: `"km"→"Km"`, `"time"→"Time"`.

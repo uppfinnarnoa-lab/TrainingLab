@@ -12,11 +12,12 @@ interface Props {
   isPast: boolean;
   onClick: (workout: PlannedWorkout) => void;
   compact?: boolean;
+  inMoveMode?: boolean;
   onContextMenu?: (e: React.MouseEvent, workout: PlannedWorkout) => void;
   onLongPressMenu?: (workout: PlannedWorkout, x: number, y: number) => void;
 }
 
-export function WorkoutPill({ workout, isPast, onClick, compact, onContextMenu, onLongPressMenu }: Props) {
+export function WorkoutPill({ workout, isPast, onClick, compact, inMoveMode, onContextMenu, onLongPressMenu }: Props) {
   const [dragging, setDragging] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
@@ -66,6 +67,7 @@ export function WorkoutPill({ workout, isPast, onClick, compact, onContextMenu, 
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onClick={e => {
+        if (inMoveMode) return; // let click fall through to day cell to complete the move
         e.stopPropagation();
         if (didLongPress.current) { didLongPress.current = false; return; }
         onClick(workout);
