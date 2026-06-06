@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft, CalendarRange, Calendar, LayoutTemplate, Copy, ClipboardPaste, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlignJustify, PanelLeft, CalendarRange, Calendar, LayoutTemplate, Copy, ClipboardPaste, Plus, MoveRight, X } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isToday,
@@ -91,6 +91,7 @@ export function PlannerCalendar({
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [moveWorkout, setMoveWorkout] = useState<PlannedWorkout | null>(null);
 
   // Refs for keyboard shortcuts — avoid stale closures
   const lastContextWorkout = useRef<PlannedWorkout | null>(null);
@@ -263,6 +264,17 @@ export function PlannerCalendar({
         </div>
       </div>
 
+      {/* Move mode banner */}
+      {moveWorkout && (
+        <div className="flex items-center gap-2.5 mb-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-accent">
+          <MoveRight size={13} className="shrink-0" />
+          <span className="flex-1 font-medium">Moving &ldquo;{moveWorkout.name}&rdquo; — tap a day to move here</span>
+          <button onClick={() => setMoveWorkout(null)} className="text-muted hover:text-primary transition">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
       {/* Weekday headers — always 7 columns on mobile, sidebar mode only on md+.
           Sidebar mode uses minmax(140px,1fr) per day so columns are wide enough
           to read workout names; the container scrolls horizontally if needed. */}
@@ -334,13 +346,14 @@ export function PlannerCalendar({
                   const blockHere    = blockForDate(day);
                   const isDragOver   = dragOverDate === key;
                   const isPasteMode  = !!copiedWorkout;
+                  const isMoveMode   = !!moveWorkout;
 
                   return (
                     <div
                       key={key}
                       onClick={() => {
-                        // In paste mode, tap a day to paste; otherwise open builder
-                        if (isPasteMode && onPasteWorkout) { onPasteWorkout(key); }
+                        if (moveWorkout && onWorkoutMove) { onWorkoutMove(moveWorkout.id, key); setMoveWorkout(null); }
+                        else if (isPasteMode && onPasteWorkout) { onPasteWorkout(key); }
                         else { onDayClick(key); }
                       }}
                       onMouseEnter={() => { hoveredDateRef.current = key; }}
@@ -364,7 +377,7 @@ export function PlannerCalendar({
                         "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors overflow-hidden",
                         isDragOver
                           ? "border-accent bg-accent/10"
-                          : isPasteMode
+                          : isPasteMode || isMoveMode
                           ? "border-accent/30 hover:border-accent hover:bg-accent/5"
                           : isToday(day)
                           ? "border-accent/50 bg-accent/5"
@@ -386,7 +399,10 @@ export function PlannerCalendar({
                         )}>
                           {format(day, "d")}
                         </span>
-                        {isPasteMode && (
+                        {isMoveMode && (
+                          <MoveRight size={10} className="text-accent/50 shrink-0" />
+                        )}
+                        {!isMoveMode && isPasteMode && (
                           <ClipboardPaste size={10} className="text-accent/50 shrink-0" />
                         )}
                       </div>
@@ -406,7 +422,10 @@ export function PlannerCalendar({
                               lastContextWorkout.current = workout;
                               setContextMenu({ type: "workout", x: e.clientX, y: e.clientY, workout });
                             }}
-                            onCopyRequest={onCopyWorkout}
+                            onLongPressMenu={(workout, x, y) => {
+                              lastContextWorkout.current = workout;
+                              setContextMenu({ type: "workout", x, y, workout });
+                            }}
                           />
                         ))}
                         {dayWorkouts.length > 5 && (
@@ -448,6 +467,11 @@ export function PlannerCalendar({
                       lastContextWorkout.current = contextMenu.workout!;
                       onCopyWorkout?.(contextMenu.workout!);
                     },
+                  },
+                  {
+                    label: "Move to…",
+                    icon: <MoveRight size={14} />,
+                    onClick: () => { setMoveWorkout(contextMenu.workout!); },
                   },
                 ]
               : contextMenu.type === "day" && contextMenu.date

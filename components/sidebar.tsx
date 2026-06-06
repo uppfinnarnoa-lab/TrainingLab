@@ -46,7 +46,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+      <nav className="flex-1 min-h-0 overflow-y-auto py-4 px-3 space-y-1">
         {nav.map(({ href, icon: Icon, label }) => {
           const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
           return (
@@ -104,10 +104,10 @@ export function Sidebar() {
 
       {/* Sidebar — fixed on mobile, sticky on desktop */}
       <aside className={cn(
-        "flex flex-col border-r border-border bg-surface overflow-y-auto",
+        "flex flex-col border-r border-border bg-surface",
         mobileOpen
-          ? "fixed inset-y-0 left-0 z-50 w-64 h-screen"
-          : "hidden md:flex md:sticky md:top-0 md:h-screen md:shrink-0 md:w-56"
+          ? "fixed top-0 left-0 z-50 w-64 h-[100dvh] overflow-y-auto"
+          : "hidden md:flex md:sticky md:top-0 md:h-screen md:shrink-0 md:w-56 md:overflow-y-auto"
       )}>
         {sidebarContent}
       </aside>

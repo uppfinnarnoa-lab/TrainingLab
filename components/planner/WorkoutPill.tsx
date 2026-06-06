@@ -13,13 +13,15 @@ interface Props {
   onClick: (workout: PlannedWorkout) => void;
   compact?: boolean;
   onContextMenu?: (e: React.MouseEvent, workout: PlannedWorkout) => void;
-  onCopyRequest?: (workout: PlannedWorkout) => void;
+  onLongPressMenu?: (workout: PlannedWorkout, x: number, y: number) => void;
 }
 
-export function WorkoutPill({ workout, isPast, onClick, compact, onContextMenu, onCopyRequest }: Props) {
+export function WorkoutPill({ workout, isPast, onClick, compact, onContextMenu, onLongPressMenu }: Props) {
   const [dragging, setDragging] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
+  const touchX = useRef(0);
+  const touchY = useRef(0);
 
   function handleDragStart(e: React.DragEvent) {
     e.dataTransfer.setData("workoutId", workout.id);
@@ -30,12 +32,15 @@ export function WorkoutPill({ workout, isPast, onClick, compact, onContextMenu, 
 
   function handleDragEnd() { setDragging(false); }
 
-  function handleTouchStart() {
+  function handleTouchStart(e: React.TouchEvent) {
+    const touch = e.touches[0];
+    touchX.current = touch.clientX;
+    touchY.current = touch.clientY;
     didLongPress.current = false;
     longPressTimer.current = setTimeout(() => {
       didLongPress.current = true;
       if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(50);
-      onCopyRequest?.(workout);
+      onLongPressMenu?.(workout, touchX.current, touchY.current);
     }, 500);
   }
 
@@ -65,9 +70,9 @@ export function WorkoutPill({ workout, isPast, onClick, compact, onContextMenu, 
         if (didLongPress.current) { didLongPress.current = false; return; }
         onClick(workout);
       }}
-      onContextMenu={e => onContextMenu?.(e, workout)}
+      onContextMenu={e => { e.preventDefault(); onContextMenu?.(e, workout); }}
       className={cn(
-        "w-full text-left rounded-lg text-xs transition-all group relative overflow-hidden",
+        "w-full text-left rounded-lg text-xs transition-all group relative overflow-hidden select-none",
         "border",
         compact ? "px-2 py-0.5" : "px-2 py-1.5",
         dragging ? "opacity-40 scale-95" :

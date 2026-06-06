@@ -49,12 +49,15 @@ export function TemplateCard({ template, onAddToDate, onDelete, onEdit, compact 
           </div>
         </div>
 
-        {/* Actions — always visible on mobile (hover unavailable on touch) */}
-        <div className="shrink-0 flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+        {/* Actions — always visible on mobile (hover unavailable on touch).
+            onPointerDown stop-propagation prevents the draggable card from
+            intercepting the touch before the button click fires. */}
+        <div className="shrink-0 flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
           {onEdit && (
             <button
-              onClick={() => onEdit(template)}
-              className="p-1 rounded-lg hover:bg-surface-2 text-muted hover:text-primary transition-colors"
+              onClick={e => { e.stopPropagation(); onEdit(template); }}
+              onPointerDown={e => e.stopPropagation()}
+              className="p-2 rounded-lg hover:bg-surface-2 text-muted hover:text-primary transition-colors"
               title="Edit template"
             >
               <Pencil size={13} />
@@ -62,8 +65,9 @@ export function TemplateCard({ template, onAddToDate, onDelete, onEdit, compact 
           )}
           {onAddToDate && (
             <button
-              onClick={() => onAddToDate(template.id)}
-              className="p-1 rounded-lg hover:bg-accent/10 text-muted hover:text-accent transition-colors"
+              onClick={e => { e.stopPropagation(); onAddToDate(template.id); }}
+              onPointerDown={e => e.stopPropagation()}
+              className="p-2 rounded-lg hover:bg-accent/10 text-muted hover:text-accent transition-colors"
               title="Add to plan"
             >
               <Plus size={14} />
@@ -71,8 +75,9 @@ export function TemplateCard({ template, onAddToDate, onDelete, onEdit, compact 
           )}
           {onDelete && (
             <button
-              onClick={() => onDelete(template.id)}
-              className="p-1 rounded-lg hover:bg-error/10 text-muted hover:text-error transition-colors"
+              onClick={e => { e.stopPropagation(); onDelete(template.id); }}
+              onPointerDown={e => e.stopPropagation()}
+              className="p-2 rounded-lg hover:bg-error/10 text-muted hover:text-error transition-colors"
               title="Delete template"
             >
               <Trash2 size={13} />

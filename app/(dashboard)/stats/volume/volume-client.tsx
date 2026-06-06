@@ -380,7 +380,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
         <button key={m} onClick={() => setMetric(m)}
           className={cn("px-3 py-1 rounded-md transition-colors",
             metric === m ? "bg-accent/10 text-accent" : "text-muted hover:text-primary")}>
-          {m === "distance" ? "km" : "time"}
+          {m === "distance" ? "Km" : "Time"}
         </button>
       ))}
     </div>

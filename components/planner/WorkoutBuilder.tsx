@@ -142,9 +142,9 @@ export function WorkoutBuilder({ sports, paceZones, hrZones, onSave, onCancel, o
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-x-5 gap-y-4 p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 p-5">
             {/* Name */}
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <label className="text-xs font-medium text-muted mb-1 block">Workout name *</label>
               <input
                 value={name} onChange={e => setName(e.target.value)}
@@ -314,8 +314,8 @@ function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRem
 
       {/* Expanded editor */}
       {open && (
-        <div className="p-3 grid grid-cols-2 gap-3 border-t border-border bg-surface">
-          <div className="col-span-2">
+        <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-border bg-surface">
+          <div className="sm:col-span-2">
             <label className="text-xs text-muted mb-1 block">Section name</label>
             <input value={s.name} onChange={e => onChange({ name: e.target.value })} className={inputCls} />
           </div>
@@ -368,14 +368,14 @@ function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRem
             </select>
           </div>
 
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <label className="text-xs text-muted mb-1 block">Notes</label>
             <input value={s.notes ?? ""} onChange={e => onChange({ notes: e.target.value || null })}
               placeholder="Optional section notes" className={inputCls} />
           </div>
 
           {s.targetZone && (
-            <div className="col-span-2 flex items-center gap-2">
+            <div className="sm:col-span-2 flex items-center gap-2">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: ZONE_COLORS[s.targetZone] }} />
               <p className="text-xs text-muted">{zoneLabel}</p>
             </div>
