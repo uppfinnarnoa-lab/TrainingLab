@@ -36,6 +36,8 @@ export interface BuilderData {
   sections: Omit<NewSection, "_key">[];
   saveAsTemplate: boolean;
   date?: string;
+  totalDuration: number | null;
+  totalDistance: number | null;
 }
 
 let _key = 0;
@@ -49,6 +51,32 @@ const COLOR_PALETTE = [
   "#FBBF24", "#FB923C", "#F97316", "#F87171", "#A78BFA",
   "#34D399", "#14B8A6", "#60A5FA", "#BAE6FD", "#E879F9", "#6EE7B7",
 ];
+
+/** Map a workout type name to a default target zone (1–5). Zone 1 for no type. */
+function typeToZone(typeName: string | null): number {
+  if (!typeName) return 1;
+  const t = typeName.toLowerCase();
+  if (/race|tävl|lopp|mila|stafett|competition|comp\b/.test(t)) return 5;
+  if (/speed|speedwork|intervall|interval|fartlek|tabata/.test(t)) return 5;
+  if (/\blt\b|threshold|tröskel|lactate/.test(t)) return 4;
+  if (/\bat\b|aerobic threshold|aerob tröskel/.test(t)) return 3;
+  if (/tempo/.test(t)) return 3;
+  if (/easy|distans|base|aerob|recovery|lugn/.test(t)) return 2;
+  return 1;
+}
+
+function makeDefaultSection(duration: number | null, distance: number | null, zone: number): NewSection {
+  let durationType: "time" | "distance" | "open" = "open";
+  if (duration) durationType = "time";
+  else if (distance) durationType = "distance";
+  return {
+    _key: newKey(), order: 0, name: "Section",
+    durationType, duration, distance,
+    repetitions: null, zoneType: "pace_zone", targetZone: zone,
+    targetPaceLow: null, targetPaceHigh: null,
+    targetHRLow: null, targetHRHigh: null, targetRPE: null, notes: null,
+  };
+}
 
 function emptySection(): NewSection {
   return {
@@ -110,18 +138,37 @@ function ColorSwatches({ value, onChange }: { value: string; onChange: (c: strin
 export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave, onCancel, onDelete, initialDate, editTemplate, plannedWorkoutMode, onSportsUpdated }: Props) {
   const isEditing = !!editTemplate;
 
-  // Local copy of sports — updated immediately when user creates sport/type
   const [localSports, setLocalSports] = useState<SportCategory[]>(sportsProp);
 
   const [name, setName]           = useState(editTemplate?.name ?? "");
   const [sportId, setSportId]     = useState(editTemplate?.sportId ?? localSports[0]?.id ?? "");
   const [typeId, setTypeId]       = useState<string | null>(editTemplate?.typeId ?? null);
   const [description, setDescription] = useState(editTemplate?.description ?? "");
-  const [sections, setSections]   = useState<NewSection[]>(
-    editTemplate?.sections.length
-      ? editTemplate.sections.map(s => ({ ...s, _key: newKey() }))
-      : [emptySection()]
+
+  // Top-level totals — drive the default single section when !sectionsCustomized
+  const [totalDurMin, setTotalDurMin] = useState<number | "">(
+    editTemplate?.estimatedDuration ? Math.round(editTemplate.estimatedDuration / 60) : ""
   );
+  const [totalDistKm, setTotalDistKm] = useState<number | "">(
+    editTemplate?.estimatedDistance ? Math.round(editTemplate.estimatedDistance / 100) / 10 : ""
+  );
+
+  // True when the user has manually added/removed sections (disables auto-sync)
+  const [sectionsCustomized, setSectionsCustomized] = useState(
+    (editTemplate?.sections.length ?? 0) > 0
+  );
+
+  // Initialize default section from template data if no sections exist
+  const [sections, setSections] = useState<NewSection[]>(() => {
+    if (editTemplate?.sections.length) {
+      return editTemplate.sections.map(s => ({ ...s, _key: newKey() }));
+    }
+    const dur = editTemplate?.estimatedDuration ?? null;
+    const dist = editTemplate?.estimatedDistance ?? null;
+    const zone = typeToZone(editTemplate?.type?.name ?? null);
+    return [makeDefaultSection(dur, dist, zone)];
+  });
+
   const showTemplateOption = !isEditing;
   const [saveAsTemplate, setSaveAsTemplate] = useState(!isEditing && !initialDate);
   const [date, setDate]           = useState(initialDate ?? "");
@@ -144,6 +191,37 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   const effectiveTypeName = typeId === RACE_ID ? "Race" : (selectedType?.name ?? null);
   const autoColor = workoutColor(selectedSport?.name ?? "", effectiveTypeName);
 
+  // ── Sync helpers for the single default section ───────────────────────────
+
+  function syncDefaultSection(opts: {
+    durMin?: number | "";
+    distKm?: number | "";
+    typeName?: string | null;
+  }) {
+    if (sectionsCustomized || sections.length !== 1) return;
+    const dur = opts.durMin !== undefined ? opts.durMin : totalDurMin;
+    const dist = opts.distKm !== undefined ? opts.distKm : totalDistKm;
+    const zone = typeToZone(opts.typeName !== undefined ? opts.typeName : effectiveTypeName);
+    const durationSec = typeof dur === "number" && dur > 0 ? Math.round(dur * 60) : null;
+    const distanceM   = typeof dist === "number" && dist > 0 ? Math.round(dist * 1000) : null;
+    updateSection(sections[0]._key, {
+      duration: durationSec,
+      distance: distanceM,
+      durationType: durationSec ? "time" : distanceM ? "distance" : "open",
+      targetZone: zone,
+    });
+  }
+
+  function handleTotalDurChange(val: number | "") {
+    setTotalDurMin(val);
+    syncDefaultSection({ durMin: val });
+  }
+
+  function handleTotalDistChange(val: number | "") {
+    setTotalDistKm(val);
+    syncDefaultSection({ distKm: val });
+  }
+
   // ── Sport / type creators ─────────────────────────────────────────────────
 
   async function handleAddType() {
@@ -164,6 +242,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
       setLocalSports(updated);
       onSportsUpdated?.(updated);
       setTypeId(newType.id);
+      syncDefaultSection({ typeName: newType.name });
       setAddTypeName("");
       setShowAddType(false);
     }
@@ -185,6 +264,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
       onSportsUpdated?.(updated);
       setSportId(newSport.id);
       setTypeId(null);
+      syncDefaultSection({ typeName: null });
       setAddSportName("");
       setShowAddSport(false);
     }
@@ -194,9 +274,11 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   // ── Section helpers ────────────────────────────────────────────────────────
 
   function addSection() {
+    setSectionsCustomized(true);
     setSections(prev => [...prev, { ...emptySection(), order: prev.length }]);
   }
   function removeSection(key: number) {
+    setSectionsCustomized(true);
     setSections(prev => prev.filter(s => s._key !== key).map((s, i) => ({ ...s, order: i })));
   }
   function updateSection(key: number, patch: Partial<NewSection>) {
@@ -224,11 +306,27 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
 
   function handleSave() {
     if (!name.trim()) return;
+    const secs = sections.map(({ _key, ...s }, i) => ({ ...s, order: i }));
+
+    // Compute totals from sections; fall back to top-level fields if sections are open/empty
+    let totalDuration: number | null = null;
+    let totalDistance: number | null = null;
+    for (const s of secs) {
+      const reps = s.repetitions ?? 1;
+      if (s.durationType === "time" && s.duration) totalDuration = (totalDuration ?? 0) + s.duration * reps;
+      else if (s.durationType === "distance" && s.distance) totalDistance = (totalDistance ?? 0) + s.distance * reps;
+    }
+    if (!totalDuration && typeof totalDurMin === "number" && totalDurMin > 0)
+      totalDuration = Math.round(totalDurMin * 60);
+    if (!totalDistance && typeof totalDistKm === "number" && totalDistKm > 0)
+      totalDistance = Math.round(totalDistKm * 1000);
+
     onSave({
       name: name.trim(), sportId, typeId: typeId === RACE_ID ? null : typeId,
       description, color: autoColor,
-      sections: sections.map(({ _key, ...s }, i) => ({ ...s, order: i })),
+      sections: secs,
       saveAsTemplate, date: date || undefined,
+      totalDuration, totalDistance,
     });
   }
 
@@ -262,10 +360,15 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
             {/* Sport */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted block">Sport</label>
-              <select value={sportId} onChange={e => { setSportId(e.target.value); setTypeId(null); setShowAddType(false); }} className={inputCls}>
+              <select value={sportId} onChange={e => {
+                const newSportId = e.target.value;
+                setSportId(newSportId);
+                setTypeId(null);
+                setShowAddType(false);
+                syncDefaultSection({ typeName: null });
+              }} className={inputCls}>
                 {localSports.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
-              {/* Add sport toggle */}
               {!showAddSport ? (
                 <button type="button" onClick={() => setShowAddSport(true)}
                   className="text-[11px] text-accent hover:underline flex items-center gap-0.5">
@@ -308,12 +411,17 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
                 <span className="inline-block w-3 h-3 rounded-full border border-border/60"
                   style={{ backgroundColor: autoColor }} title={`Color: ${autoColor}`} />
               </label>
-              <select value={typeId ?? ""} onChange={e => setTypeId(e.target.value || null)} className={inputCls}>
+              <select value={typeId ?? ""} onChange={e => {
+                const val = e.target.value || null;
+                setTypeId(val);
+                const typeName = val === RACE_ID ? "Race"
+                  : (localSports.find(s => s.id === sportId)?.workoutTypes.find(t => t.id === val)?.name ?? null);
+                syncDefaultSection({ typeName });
+              }} className={inputCls}>
                 <option value="">No type</option>
                 <option value={RACE_ID}>Race 🏆</option>
                 {selectedSport?.workoutTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              {/* Add type toggle */}
               {!showAddType ? (
                 <button type="button" onClick={() => setShowAddType(true)}
                   className="text-[11px] text-accent hover:underline flex items-center gap-0.5">
@@ -346,6 +454,30 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Total time — always shown, drives default section when !sectionsCustomized */}
+            <div>
+              <label className="text-xs font-medium text-muted mb-1 block">Total time (min) *</label>
+              <input
+                type="number" min={1}
+                value={totalDurMin}
+                onChange={e => handleTotalDurChange(parseFloat(e.target.value) || "")}
+                placeholder="e.g. 60"
+                className={inputCls}
+              />
+            </div>
+
+            {/* Total distance — optional */}
+            <div>
+              <label className="text-xs font-medium text-muted mb-1 block">Total distance (km)</label>
+              <input
+                type="number" min={0.1} step={0.1}
+                value={totalDistKm}
+                onChange={e => handleTotalDistChange(parseFloat(e.target.value) || "")}
+                placeholder="e.g. 10"
+                className={inputCls}
+              />
             </div>
 
             {/* Date */}

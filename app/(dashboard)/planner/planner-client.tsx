@@ -12,6 +12,7 @@ import { BlockEditorModal } from "@/components/planner/BlockEditorModal";
 import type {
   SportCategory, WorkoutTemplate, PlannedWorkout, TrainingBlock,
 } from "@/lib/planner/types";
+import { workoutColor } from "@/lib/planner/colors";
 
 // Normalize Strava/legacy sport type strings to user's sport category names
 function normalizeSportType(type: string, sports: SportCategory[]): string {
@@ -45,7 +46,6 @@ export function PlannerClient(props: Props) {
   const [, startTransition] = useTransition();
 
   // One-time backfill: add default section to templates that have none.
-  // Runs on first mount; localStorage flag prevents re-running across sessions.
   useEffect(() => {
     if (localStorage.getItem("planner_sections_backfilled_v1")) return;
     fetch("/api/planner/backfill-sections", { method: "POST" })
@@ -54,6 +54,21 @@ export function PlannerClient(props: Props) {
         if (data) {
           localStorage.setItem("planner_sections_backfilled_v1", "1");
           if (data.fixed > 0) startTransition(() => router.refresh());
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // One-time fix: clear stale stored colors for OL planned workouts.
+  useEffect(() => {
+    if (localStorage.getItem("planner_ol_colors_fixed_v1")) return;
+    fetch("/api/planner/fix-ol-colors", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          localStorage.setItem("planner_ol_colors_fixed_v1", "1");
+          if ((data.workoutsFixed ?? 0) > 0) startTransition(() => router.refresh());
         }
       })
       .catch(() => {});
@@ -152,7 +167,7 @@ export function PlannerClient(props: Props) {
       templateId,
       targetDuration: template.estimatedDuration,
       targetDistance: template.estimatedDistance,
-      color: template.color ?? template.sport.color,
+      color: workoutColor(template.sport.name, template.type?.name ?? null),
     });
   }
 
@@ -270,6 +285,8 @@ export function PlannerClient(props: Props) {
         templateId,
         notes: data.description || null,
         color: data.color,
+        targetDuration: data.totalDuration,
+        targetDistance: data.totalDistance,
       });
     }
 
@@ -318,6 +335,8 @@ export function PlannerClient(props: Props) {
         date: data.date ?? editWorkout.date,
         notes: data.description || null,
         color: data.color,
+        targetDuration: data.totalDuration,
+        targetDistance: data.totalDistance,
       }),
     });
     if (res.ok) {
