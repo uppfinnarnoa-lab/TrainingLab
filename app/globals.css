@@ -119,6 +119,34 @@
   --warning:       #FBBF24;
 }
 
+/* ── Theme: Sky ── */
+/* Light and airy — blue-tinted whites, high contrast, mobile-first legibility */
+.scheme-sky {
+  --background:    #F0F7FF;   /* blue-50 tint */
+  --surface:       #FFFFFF;
+  --surface-2:     #E8F2FF;
+  --border:        #BFDBFE;   /* blue-200 */
+  --accent:        #2563EB;   /* blue-600 — 5.9:1 on white */
+  --accent-2:      #7C3AED;   /* violet-700 */
+  --text-primary:  #0F172A;   /* slate-900, 16:1 on bg */
+  --text-muted:    #475569;   /* slate-600, 6.7:1 on white */
+  --error:         #DC2626;
+  --warning:       #D97706;
+}
+.dark.scheme-sky,
+.scheme-sky.dark {
+  --background:    #0B1222;   /* deep navy, not pure black */
+  --surface:       #141E35;
+  --surface-2:     #1C2B4A;
+  --border:        #253A60;
+  --accent:        #60A5FA;   /* blue-400 — 7.1:1 on bg */
+  --accent-2:      #A78BFA;   /* violet-400 */
+  --text-primary:  #EFF6FF;   /* blue-50, 16.8:1 on bg */
+  --text-muted:    #93C5FD;   /* blue-300, 5.6:1 on bg */
+  --error:         #F87171;
+  --warning:       #FBBF24;
+}
+
 /* ── Theme: Mono ── */
 .scheme-mono {
   --background:    #FAFAFA;
