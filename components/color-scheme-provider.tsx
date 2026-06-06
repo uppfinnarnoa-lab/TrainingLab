@@ -19,6 +19,11 @@ export function ColorSchemeProvider({ children }: { children: React.ReactNode })
     if (saved && COLOR_SCHEMES.includes(saved)) {
       applyScheme(saved);
       setSchemeState(saved);
+    } else {
+      // Default: Sky on mobile (<768 px), Slate on desktop
+      const def: ColorScheme = window.innerWidth < 768 ? "sky" : "slate";
+      applyScheme(def);
+      setSchemeState(def);
     }
   }, []);
 

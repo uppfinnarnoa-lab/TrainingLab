@@ -1890,6 +1890,18 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-06 — Planner/sports features, themes, collapsible sidebar:**
+
+- `components/planner/TemplateLibrary.tsx`: Desktop sidebar now collapsible — `PanelLeftClose` button in header collapses to a 40px strip showing template count + expand icon (`LayoutTemplate`). State persisted in `localStorage` key `planner_lib_collapsed`. Mobile overlay unchanged.
+- `app/api/planner/backfill-sections/route.ts` (new): POST endpoint that creates a default single WorkoutSection on every template with 0 sections. Section uses `estimatedDuration`/`estimatedDistance` + zone derived from type name (Race/Speedwork→Z5, LT→Z4, AT/Tempo→Z3, Easy→Z2, else Z1). Called automatically on planner mount (flag `planner_sections_backfilled_v1` in localStorage prevents re-runs).
+- `app/api/sports/route.ts`: When `kind="sport"`, automatically creates a `Race` WorkoutType (color `#FBBF24`) for the new sport. Returns sport with `workoutTypes` included.
+- `components/planner/WorkoutBuilder.tsx`: Full rework of sport/type selection UI. Replaced plain selects with expandable inline panels: "Add type to [Sport]" (name + 16-color palette + colors-in-use table) and "Add sport" (name + color + note that Race is added automatically). `onSportsUpdated?: (sports) => void` callback propagates new sports/types to parent. `localSports` state allows immediate use of newly created sports/types without page reload. `ColorSwatches` + `ColorUsageTable` sub-components.
+- `app/(dashboard)/planner/planner-client.tsx`: Added `const [sports, setSports] = useState(props.sports)` — local mutable sports state. All three WorkoutBuilder instances receive `sports` (not `props.sports`) and `onSportsUpdated={setSports}`. Auto-backfill runs on mount.
+- `lib/planner/colors.ts`: Orienteering regex extended to `orienteer|orientering|ol\b` — fixes Swedish "Orientering" (single e) returning wrong fallback color.
+- `app/globals.css`: Added **Sky** color scheme — light blue-tinted backgrounds (`#F0F7FF`), blue-600 accent (`#2563EB`, 5.9:1 on white, WCAG AA). Dark variant: deep navy (`#0B1222`), blue-400 accent (7.1:1). Designed for maximum mobile legibility.
+- `components/color-scheme-provider.tsx`: Sky added to `ColorScheme` type + `COLOR_SCHEMES`. Default scheme is now device-responsive: **Sky on mobile** (< 768px), **Slate on desktop** (first visit with no saved preference).
+- `app/(dashboard)/settings/appearance-settings.tsx`: Sky added to scheme picker with distinct dot color (`#38BDF8` light / `#93C5FD` dark).
+
 **Session 2026-06-06 — Bug audit fixes (8 bugs) + Orienteering color + Race type:**
 
 Full audit documented in `docs/planning/bug-audit-2026-06-06.md`. All 8 confirmed bugs fixed:
