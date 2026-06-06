@@ -106,8 +106,8 @@ export function Sidebar() {
       <aside className={cn(
         "flex flex-col border-r border-border bg-surface",
         mobileOpen
-          ? "fixed top-0 left-0 z-50 w-64 h-[100dvh] overflow-y-auto"
-          : "hidden md:flex md:sticky md:top-0 md:h-screen md:shrink-0 md:w-56 md:overflow-y-auto"
+          ? "fixed top-0 left-0 z-50 w-56 h-[100dvh] overflow-y-auto"
+          : "hidden md:flex md:sticky md:top-0 md:h-screen md:shrink-0 md:w-48 md:overflow-y-auto"
       )}>
         {sidebarContent}
       </aside>
