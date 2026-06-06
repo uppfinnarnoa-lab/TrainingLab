@@ -14,22 +14,27 @@ export function MetricTooltip({ tip, className }: { tip: Tooltip; className?: st
     if (!btnRef.current) return;
     const r = btnRef.current.getBoundingClientRect();
     const tipW = Math.min(288, window.innerWidth - 32);
-    // Position to the right of the button, clamped to viewport
+    const tipH = 150; // estimated tooltip height
+
+    // Prefer positioning to the RIGHT of the button, vertically centered.
+    // This avoids the tooltip falling over chart content below the title bar.
     let left = r.right + 8;
-    if (left + tipW > window.innerWidth - 8) left = Math.max(8, r.left - tipW - 8);
-    // Position below the button, but flip up if it would overflow
-    let top = r.bottom + 4;
-    const estimatedHeight = 140;
-    if (top + estimatedHeight > window.innerHeight - 8) top = Math.max(8, r.top - estimatedHeight - 4);
+    let top  = r.top + r.height / 2 - tipH / 2;
+
+    // If not enough room on the right, flip to the left
+    if (left + tipW > window.innerWidth - 8) {
+      left = Math.max(8, r.left - tipW - 8);
+    }
+
+    // Clamp vertically within viewport
+    top = Math.max(8, Math.min(top, window.innerHeight - tipH - 8));
+
     setPos({ top, left });
     setVisible(true);
   }, []);
 
-  const hide = useCallback(() => setVisible(false), []);
-
-  const toggle = useCallback(() => {
-    if (visible) { hide(); } else { show(); }
-  }, [visible, show, hide]);
+  const hide  = useCallback(() => setVisible(false), []);
+  const toggle = useCallback(() => { if (visible) { hide(); } else { show(); } }, [visible, show, hide]);
 
   return (
     <>

@@ -32,9 +32,9 @@ export function ActivityMap({ polyline, color }: Props) {
     const container = ref.current;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let map: any = null;
-    // aborted is set true by cleanup before the async import resolves —
-    // prevents a second map from being created in the same container (React strict-mode double-invoke)
     let aborted = false;
+    let observer: ResizeObserver | null = null;
+    const timers: ReturnType<typeof setTimeout>[] = [];
 
     import("leaflet").then(L => {
       if (aborted || !container.isConnected) return;
@@ -60,16 +60,31 @@ export function ActivityMap({ polyline, color }: Props) {
       L.circleMarker(coords[0], { radius: 6, color: "#22C55E", fillColor: "#22C55E", fillOpacity: 1, weight: 2 }).addTo(map);
       L.circleMarker(coords[coords.length - 1], { radius: 6, color: "#EF4444", fillColor: "#EF4444", fillOpacity: 1, weight: 2 }).addTo(map);
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
-      // Allow CSS to settle before Leaflet measures the container
-      setTimeout(() => { if (!aborted) map?.invalidateSize(); }, 200);
+
+      // invalidateSize tells Leaflet to re-measure the container and load any
+      // missing tiles. Called at multiple intervals because CSS/fonts/images
+      // may still be settling after the initial render, and production builds
+      // load slower than dev. ResizeObserver catches any subsequent layout shifts.
+      const invalidate = () => { if (!aborted) map?.invalidateSize(); };
+
+      timers.push(setTimeout(invalidate, 100));
+      timers.push(setTimeout(invalidate, 400));
+      timers.push(setTimeout(invalidate, 900));
+
+      if (typeof ResizeObserver !== "undefined") {
+        observer = new ResizeObserver(invalidate);
+        observer.observe(container);
+      }
     });
 
     return () => {
       aborted = true;
+      timers.forEach(clearTimeout);
+      observer?.disconnect();
       map?.remove();
       map = null;
     };
   }, [polyline, color]);
 
-  return <div ref={ref} style={{ width: "100%", height: "100%", background: "#1a1d27" }} />;
+  return <div ref={ref} style={{ width: "100%", height: "100%", minHeight: 320, background: "#1a1d27" }} />;
 }
