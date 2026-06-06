@@ -66,10 +66,11 @@ export function PlannerClient(props: Props) {
     setTimeout(() => setPlannerError(null), 4000);
   }
 
+  const [sports, setSports]       = useState(props.sports);
   const [templates, setTemplates] = useState(props.templates);
   // Normalize sport types on load so "Run" → "Running" etc.
   const [workouts, setWorkouts]   = useState(() =>
-    props.workouts.map(w => ({ ...w, sportType: normalizeSportType(w.sportType, props.sports) }))
+    props.workouts.map(w => ({ ...w, sportType: normalizeSportType(w.sportType, sports) }))
   );
   const [blocks, setBlocks]       = useState(props.blocks);
 
@@ -95,9 +96,9 @@ export function PlannerClient(props: Props) {
   const editTemplate = useMemo<WorkoutTemplate | null>(() => {
     if (!editWorkout) return null;
     if (editWorkout.template) return editWorkout.template;
-    const sport = props.sports.find(s =>
+    const sport = sports.find(s =>
       s.name.toLowerCase() === editWorkout.sportType.toLowerCase()
-    ) ?? props.sports[0];
+    ) ?? sports[0];
     return {
       id: editWorkout.id,
       name: editWorkout.name,
@@ -112,7 +113,7 @@ export function PlannerClient(props: Props) {
       sport: sport ?? { id: "", name: editWorkout.sportType, color: null, workoutTypes: [] },
       type: null,
     };
-  }, [editWorkout, props.sports]);
+  }, [editWorkout, sports]);
 
   function handleWorkoutClick(w: PlannedWorkout) {
     if (w.date > today) {
@@ -164,7 +165,7 @@ export function PlannerClient(props: Props) {
     });
     if (!res.ok) { showError("Failed to save workout — please try again."); return; }
     const w: PlannedWorkout = await res.json();
-    const normalized = { ...w, sportType: normalizeSportType(w.sportType, props.sports) };
+    const normalized = { ...w, sportType: normalizeSportType(w.sportType, sports) };
     setWorkouts(prev => [...prev, normalized].sort((a, b) => a.date.localeCompare(b.date)));
   }
 
@@ -260,7 +261,7 @@ export function PlannerClient(props: Props) {
     }
 
     if (data.date) {
-      const sport = props.sports.find(s => s.id === data.sportId);
+      const sport = sports.find(s => s.id === data.sportId);
       if (!sport) return;
       await createWorkout({
         date: data.date,
@@ -306,7 +307,7 @@ export function PlannerClient(props: Props) {
     const id = editWorkout.id;
     setEditWorkout(null);
 
-    const sport = props.sports.find(s => s.id === data.sportId);
+    const sport = sports.find(s => s.id === data.sportId);
 
     const res = await fetch(`/api/planner/workouts/${id}`, {
       method: "PATCH",
@@ -425,7 +426,7 @@ export function PlannerClient(props: Props) {
         {/* Template library sidebar — hidden on mobile, toggle via calendar header button */}
         <TemplateLibrary
           templates={templates}
-          sports={props.sports}
+          sports={sports}
           onAddToDate={id => handleAddTemplateToDate(id)}
           onDeleteTemplate={handleDeleteTemplate}
           onNewTemplate={() => openBuilder()}
@@ -457,25 +458,27 @@ export function PlannerClient(props: Props) {
       {/* Workout builder — create new (optionally pre-filled from a mobile template tap) */}
       {showBuilder && (
         <WorkoutBuilder
-          sports={props.sports}
+          sports={sports}
           paceZones={props.paceZoneRanges}
           hrZones={props.hrZoneRanges}
           initialDate={builderDate ?? undefined}
           editTemplate={mobileTemplatePrefill ?? undefined}
           onSave={handleBuilderSave}
           onCancel={() => { setShowBuilder(false); setMobileTemplatePrefill(null); }}
+          onSportsUpdated={setSports}
         />
       )}
 
       {/* Workout builder — edit existing template */}
       {editingTemplate && (
         <WorkoutBuilder
-          sports={props.sports}
+          sports={sports}
           paceZones={props.paceZoneRanges}
           hrZones={props.hrZoneRanges}
           editTemplate={editingTemplate}
           onSave={handleTemplateUpdate}
           onCancel={() => setEditingTemplate(null)}
+          onSportsUpdated={setSports}
         />
       )}
 
@@ -493,7 +496,7 @@ export function PlannerClient(props: Props) {
       {/* Workout builder — edit future workout */}
       {editWorkout && editTemplate && (
         <WorkoutBuilder
-          sports={props.sports}
+          sports={sports}
           paceZones={props.paceZoneRanges}
           hrZones={props.hrZoneRanges}
           editTemplate={editTemplate}
@@ -502,6 +505,7 @@ export function PlannerClient(props: Props) {
           onSave={handleEditBuilderSave}
           onDelete={() => { handleDeleteWorkout(editWorkout.id); setEditWorkout(null); }}
           onCancel={() => setEditWorkout(null)}
+          onSportsUpdated={setSports}
         />
       )}
 

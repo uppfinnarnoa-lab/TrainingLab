@@ -44,10 +44,21 @@ export async function POST(req: NextRequest) {
   if (kind === "sport") {
     const parsed = sportSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
+
     const sport = await prisma.sportCategory.create({
       data: { ...parsed.data, userId: session.user.id },
     });
-    return NextResponse.json(sport, { status: 201 });
+
+    // Every new sport gets Race as a default type (yellow)
+    await prisma.workoutType.create({
+      data: { name: "Race", sportId: sport.id, userId: session.user.id, color: "#FBBF24", order: 999 },
+    });
+
+    const sportWithTypes = await prisma.sportCategory.findUnique({
+      where: { id: sport.id },
+      include: { workoutTypes: { orderBy: { order: "asc" } } },
+    });
+    return NextResponse.json(sportWithTypes, { status: 201 });
   }
 
   if (kind === "type") {
