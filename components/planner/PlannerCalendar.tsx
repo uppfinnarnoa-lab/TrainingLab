@@ -291,7 +291,7 @@ export function PlannerCalendar({
       </div>
 
       {/* Calendar grid */}
-      <div className="flex-1 overflow-y-auto space-y-2">
+      <div className="space-y-2">
         {weeks.map((week, wi) => {
           const weekStart    = week[0];
           const weekWorkouts = week.flatMap(d => byDate.get(format(d, "yyyy-MM-dd")) ?? []);

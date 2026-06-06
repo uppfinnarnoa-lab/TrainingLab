@@ -410,7 +410,7 @@ export function PlannerClient(props: Props) {
         />
 
         {/* Calendar */}
-        <div className="flex-1 p-3 md:p-4 overflow-auto">
+        <div className="flex-1 p-3 md:p-4 overflow-x-auto">
           <PlannerCalendar
             workouts={workouts}
             blocks={blocks}
