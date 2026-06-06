@@ -1890,6 +1890,15 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-06 — Mobile UX polish: 6 bug fixes across Volume Explorer, Planner, WorkoutBuilder, sidebar:**
+
+- `app/(dashboard)/stats/volume/volume-client.tsx`: Metric toggle labels capitalized: `"km"→"Km"`, `"time"→"Time"`.
+- `components/planner/WorkoutPill.tsx`: Long press now fires `onLongPressMenu(workout, x, y)` (touch coords captured via `touchX/Y` refs) instead of directly copying — parent shows the context menu. Removed `onCopyRequest` prop. Added `select-none` Tailwind class and `e.preventDefault()` on `onContextMenu` to suppress native text-selection overlay and browser context menu during long press.
+- `components/planner/PlannerCalendar.tsx`: Long press from `WorkoutPill` wires to `setContextMenu` so the same floating menu appears as on desktop right-click. Added "Move to…" option to the workout context menu — sets `moveWorkout` state. Move mode banner renders above the grid showing workout name with a cancel button. Day-cell click handler checks move mode first: calls `onWorkoutMove(moveWorkout.id, date)` and clears state (tapping any day completes the move). Day cells show `MoveRight` icon in move mode instead of `ClipboardPaste`.
+- `components/planner/WorkoutBuilder.tsx`: Main form grid changed from `grid-cols-2` to `grid-cols-1 sm:grid-cols-2`; section editor grid same change. `col-span-2` spans changed to `sm:col-span-2` — single column on mobile so fields no longer overlap on 375px screens.
+- `components/planner/TemplateCard.tsx`: Button padding increased `p-1→p-2`, button gap `gap-1→gap-2` (larger touch targets). Added `onPointerDown={e => e.stopPropagation()}` to each action button — prevents the draggable card from intercepting the touch before the button click fires.
+- `components/sidebar.tsx`: Mobile sidebar height changed from `h-screen` (= 100vh, includes iOS browser chrome) to `h-[100dvh]` (dynamic viewport height, excludes browser toolbar). Added `min-h-0` to nav element so flex correctly constrains it. Settings link and ThemeToggle at the bottom are now always visible on iOS Safari/Chrome.
+
 **Session 2026-06-06 — Activity map tile loading fix + metric tooltip positioning:**
 
 - `app/(dashboard)/activities/[id]/activity-map.tsx`: The single 200ms `invalidateSize()` call was insufficient in production — CSS/fonts settle slower, causing Leaflet to measure the container too early (small/0 size) and only load 2 tiles for that tiny area. Fixed by: (1) three staggered `setTimeout` calls at 100ms, 400ms, 900ms; (2) a `ResizeObserver` on the container div that calls `invalidateSize()` on any layout shift; (3) `minHeight: 320` on the map div ensures Leaflet always has a non-zero container height at initialization. All timers and the observer are cleaned up in the useEffect return.
