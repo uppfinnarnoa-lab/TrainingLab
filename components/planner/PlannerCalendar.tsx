@@ -316,9 +316,9 @@ export function PlannerCalendar({
                   ? { gridTemplateColumns: "120px repeat(7, minmax(140px, 1fr))" }
                   : undefined}
               >
-                {/* Sidebar summary column — hidden on mobile */}
+                {/* Sidebar summary column — hidden on mobile, overflow-hidden to clip content */}
                 {isSidebar && (
-                  <div className="hidden md:flex items-stretch">
+                  <div className="hidden md:flex items-stretch overflow-hidden min-w-0">
                     {weekWorkouts.length > 0 ? (
                       <WeekSummaryStrip weekStart={weekStart} workouts={weekWorkouts} block={weekBlock} compact />
                     ) : <div className="w-full" />}

@@ -85,6 +85,71 @@ export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact,
     .sort((a, b) => b[1].timeSec - a[1].timeSec)
     .slice(0, 3);
 
+  // ── Compact / sidebar mode — vertical stack to fit in 120px column ──────
+  if (compact) {
+    return (
+      <button
+        onClick={handleClick}
+        className={cn(
+          "w-full h-full text-left px-2 py-2 rounded-xl border transition-all overflow-hidden flex flex-col gap-1",
+          "hover:border-accent/40 hover:bg-surface-2",
+          block ? "border-l-[3px]" : "border-border/50",
+          "bg-surface/60"
+        )}
+        style={block ? { borderLeftColor: block.color } : undefined}
+      >
+        {/* Block label */}
+        {block && (
+          <span
+            className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded text-white w-fit shrink-0"
+            style={{ backgroundColor: block.color }}
+          >
+            {block.blockType}
+          </span>
+        )}
+
+        {/* Sport volumes — one per line */}
+        {topSports.map(([sport, d]) => (
+          <div key={sport} className="text-[10px] leading-tight">
+            <span className="font-semibold text-primary">
+              {sport.replace(/([A-Z])/g, " $1").trim().split(" ")[0]}
+            </span>
+            {d.km > 0 && <span className="font-mono text-muted ml-1">{d.km.toFixed(0)}km</span>}
+            {d.timeSec > 0 && <span className="text-muted ml-1">{formatDuration(d.timeSec)}</span>}
+          </div>
+        ))}
+
+        {/* Total if multiple sports */}
+        {topSports.length > 1 && totalSec > 0 && (
+          <div className="text-[10px] text-muted">
+            · <span className="font-mono">{formatDuration(totalSec)}</span>
+          </div>
+        )}
+
+        {/* Zone bar */}
+        {hasZones && <ZoneBar distribution={totalZones} height={3} />}
+
+        {/* Predicted km + completion on same row */}
+        <div className="flex items-center gap-1 mt-auto pt-0.5">
+          {predictedRunKm !== null && (
+            <span className="text-[10px] text-accent font-mono" title="Predicted weekly run distance">
+              ~{predictedRunKm}km
+            </span>
+          )}
+          {isPast && (
+            <span className={cn(
+              "text-[10px] font-semibold ml-auto",
+              missed > 0 ? "text-error" : "text-accent"
+            )}>
+              {completed}/{workouts.length}
+            </span>
+          )}
+        </div>
+      </button>
+    );
+  }
+
+  // ── Row mode — horizontal layout below each week row ─────────────────────
   return (
     <button
       onClick={handleClick}
@@ -134,7 +199,7 @@ export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact,
 
         {/* Predicted total running distance */}
         {predictedRunKm !== null && (
-          <span className="shrink-0 text-xs text-accent font-mono ml-auto" title="Beräknad löpdistans för veckan (gjort + planerat)">
+          <span className="shrink-0 text-xs text-accent font-mono ml-auto" title="Predicted weekly run distance">
             ~{predictedRunKm}km
           </span>
         )}
