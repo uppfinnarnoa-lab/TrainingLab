@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardX } from "lucide-react";
 import { TemplateLibrary } from "@/components/planner/TemplateLibrary";
@@ -43,6 +43,22 @@ interface Props {
 export function PlannerClient(props: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
+
+  // One-time backfill: add default section to templates that have none.
+  // Runs on first mount; localStorage flag prevents re-running across sessions.
+  useEffect(() => {
+    if (localStorage.getItem("planner_sections_backfilled_v1")) return;
+    fetch("/api/planner/backfill-sections", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          localStorage.setItem("planner_sections_backfilled_v1", "1");
+          if (data.fixed > 0) startTransition(() => router.refresh());
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [plannerError, setPlannerError] = useState<string | null>(null);
   function showError(msg: string) {

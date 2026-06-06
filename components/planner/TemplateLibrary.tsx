@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Search, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Search, ChevronDown, ChevronRight, Plus, X, PanelLeftClose, LayoutTemplate } from "lucide-react";
 import { TemplateCard } from "./TemplateCard";
 import type { WorkoutTemplate, SportCategory } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
+
+const LIB_COLLAPSED_KEY = "planner_lib_collapsed";
 
 interface Props {
   templates: WorkoutTemplate[];
@@ -15,14 +17,24 @@ interface Props {
   onEditTemplate: (template: WorkoutTemplate) => void;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
-  // On mobile, tapping a template opens the builder instead of adding to today
   onMobileSelectTemplate?: (templateId: string) => void;
 }
 
 export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTemplate, onNewTemplate, onEditTemplate, mobileOpen, onMobileClose, onMobileSelectTemplate }: Props) {
   const [query, setQuery] = useState("");
   const [activeSport, setActiveSport] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsedSports, setCollapsedSports] = useState<Set<string>>(new Set());
+  const [libCollapsed, setLibCollapsed] = useState(false);
+
+  useEffect(() => {
+    setLibCollapsed(localStorage.getItem(LIB_COLLAPSED_KEY) === "true");
+  }, []);
+
+  function toggleLib() {
+    const next = !libCollapsed;
+    setLibCollapsed(next);
+    localStorage.setItem(LIB_COLLAPSED_KEY, String(next));
+  }
 
   const filtered = useMemo(() => {
     let list = templates;
@@ -38,7 +50,6 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
     return list;
   }, [templates, activeSport, query]);
 
-  // Group by sport
   const grouped = useMemo(() => {
     const map = new Map<string, WorkoutTemplate[]>();
     for (const t of filtered) {
@@ -49,8 +60,8 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
     return map;
   }, [filtered]);
 
-  function toggleCollapse(sport: string) {
-    setCollapsed(prev => {
+  function toggleCollapseSport(sport: string) {
+    setCollapsedSports(prev => {
       const next = new Set(prev);
       if (next.has(sport)) next.delete(sport);
       else next.add(sport);
@@ -58,6 +69,25 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
     });
   }
 
+  // ── Collapsed strip (desktop only) ────────────────────────────────────────
+  if (!mobileOpen && libCollapsed) {
+    return (
+      <aside className="hidden md:flex md:flex-col md:w-10 md:shrink-0 md:h-full border-r border-border bg-surface items-center py-3 gap-3">
+        <button
+          onClick={toggleLib}
+          title="Expand templates"
+          className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
+        >
+          <LayoutTemplate size={16} />
+        </button>
+        {templates.length > 0 && (
+          <span className="text-[10px] text-muted font-mono">{templates.length}</span>
+        )}
+      </aside>
+    );
+  }
+
+  // ── Full sidebar ───────────────────────────────────────────────────────────
   return (
     <aside className={cn(
       "flex flex-col border-r border-border bg-surface",
@@ -69,7 +99,7 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
       <div className="p-3 border-b border-border space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-primary">Templates</p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {mobileOpen && (
               <button
                 onClick={onMobileClose}
@@ -77,6 +107,16 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
                 aria-label="Close templates"
               >
                 <X size={16} />
+              </button>
+            )}
+            {/* Collapse to strip — desktop only */}
+            {!mobileOpen && (
+              <button
+                onClick={toggleLib}
+                title="Collapse sidebar"
+                className="hidden md:inline-flex p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition"
+              >
+                <PanelLeftClose size={15} />
               </button>
             )}
             <button
@@ -140,15 +180,15 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
           Array.from(grouped.entries()).map(([sport, ts]) => (
             <div key={sport}>
               <button
-                onClick={() => toggleCollapse(sport)}
+                onClick={() => toggleCollapseSport(sport)}
                 className="flex items-center gap-1.5 w-full px-1 py-1 text-xs font-medium text-muted hover:text-primary transition-colors"
               >
-                {collapsed.has(sport) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                {collapsedSports.has(sport) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                 {sport}
                 <span className="ml-auto text-muted">{ts.length}</span>
               </button>
 
-              {!collapsed.has(sport) && (
+              {!collapsedSports.has(sport) && (
                 <div className="space-y-1 ml-1">
                   {ts.map(t => (
                     <TemplateCard
