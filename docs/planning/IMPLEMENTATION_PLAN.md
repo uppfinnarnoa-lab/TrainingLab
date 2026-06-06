@@ -1890,6 +1890,11 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-06 — Activity map tile loading fix + metric tooltip positioning:**
+
+- `app/(dashboard)/activities/[id]/activity-map.tsx`: The single 200ms `invalidateSize()` call was insufficient in production — CSS/fonts settle slower, causing Leaflet to measure the container too early (small/0 size) and only load 2 tiles for that tiny area. Fixed by: (1) three staggered `setTimeout` calls at 100ms, 400ms, 900ms; (2) a `ResizeObserver` on the container div that calls `invalidateSize()` on any layout shift; (3) `minHeight: 320` on the map div ensures Leaflet always has a non-zero container height at initialization. All timers and the observer are cleaned up in the useEffect return.
+- `components/stats/metric-tooltip.tsx`: Tooltip was positioned **below** the info button (r.bottom + 4), causing it to fall directly over chart content in cards like Training Load. Repositioned to **right of the button, vertically centered** (r.right + 8, vertically centered around button midpoint). Falls back to left side if the right side would overflow the viewport. Vertical position is clamped to viewport bounds. The click-away backdrop and hover behaviour are unchanged.
+
 **Session 2026-06-06 — Planner sidebar view: column width, overflow, remove Log? indicator:**
 
 - `components/planner/PlannerCalendar.tsx`: sidebar grid now uses `style={{ gridTemplateColumns: "120px repeat(7, minmax(140px, 1fr))" }}` (inline style, applied to both weekday header row and each week row). Replaces `md:grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr]` where `1fr` was only ~86px — too narrow to read workout names. Minimum 140px per day = ~1100px total; calendar container has `overflow-auto` so it scrolls horizontally when viewport is narrower. Day cell div gains `overflow-hidden` to clip any pill content that overflows the cell boundary (was causing text to render outside rounded boxes).
