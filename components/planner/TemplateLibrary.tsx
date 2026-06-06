@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Search, ChevronDown, ChevronRight, Plus, X, PanelLeftClose, LayoutTemplate } from "lucide-react";
 import { TemplateCard } from "./TemplateCard";
 import type { WorkoutTemplate, SportCategory } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
 const LIB_COLLAPSED_KEY = "planner_lib_collapsed";
+const LIB_WIDTH_KEY     = "planner_lib_width";
+const MIN_W = 160;
+const MAX_W = 480;
+const DEFAULT_W = 256; // 16rem
 
 interface Props {
   templates: WorkoutTemplate[];
@@ -25,9 +29,18 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
   const [activeSport, setActiveSport] = useState<string | null>(null);
   const [collapsedSports, setCollapsedSports] = useState<Set<string>>(new Set());
   const [libCollapsed, setLibCollapsed] = useState(false);
+  const [width, setWidth] = useState(DEFAULT_W);
+
+  // Drag-resize state
+  const dragging   = useRef(false);
+  const startX     = useRef(0);
+  const startWidth = useRef(DEFAULT_W);
 
   useEffect(() => {
-    setLibCollapsed(localStorage.getItem(LIB_COLLAPSED_KEY) === "true");
+    const collapsed = localStorage.getItem(LIB_COLLAPSED_KEY) === "true";
+    const saved     = parseInt(localStorage.getItem(LIB_WIDTH_KEY) ?? "", 10);
+    setLibCollapsed(collapsed);
+    if (!isNaN(saved) && saved >= MIN_W && saved <= MAX_W) setWidth(saved);
   }, []);
 
   function toggleLib() {
@@ -35,6 +48,58 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
     setLibCollapsed(next);
     localStorage.setItem(LIB_COLLAPSED_KEY, String(next));
   }
+
+  // ── Drag handle logic ───────────────────────────────────────────────────────
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current   = true;
+    startX.current     = e.clientX;
+    startWidth.current = width;
+
+    function onMove(ev: MouseEvent) {
+      if (!dragging.current) return;
+      const delta = ev.clientX - startX.current;
+      const next  = Math.min(MAX_W, Math.max(MIN_W, startWidth.current + delta));
+      setWidth(next);
+    }
+    function onUp() {
+      dragging.current = false;
+      setWidth(w => {
+        localStorage.setItem(LIB_WIDTH_KEY, String(w));
+        return w;
+      });
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [width]);
+
+  // Touch-based resize for mobile (optional but good to have)
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    dragging.current   = true;
+    startX.current     = touch.clientX;
+    startWidth.current = width;
+
+    function onMove(ev: TouchEvent) {
+      if (!dragging.current) return;
+      const delta = ev.touches[0].clientX - startX.current;
+      const next  = Math.min(MAX_W, Math.max(MIN_W, startWidth.current + delta));
+      setWidth(next);
+    }
+    function onEnd() {
+      dragging.current = false;
+      setWidth(w => {
+        localStorage.setItem(LIB_WIDTH_KEY, String(w));
+        return w;
+      });
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+    }
+    window.addEventListener("touchmove", onMove, { passive: true });
+    window.addEventListener("touchend", onEnd);
+  }, [width]);
 
   const filtered = useMemo(() => {
     let list = templates;
@@ -69,7 +134,7 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
     });
   }
 
-  // ── Collapsed strip (desktop only) ────────────────────────────────────────
+  // ── Collapsed strip (desktop only) ─────────────────────────────────────────
   if (!mobileOpen && libCollapsed) {
     return (
       <aside className="hidden md:flex md:flex-col md:w-10 md:shrink-0 md:h-full border-r border-border bg-surface items-center py-3 gap-3">
@@ -87,14 +152,32 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
     );
   }
 
-  // ── Full sidebar ───────────────────────────────────────────────────────────
+  // ── Full sidebar ────────────────────────────────────────────────────────────
+  const desktopStyle = mobileOpen ? undefined : { width, minWidth: MIN_W, maxWidth: MAX_W };
+
   return (
-    <aside className={cn(
-      "flex flex-col border-r border-border bg-surface",
-      mobileOpen
-        ? "fixed inset-0 z-50 w-full"
-        : "hidden md:flex md:w-64 md:shrink-0 md:h-full"
-    )}>
+    <aside
+      className={cn(
+        "flex flex-col border-r border-border bg-surface relative",
+        mobileOpen
+          ? "fixed inset-0 z-50 w-full"
+          : "hidden md:flex md:shrink-0 md:h-full"
+      )}
+      style={desktopStyle}
+    >
+      {/* Drag handle — desktop only, right edge */}
+      {!mobileOpen && (
+        <div
+          onMouseDown={onMouseDown}
+          onTouchStart={onTouchStart}
+          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
+          title="Drag to resize"
+        >
+          {/* Visible indicator on hover */}
+          <div className="absolute inset-y-0 right-0 w-px bg-border group-hover:bg-accent/50 transition-colors" />
+        </div>
+      )}
+
       {/* Header */}
       <div className="p-3 border-b border-border space-y-2">
         <div className="flex items-center justify-between">
@@ -109,7 +192,6 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
                 <X size={16} />
               </button>
             )}
-            {/* Collapse to strip — desktop only */}
             {!mobileOpen && (
               <button
                 onClick={toggleLib}
