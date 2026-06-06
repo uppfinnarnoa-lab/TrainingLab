@@ -180,7 +180,7 @@ export function StatsClient(props: Props) {
 
           {/* Quick chart preview */}
           <SectionCard title="Weekly volume" href="/stats/volume?mode=weekly" action={
-            <div className="flex gap-1 items-center">
+            <div className="flex gap-1 items-center flex-wrap">
               <SportFilter sports={allSports} selected={sportFilter} onChange={setSportFilter} />
               <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
             </div>
