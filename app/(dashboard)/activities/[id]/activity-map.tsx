@@ -59,17 +59,29 @@ export function ActivityMap({ polyline, color }: Props) {
       const line = L.polyline(coords, { color, weight: 3, opacity: 0.9 }).addTo(map);
       L.circleMarker(coords[0], { radius: 6, color: "#22C55E", fillColor: "#22C55E", fillOpacity: 1, weight: 2 }).addTo(map);
       L.circleMarker(coords[coords.length - 1], { radius: 6, color: "#EF4444", fillColor: "#EF4444", fillOpacity: 1, weight: 2 }).addTo(map);
-      map.fitBounds(line.getBounds(), { padding: [20, 20] });
 
-      // invalidateSize tells Leaflet to re-measure the container and load any
-      // missing tiles. Called at multiple intervals because CSS/fonts/images
-      // may still be settling after the initial render, and production builds
-      // load slower than dev. ResizeObserver catches any subsequent layout shifts.
-      const invalidate = () => { if (!aborted) map?.invalidateSize(); };
+      const bounds = line.getBounds();
+      map.fitBounds(bounds, { padding: [20, 20] });
+
+      // Production pages settle slowly (fonts, layout, images). fitBounds() uses
+      // the container size at call time; if that size was wrong, the tiles load for
+      // the wrong viewport and appear fragmented. Fix: re-invalidate AND re-fit at
+      // increasing intervals so the view is recalculated against the true container
+      // size once layout is stable. After refitsLeft is exhausted we only invalidate
+      // (so user pan/zoom isn't overridden after they interact with the map).
+      let refitsLeft = 3;
+      const invalidate = () => {
+        if (aborted || !map) return;
+        map.invalidateSize();
+        if (refitsLeft > 0) {
+          refitsLeft--;
+          map.fitBounds(bounds, { padding: [20, 20] });
+        }
+      };
 
       timers.push(setTimeout(invalidate, 100));
-      timers.push(setTimeout(invalidate, 400));
-      timers.push(setTimeout(invalidate, 900));
+      timers.push(setTimeout(invalidate, 500));
+      timers.push(setTimeout(invalidate, 1500));
 
       if (typeof ResizeObserver !== "undefined") {
         observer = new ResizeObserver(invalidate);

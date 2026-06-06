@@ -310,24 +310,28 @@ export function PlannerCalendar({
           })();
 
           return (
-            <div key={wi} className="space-y-1">
-              {rollingWeekLabel && (
-                <div className="flex items-center gap-2 px-1 pt-1">
-                  <span className={cn(
-                    "text-xs font-semibold",
-                    rollingWeekLabel === "This week" ? "text-accent" : "text-muted"
-                  )}>
-                    {rollingWeekLabel}
-                  </span>
-                  <div className="flex-1 h-px bg-border" />
-                </div>
-              )}
+            <div key={wi}>
               <div
                 className="gap-x-1 grid grid-cols-7"
                 style={isSidebar
                   ? { gridTemplateColumns: "120px repeat(7, minmax(140px, 1fr))" }
                   : undefined}
               >
+                {/* Rolling week label spans all columns so the line reaches the full grid width */}
+                {rollingWeekLabel && (
+                  <div
+                    className="flex items-center gap-2 px-1 pt-1 pb-0.5"
+                    style={{ gridColumn: "1 / -1" }}
+                  >
+                    <span className={cn(
+                      "text-xs font-semibold",
+                      rollingWeekLabel === "This week" ? "text-accent" : "text-muted"
+                    )}>
+                      {rollingWeekLabel}
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+                )}
                 {/* Sidebar summary column — hidden on mobile, overflow-hidden to clip content */}
                 {isSidebar && (
                   <div className="hidden md:flex items-stretch overflow-hidden min-w-0">
