@@ -165,16 +165,17 @@ export function TemplateLibrary({ templates, sports, onAddToDate, onDeleteTempla
       )}
       style={desktopStyle}
     >
-      {/* Drag handle — desktop only, right edge */}
+      {/* Drag handle — desktop only, centered on the border line */}
       {!mobileOpen && (
         <div
           onMouseDown={onMouseDown}
           onTouchStart={onTouchStart}
-          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
+          className="absolute top-0 bottom-0 w-3 cursor-col-resize z-10 group"
+          style={{ right: "-6px" }}
           title="Drag to resize"
         >
-          {/* Visible indicator on hover */}
-          <div className="absolute inset-y-0 right-0 w-px bg-border group-hover:bg-accent/50 transition-colors" />
+          {/* Visible indicator: always a subtle line, brightens on hover */}
+          <div className="absolute inset-y-0 left-1/2 -translate-x-px w-0.5 bg-border group-hover:bg-accent/60 transition-colors" />
         </div>
       )}
 

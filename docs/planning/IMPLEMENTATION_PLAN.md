@@ -1890,6 +1890,15 @@ Note: breakdown key renamed from "Volume-adj. Riegel" → "Volume-Adjusted Riege
 **Archived plans:**
 - `docs/planning/lt-trend-window-stabilization-plan.md` → `docs/planning/archive/` (status: Implemented 2026-06-01).
 
+**Session 2026-06-06 — Template library sidebar: draggable resize handle:**
+
+- `components/planner/TemplateLibrary.tsx`: Added draggable resize handle on the right edge of the desktop sidebar. A 12px drag zone is centered on the sidebar-calendar border (via `right: -6px`) so the resize cursor is discoverable from either side of the dividing line. Dragging sets sidebar width freely between 160–480px; current width persisted to `localStorage` key `planner_lib_width` on mouse-up. Touch resize also supported via `onTouchStart`. Visual indicator: a 2px line centered on the border, always visible, brightens to accent color on hover. `startX` and `startWidth` stored as refs so drag logic survives React re-renders. Collapse/expand toggle and mobile overlay are unchanged.
+
+**Session 2026-06-06 — Color theme: Sky → Sand (warm neutral + violet):**
+
+- `app/globals.css`: Replaced **Sky** theme entirely with **Sand** — warm-neutral backgrounds (stone-50 `#FAFAF8` light bg, `#F2F1EC` surface), violet-700 accent (`#7C3AED`) in light mode; zinc-900 dark bg (`#18181B`), violet-400 accent (`#A78BFA`) in dark mode. All contrast ratios exceed WCAG AA; primary text exceeds AAA (18.4:1 light, stone-600 muted 7.3:1 AAA for outdoor readability). Warm neutral chosen over cold blue to reduce eye strain and avoid similarity with existing Ocean theme. Violet accent maximally distinct from all 5 other themes.
+- `app/(dashboard)/settings/appearance-settings.tsx`: Updated Sand scheme dot color to violet (`#7C3AED` light / `#A78BFA` dark) in the scheme picker.
+
 **Session 2026-06-06 — Planner/sports features, themes, collapsible sidebar:**
 
 - `components/planner/TemplateLibrary.tsx`: Desktop sidebar now collapsible — `PanelLeftClose` button in header collapses to a 40px strip showing template count + expand icon (`LayoutTemplate`). State persisted in `localStorage` key `planner_lib_collapsed`. Mobile overlay unchanged.
