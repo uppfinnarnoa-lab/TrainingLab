@@ -365,8 +365,9 @@ export function StravaConnectSection({
         </div>
       )}
 
-      {/* Step 3: Connect / Sync */}
-      {(isAdmin ? credentialsSet : hasClientId) && (
+      {/* Step 3: Connect / Sync — always show management UI for already-connected
+          accounts, even if the credentials-availability check below is stale/false */}
+      {((isAdmin ? credentialsSet : hasClientId) || connected) && (
         <div className="space-y-4">
           <p className="text-xs font-semibold text-muted uppercase tracking-wide">
             Step 3 — Connect your Strava account

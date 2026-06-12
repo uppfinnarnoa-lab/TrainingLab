@@ -1997,6 +1997,12 @@ Full audit documented in `docs/planning/bug-audit-2026-06-06.md`. All 8 confirme
 - `prisma/schema.prisma`: `WorkoutType.defaultZone Int?` (1–5).
 - `components/planner/WorkoutBuilder.tsx`: initial section and `syncDefaultSection()` now use `type?.defaultZone ?? typeToZone(typeName)` — `defaultZone` (set in Settings) overrides the name-based heuristic when present.
 
+**Session 2026-06-12b — Fix: non-admin users saw only a collapsed "Connected" Strava card:**
+- Bug: for non-admin users whose Strava account was connected, the Settings page showed only the outer integration card with a "Connected" badge — none of Step 3's content (sync button, historical/weather backfill, auto-sync mode picker, webhook controls) rendered.
+- Root cause: `app/(dashboard)/settings/strava-connect.tsx` gated the entire Step 3 block (including the already-connected management UI) on `(isAdmin ? credentialsSet : hasClientId)`. For a connected non-admin user this credentials-availability check is both redundant (OAuth already succeeded) and could evaluate falsy depending on the `getCredentials()` fallback-chain result for that user, hiding all of Step 3.
+- Fix: gating condition is now `((isAdmin ? credentialsSet : hasClientId) || connected)` — an already-connected account always shows its management UI regardless of the credentials check; the credentials check still controls whether the pre-connection "Connect with Strava" link is shown.
+- No DB/schema change required — pure client-component conditional-rendering fix, picked up automatically by the next `deployment/deploy.sh` run.
+
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
 **Copy-paste workouts (Ctrl+C/V + right-click + long-press):**
