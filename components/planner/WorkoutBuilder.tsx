@@ -24,6 +24,8 @@ interface Props {
   initialDate?: string;
   editTemplate?: WorkoutTemplate;
   plannedWorkoutMode?: boolean;
+  /** Pre-fill from editTemplate but behave as "create new" (used for mobile template tap → add to date). */
+  forceCreateMode?: boolean;
   onSportsUpdated?: (sports: SportCategory[]) => void;
 }
 
@@ -135,8 +137,8 @@ function ColorSwatches({ value, onChange }: { value: string; onChange: (c: strin
 
 // ── Main component ────────────────────────────────────────────────────────
 
-export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave, onCancel, onDelete, initialDate, editTemplate, plannedWorkoutMode, onSportsUpdated }: Props) {
-  const isEditing = !!editTemplate;
+export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave, onCancel, onDelete, initialDate, editTemplate, plannedWorkoutMode, forceCreateMode, onSportsUpdated }: Props) {
+  const isEditing = !!editTemplate && !forceCreateMode;
 
   const [localSports, setLocalSports] = useState<SportCategory[]>(sportsProp);
 
@@ -165,7 +167,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     }
     const dur = editTemplate?.estimatedDuration ?? null;
     const dist = editTemplate?.estimatedDistance ?? null;
-    const zone = typeToZone(editTemplate?.type?.name ?? null);
+    const zone = editTemplate?.type?.defaultZone ?? typeToZone(editTemplate?.type?.name ?? null);
     return [makeDefaultSection(dur, dist, zone)];
   });
 
@@ -184,6 +186,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   const [showAddSport, setShowAddSport]     = useState(false);
   const [addSportName, setAddSportName]     = useState("");
   const [addSportColor, setAddSportColor]   = useState(COLOR_PALETTE[9]);
+  const [addSportIsRunningRelated, setAddSportIsRunningRelated] = useState(false);
   const [addSportSaving, setAddSportSaving] = useState(false);
 
   const selectedSport = localSports.find(s => s.id === sportId);
@@ -197,11 +200,14 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     durMin?: number | "";
     distKm?: number | "";
     typeName?: string | null;
+    type?: WorkoutType | null;
   }) {
     if (sectionsCustomized || sections.length !== 1) return;
     const dur = opts.durMin !== undefined ? opts.durMin : totalDurMin;
     const dist = opts.distKm !== undefined ? opts.distKm : totalDistKm;
-    const zone = typeToZone(opts.typeName !== undefined ? opts.typeName : effectiveTypeName);
+    const typeName = opts.typeName !== undefined ? opts.typeName : effectiveTypeName;
+    const type = opts.type !== undefined ? opts.type : selectedType;
+    const zone = type?.defaultZone ?? typeToZone(typeName);
     const durationSec = typeof dur === "number" && dur > 0 ? Math.round(dur * 60) : null;
     const distanceM   = typeof dist === "number" && dist > 0 ? Math.round(dist * 1000) : null;
     updateSection(sections[0]._key, {
@@ -242,7 +248,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
       setLocalSports(updated);
       onSportsUpdated?.(updated);
       setTypeId(newType.id);
-      syncDefaultSection({ typeName: newType.name });
+      syncDefaultSection({ typeName: newType.name, type: newType });
       setAddTypeName("");
       setShowAddType(false);
     }
@@ -255,7 +261,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     const res = await fetch("/api/sports", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "sport", name: addSportName.trim(), color: addSportColor, icon: "run" }),
+      body: JSON.stringify({ kind: "sport", name: addSportName.trim(), color: addSportColor, icon: "run", isRunningRelated: addSportIsRunningRelated }),
     });
     if (res.ok) {
       const newSport: SportCategory = await res.json();
@@ -264,8 +270,9 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
       onSportsUpdated?.(updated);
       setSportId(newSport.id);
       setTypeId(null);
-      syncDefaultSection({ typeName: null });
+      syncDefaultSection({ typeName: null, type: null });
       setAddSportName("");
+      setAddSportIsRunningRelated(false);
       setShowAddSport(false);
     }
     setAddSportSaving(false);
@@ -365,7 +372,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
                 setSportId(newSportId);
                 setTypeId(null);
                 setShowAddType(false);
-                syncDefaultSection({ typeName: null });
+                syncDefaultSection({ typeName: null, type: null });
               }} className={inputCls}>
                 {localSports.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -388,6 +395,11 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
                     <label className="text-[11px] text-muted mb-1 block">Color</label>
                     <ColorSwatches value={addSportColor} onChange={setAddSportColor} />
                   </div>
+                  <label className="flex items-center gap-2 text-[11px] text-muted cursor-pointer">
+                    <input type="checkbox" checked={addSportIsRunningRelated}
+                      onChange={e => setAddSportIsRunningRelated(e.target.checked)} className="rounded" />
+                    Related to running (counts toward weekly running distance)
+                  </label>
                   <ColorUsageTable sports={localSports} context="sport" />
                   <p className="text-[11px] text-muted/70">Race type (🏆 yellow) added automatically.</p>
                   <div className="flex gap-2">
@@ -414,9 +426,10 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
               <select value={typeId ?? ""} onChange={e => {
                 const val = e.target.value || null;
                 setTypeId(val);
-                const typeName = val === RACE_ID ? "Race"
-                  : (localSports.find(s => s.id === sportId)?.workoutTypes.find(t => t.id === val)?.name ?? null);
-                syncDefaultSection({ typeName });
+                const newType = val === RACE_ID ? null
+                  : (localSports.find(s => s.id === sportId)?.workoutTypes.find(t => t.id === val) ?? null);
+                const typeName = val === RACE_ID ? "Race" : (newType?.name ?? null);
+                syncDefaultSection({ typeName, type: newType });
               }} className={inputCls}>
                 <option value="">No type</option>
                 <option value={RACE_ID}>Race 🏆</option>
@@ -553,7 +566,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
           <button onClick={onCancel} className="px-4 py-2 text-sm text-muted hover:text-primary transition">Cancel</button>
           <button onClick={handleSave} disabled={!name.trim()}
             className="px-5 py-2 rounded-xl bg-accent text-sm font-semibold text-white dark:text-background hover:opacity-90 disabled:opacity-40 transition">
-            {isEditing ? "Save changes" : date ? "Add to plan" : "Save template"}
+            {isEditing ? "Save changes" : forceCreateMode || date ? "Add to plan" : "Save template"}
           </button>
         </div>
       </div>

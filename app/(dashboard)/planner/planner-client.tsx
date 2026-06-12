@@ -13,20 +13,14 @@ import type {
   SportCategory, WorkoutTemplate, PlannedWorkout, TrainingBlock,
 } from "@/lib/planner/types";
 import { workoutColor } from "@/lib/planner/colors";
+import { STRAVA_SPORT_MAP } from "@/lib/planner/sportTypeMap";
 
 // Normalize Strava/legacy sport type strings to user's sport category names
 function normalizeSportType(type: string, sports: SportCategory[]): string {
   if (sports.some(s => s.name === type)) return type;
   const ciMatch = sports.find(s => s.name.toLowerCase() === type.toLowerCase());
   if (ciMatch) return ciMatch.name;
-  const STRAVA_MAP: Record<string, string> = {
-    Run: "Running", VirtualRun: "Running", TrailRun: "Running",
-    Ride: "Cycling", VirtualRide: "Cycling", EBikeRide: "Cycling",
-    NordicSki: "Skiing", BackcountrySki: "Skiing",
-    RollerSki: "Roller Skiing",
-    WeightTraining: "Strength", Workout: "Strength",
-  };
-  const alias = STRAVA_MAP[type];
+  const alias = STRAVA_SPORT_MAP[type];
   if (alias && sports.some(s => s.name === alias)) return alias;
   return type;
 }
@@ -75,6 +69,21 @@ export function PlannerClient(props: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One-time backfill: mark Running/Orienteering sports as running-related.
+  useEffect(() => {
+    if (localStorage.getItem("planner_running_sports_backfilled_v1")) return;
+    fetch("/api/planner/backfill-running-sports", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          localStorage.setItem("planner_running_sports_backfilled_v1", "1");
+          if ((data.sportsFixed ?? 0) > 0) startTransition(() => router.refresh());
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [plannerError, setPlannerError] = useState<string | null>(null);
   function showError(msg: string) {
     setPlannerError(msg);
@@ -110,7 +119,13 @@ export function PlannerClient(props: Props) {
 
   const editTemplate = useMemo<WorkoutTemplate | null>(() => {
     if (!editWorkout) return null;
-    if (editWorkout.template) return editWorkout.template;
+    if (editWorkout.template) {
+      // The workout may carry its own typeId override distinct from the template's.
+      if (editWorkout.typeId !== editWorkout.template.typeId) {
+        return { ...editWorkout.template, typeId: editWorkout.typeId, type: editWorkout.type };
+      }
+      return editWorkout.template;
+    }
     const sport = sports.find(s =>
       s.name.toLowerCase() === editWorkout.sportType.toLowerCase()
     ) ?? sports[0];
@@ -119,14 +134,14 @@ export function PlannerClient(props: Props) {
       name: editWorkout.name,
       description: editWorkout.notes,
       sportId: sport?.id ?? "",
-      typeId: null,
+      typeId: editWorkout.typeId,
       color: editWorkout.color,
       estimatedDuration: editWorkout.targetDuration,
       estimatedDistance: editWorkout.targetDistance,
       estimatedZoneDistribution: null,
       sections: [],
-      sport: sport ?? { id: "", name: editWorkout.sportType, color: null, workoutTypes: [] },
-      type: null,
+      sport: sport ?? { id: "", name: editWorkout.sportType, color: null, icon: "", order: 0, isRunningRelated: false, workoutTypes: [] },
+      type: editWorkout.type,
     };
   }, [editWorkout, sports]);
 
@@ -165,6 +180,7 @@ export function PlannerClient(props: Props) {
       name: template.name,
       sportType: template.sport.name,
       templateId,
+      typeId: template.typeId ?? null,
       targetDuration: template.estimatedDuration,
       targetDistance: template.estimatedDistance,
       color: workoutColor(template.sport.name, template.type?.name ?? null),
@@ -194,6 +210,7 @@ export function PlannerClient(props: Props) {
       notes: workout.notes,
       color: workout.color,
       templateId: workout.templateId,
+      typeId: workout.typeId,
     });
   }
 
@@ -204,6 +221,7 @@ export function PlannerClient(props: Props) {
       name: copiedWorkout.name,
       sportType: copiedWorkout.sportType,
       templateId: copiedWorkout.templateId ?? null,
+      typeId: copiedWorkout.typeId ?? null,
       targetDuration: copiedWorkout.targetDuration,
       targetDistance: copiedWorkout.targetDistance,
       notes: copiedWorkout.notes,
@@ -253,7 +271,7 @@ export function PlannerClient(props: Props) {
 
   // ── Save workout from builder ──────────────────────────────────────
   async function handleBuilderSave(data: BuilderData) {
-    let templateId: string | null = null;
+    let templateId: string | null = mobileTemplatePrefill?.id ?? null;
 
     if (data.saveAsTemplate) {
       const res = await fetch("/api/planner/templates", {
@@ -283,6 +301,7 @@ export function PlannerClient(props: Props) {
         name: data.name,
         sportType: sport.name,
         templateId,
+        typeId: data.typeId,
         notes: data.description || null,
         color: data.color,
         targetDuration: data.totalDuration,
@@ -333,6 +352,7 @@ export function PlannerClient(props: Props) {
         name: data.name,
         sportType: sport?.name ?? editWorkout.sportType,
         date: data.date ?? editWorkout.date,
+        typeId: data.typeId,
         notes: data.description || null,
         color: data.color,
         targetDuration: data.totalDuration,
@@ -460,6 +480,7 @@ export function PlannerClient(props: Props) {
           <PlannerCalendar
             workouts={workouts}
             blocks={blocks}
+            sports={sports}
             onDayClick={date => openBuilder(date)}
             onWorkoutClick={handleWorkoutClick}
             onTemplateDrop={(templateId, date) => handleAddTemplateToDate(templateId, date)}
@@ -482,6 +503,7 @@ export function PlannerClient(props: Props) {
           hrZones={props.hrZoneRanges}
           initialDate={builderDate ?? undefined}
           editTemplate={mobileTemplatePrefill ?? undefined}
+          forceCreateMode={!!mobileTemplatePrefill}
           onSave={handleBuilderSave}
           onCancel={() => { setShowBuilder(false); setMobileTemplatePrefill(null); }}
           onSportsUpdated={setSports}

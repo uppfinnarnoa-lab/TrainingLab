@@ -8,6 +8,7 @@ const sportSchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   icon: z.string().max(30),
   order: z.number().int().optional(),
+  isRunningRelated: z.boolean().optional(),
 });
 
 const typeSchema = z.object({
@@ -15,6 +16,14 @@ const typeSchema = z.object({
   sportId: z.string().cuid(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   order: z.number().int().optional(),
+});
+
+const typeUpdateSchema = z.object({
+  id: z.string().cuid(),
+  name: z.string().min(1).max(60).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
+  order: z.number().int().optional(),
+  defaultZone: z.number().int().min(1).max(5).optional().nullable(),
 });
 
 // GET: return all sports + their workout types for the current user
@@ -74,6 +83,26 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ error: "unknown_kind" }, { status: 400 });
+}
+
+// PATCH: update a workout type's name, color, order, or default zone
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => null);
+  if (body?.kind !== "type") return NextResponse.json({ error: "unknown_kind" }, { status: 400 });
+
+  const parsed = typeUpdateSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
+
+  const { id, ...data } = parsed.data;
+  const type = await prisma.workoutType.findUnique({ where: { id } });
+  if (!type || type.userId !== session.user.id)
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  const updated = await prisma.workoutType.update({ where: { id }, data });
+  return NextResponse.json(updated);
 }
 
 export async function DELETE(req: NextRequest) {

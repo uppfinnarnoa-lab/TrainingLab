@@ -7,6 +7,7 @@ const updateSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   name: z.string().min(1).max(120).optional(),
   sportType: z.string().optional(),
+  typeId: z.string().cuid().optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
   targetDistance: z.number().positive().optional().nullable(),
   targetDuration: z.number().int().positive().optional().nullable(),
@@ -15,6 +16,13 @@ const updateSchema = z.object({
   missedReason: z.string().optional().nullable(),
   missedNote: z.string().max(500).optional().nullable(),
 });
+
+// Prisma returns @db.Date columns as JS Date objects, which JSON-serialize to
+// full ISO timestamps. Normalize to YYYY-MM-DD so <input type="date"> and the
+// PATCH date regex both accept the value unchanged on a follow-up save.
+function serialiseWorkout<T extends { date: Date }>(w: T) {
+  return { ...w, date: w.date.toISOString().slice(0, 10) };
+}
 
 async function getOwned(id: string, userId: string) {
   const w = await prisma.plannedWorkout.findUnique({ where: { id } });
@@ -33,6 +41,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
+
+  if (parsed.data.typeId) {
+    const type = await prisma.workoutType.findUnique({ where: { id: parsed.data.typeId } });
+    if (!type || type.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
 
   // Enforce: cannot set status on future workout (compare date strings to avoid timezone issues)
   if (parsed.data.status && parsed.data.status !== "planned") {
@@ -54,7 +68,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     },
   });
 
-  return NextResponse.json(updated);
+  return NextResponse.json(serialiseWorkout(updated));
 }
 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {

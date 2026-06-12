@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { format, addDays } from "date-fns";
 import { ZoneBar } from "./ZoneBar";
-import type { PlannedWorkout, TrainingBlock } from "@/lib/planner/types";
+import type { PlannedWorkout, TrainingBlock, SportCategory } from "@/lib/planner/types";
 import { formatDuration } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -11,12 +11,13 @@ interface Props {
   weekStart: Date;
   workouts: PlannedWorkout[];
   block?: TrainingBlock;
+  sports: SportCategory[];
   onClick?: () => void;
   compact?: boolean; // sidebar mode: vertical stack instead of horizontal row
   weekRunActivities?: { date: string; distanceM: number }[]; // actual Strava activities this week
 }
 
-export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact, weekRunActivities = [] }: Props) {
+export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, compact, weekRunActivities = [] }: Props) {
   const router = useRouter();
 
   function handleClick() {
@@ -70,8 +71,9 @@ export function WeekSummaryStrip({ weekStart, workouts, block, onClick, compact,
     for (const [, km] of actualByDate) pred += km;
 
     // Add planned running km for days without actual activities (today + future)
+    const runningSportNames = new Set(sports.filter(s => s.isRunningRelated).map(s => s.name));
     const runningWorkouts = workouts.filter(w =>
-      /run|trail|virtual/i.test(w.sportType) && w.date >= today
+      runningSportNames.has(w.sportType) && w.date >= today
     );
     for (const w of runningWorkouts) {
       if (!actualByDate.has(w.date) && w.targetDistance) {

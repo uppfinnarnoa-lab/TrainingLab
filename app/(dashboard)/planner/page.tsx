@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { PlannerClient } from "./planner-client";
 import { subDays, addDays, startOfWeek } from "date-fns";
 import { buildHRZones, buildPaceZones } from "@/lib/fitness/zones";
+import { STRAVA_SPORT_MAP } from "@/lib/planner/sportTypeMap";
 
 export default async function PlannerPage() {
   const session = await auth();
@@ -14,13 +15,25 @@ export default async function PlannerPage() {
 
   const weekStart = startOfWeek(now, { weekStartsOn: 1 });
 
-  const [sports, templates, workouts, blocks, profile, fitnessCache, garminRecent, weekActivities] =
+  const sports = await prisma.sportCategory.findMany({
+    where: { userId },
+    orderBy: { order: "asc" },
+    include: { workoutTypes: { orderBy: { order: "asc" } } },
+  });
+
+  // Strava sportType strings that map to a sport the user has flagged as running-related
+  const runningSportNames = new Set<string>();
+  for (const s of sports) {
+    if (s.isRunningRelated) runningSportNames.add(s.name);
+  }
+  const runningActivityTypes = new Set<string>();
+  for (const [stravaType, sportName] of Object.entries(STRAVA_SPORT_MAP)) {
+    if (runningSportNames.has(sportName)) runningActivityTypes.add(stravaType);
+  }
+  for (const name of runningSportNames) runningActivityTypes.add(name);
+
+  const [templates, workouts, blocks, profile, fitnessCache, garminRecent, weekActivities] =
     await Promise.all([
-      prisma.sportCategory.findMany({
-        where: { userId },
-        orderBy: { order: "asc" },
-        include: { workoutTypes: { orderBy: { order: "asc" } } },
-      }),
       prisma.workoutTemplate.findMany({
         where: { userId },
         orderBy: [{ sportId: "asc" }, { name: "asc" }],
@@ -37,6 +50,7 @@ export default async function PlannerPage() {
           template: {
             include: { sport: true, sections: { orderBy: { order: "asc" } } },
           },
+          type: true,
         },
       }),
       prisma.trainingBlock.findMany({
@@ -55,7 +69,7 @@ export default async function PlannerPage() {
         where: {
           userId,
           startDate: { gte: weekStart, lte: now },
-          sportType: { in: ["Run", "TrailRun", "VirtualRun"] },
+          sportType: { in: Array.from(runningActivityTypes) },
         },
         select: { startDateLocal: true, distance: true },
       }),

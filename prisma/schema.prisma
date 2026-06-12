@@ -176,6 +176,7 @@ model SportCategory {
   icon      String
   isDefault Boolean  @default(false)
   order     Int      @default(0)
+  isRunningRelated Boolean @default(false)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutTypes WorkoutType[]
   templates    WorkoutTemplate[]
@@ -188,9 +189,11 @@ model WorkoutType {
   name    String
   color   String?
   order   Int     @default(0)
+  defaultZone Int?
   sport   SportCategory   @relation(fields: [sportId], references: [id])
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   templates WorkoutTemplate[]
+  planned PlannedWorkout[]
 }
 
 model WorkoutTemplate {
@@ -242,6 +245,7 @@ model PlannedWorkout {
   id         String   @id @default(cuid())
   userId     String
   templateId String?
+  typeId     String?
   date       DateTime @db.Date
   name       String
   sportType  String
@@ -258,6 +262,7 @@ model PlannedWorkout {
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   template        WorkoutTemplate? @relation(fields: [templateId], references: [id])
+  type            WorkoutType?     @relation(fields: [typeId], references: [id])
   matchedActivity Activity[]
 
   @@index([userId, date])

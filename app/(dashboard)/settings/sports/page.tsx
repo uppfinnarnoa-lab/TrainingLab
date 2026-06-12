@@ -22,8 +22,10 @@ export default async function SportsSettingsPage() {
       </div>
       <SportsManager sports={sports.map((s: (typeof sports)[number]) => ({
         id: s.id, name: s.name, color: s.color, icon: s.icon,
-        isDefault: s.isDefault,
-        workoutTypes: s.workoutTypes.map((t: (typeof s.workoutTypes)[number]) => ({ id: t.id, name: t.name, color: t.color })),
+        isDefault: s.isDefault, isRunningRelated: s.isRunningRelated,
+        workoutTypes: s.workoutTypes.map((t: (typeof s.workoutTypes)[number]) => ({
+          id: t.id, name: t.name, color: t.color, order: t.order, defaultZone: t.defaultZone,
+        })),
       }))} />
     </div>
   );

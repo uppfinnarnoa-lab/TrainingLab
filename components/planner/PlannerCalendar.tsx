@@ -9,7 +9,7 @@ import {
 } from "date-fns";
 import { WorkoutPill } from "./WorkoutPill";
 import { WeekSummaryStrip } from "./WeekSummaryStrip";
-import type { PlannedWorkout, TrainingBlock } from "@/lib/planner/types";
+import type { PlannedWorkout, TrainingBlock, SportCategory } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
 type SummaryLayout = "row" | "sidebar";
@@ -25,6 +25,7 @@ export interface CopiedWorkout {
   notes: string | null;
   color: string | null;
   templateId: string | null;
+  typeId: string | null;
 }
 
 interface ContextMenuState {
@@ -37,6 +38,7 @@ interface ContextMenuState {
 interface Props {
   workouts: PlannedWorkout[];
   blocks: TrainingBlock[];
+  sports: SportCategory[];
   onDayClick: (date: string) => void;
   onWorkoutClick: (workout: PlannedWorkout) => void;
   onTemplateDrop?: (templateId: string, date: string) => void;
@@ -82,7 +84,7 @@ function FloatingMenu({ items, x, y, onClose }: {
 }
 
 export function PlannerCalendar({
-  workouts, blocks, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove,
+  workouts, blocks, sports, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove,
   weekRunActivities = [], onOpenTemplates,
   copiedWorkout, onPasteWorkout, onCopyWorkout, onClearCopy,
 }: Props) {
@@ -336,7 +338,7 @@ export function PlannerCalendar({
                 {isSidebar && (
                   <div className="hidden md:flex items-stretch overflow-hidden min-w-0">
                     {weekWorkouts.length > 0 ? (
-                      <WeekSummaryStrip weekStart={weekStart} workouts={weekWorkouts} block={weekBlock} compact />
+                      <WeekSummaryStrip weekStart={weekStart} workouts={weekWorkouts} block={weekBlock} sports={sports} compact />
                     ) : <div className="w-full" />}
                   </div>
                 )}
@@ -448,6 +450,7 @@ export function PlannerCalendar({
                   weekStart={weekStart}
                   workouts={weekWorkouts}
                   block={weekBlock}
+                  sports={sports}
                   weekRunActivities={weekRunActivities}
                 />
               )}

@@ -246,6 +246,7 @@ model SportCategory {
   icon     String   // icon slug ("run", "bike", "ski", etc.)
   isDefault Boolean @default(false)
   order    Int      @default(0)
+  isRunningRelated Boolean @default(false) // counts toward weekly running-distance projection (WeekSummaryStrip + planner page weekly-activity query)
   user     User     @relation(fields: [userId], references: [id])
   workoutTypes WorkoutType[]
   templates    WorkoutTemplate[]
@@ -259,9 +260,11 @@ model WorkoutType {
   name       String   // "Easy Run", "LT Run", "Long Run", "Intervals", "OL", "Strength A"
   color      String?  // optional override
   order      Int      @default(0)
+  defaultZone Int?     // 1-5, overrides typeToZone() name heuristic in WorkoutBuilder when set
   sport      SportCategory @relation(fields: [sportId], references: [id])
   user       User     @relation(fields: [userId], references: [id])
   templates  WorkoutTemplate[]
+  planned    PlannedWorkout[]
 }
 
 model WorkoutTemplate {
@@ -322,6 +325,7 @@ model PlannedWorkout {
   id              String    @id @default(cuid())
   userId          String
   templateId      String?
+  typeId          String?   // own type override, independent of template.typeId — required for templateless workouts and per-instance overrides
   date            DateTime  @db.Date
   name            String
   sportType       String
@@ -339,6 +343,7 @@ model PlannedWorkout {
 
   user            User      @relation(fields: [userId], references: [id])
   template        WorkoutTemplate? @relation(fields: [templateId], references: [id])
+  type            WorkoutType?     @relation(fields: [typeId], references: [id])
   matchedActivity Activity[]
 
   @@index([userId, date])
@@ -1604,7 +1609,8 @@ sudo systemctl reload nginx
 ### Phase 3 — Training Planner ✅ CORE COMPLETE
 
 - [x] `lib/planner/types.ts` — shared types for all planner components
-- [x] `/api/sports` — GET (all sports + types), POST (create sport or type)
+- [x] `/api/sports` — GET (all sports + types), POST (create sport or type), PATCH (update workout type name/color/order/defaultZone)
+- [x] Sport/Type management settings page (`/settings/sports`) — edit type name/color/order/default zone, mark sports as running-related
 - [x] `/api/planner/templates` — GET all, POST create (with section computation)
 - [x] `/api/planner/templates/[id]` — DELETE
 - [x] `/api/planner/workouts` — GET (date range), POST create
@@ -1626,7 +1632,6 @@ sudo systemctl reload nginx
 - [ ] Activity → Planned workout auto-matching
 - [ ] Block editor modal (create/edit blocks with date picker)
 - [ ] Intensity analysis detail panel (Week/Block/Plan tabs)
-- [ ] Sport/Type management settings page
 
 **Notes from implementation:**
 - Template library uses click-to-add with `prompt()` for date — DnD deferred as it requires significant extra work
@@ -1952,6 +1957,45 @@ Full audit documented in `docs/planning/bug-audit-2026-06-06.md`. All 8 confirme
 - `components/planner/WorkoutBuilder.tsx`: added top-level **Total time (min)** and **Total distance (km)** fields; `totalDurMin` and `totalDistKm` state pre-populated from `editTemplate.estimatedDuration/estimatedDistance`. Added `typeToZone(typeName)` helper that maps type names to zones 1–5 (race/intervals→5, LT→4, AT/tempo→3, easy/base→2, no type→1). Added `makeDefaultSection(duration, distance, zone)` that initializes the first section from these values. When only the default single section exists (`!sectionsCustomized`), changing sport/type/totals auto-syncs zone+duration+distance into that section via `syncDefaultSection()`. `sectionsCustomized` becomes `true` when the user adds/removes a section or when editing a template that already has sections. `BuilderData` now includes `totalDuration: number | null` and `totalDistance: number | null` (computed from sections, falling back to top-level fields for open/empty sections). Field layout: Name → Sport/Type → Total time/Total distance → Date/Notes → Sections.
 - `app/(dashboard)/planner/planner-client.tsx`: `handleBuilderSave` and `handleEditBuilderSave` now pass `targetDuration: data.totalDuration` and `targetDistance: data.totalDistance` when creating/patching planned workouts. `handleAddTemplateToDate` now uses `workoutColor(sport.name, type.name)` directly instead of `template.color ?? sport.color` — eliminates stale stored colors propagating to new workouts. Added one-time `fix-ol-colors` useEffect (localStorage flag `planner_ol_colors_fixed_v1`) that clears stale OL colors and refreshes if any were fixed.
 - `app/api/planner/fix-ol-colors/route.ts` (new): `POST` endpoint — finds all Orienteering/OL sport names for the user; clears `color` on `PlannedWorkout` rows matching those names where color is wrong (not null, not `#14B8A6`, not race yellow `#FBBF24`); returns `{ workoutsFixed: number }`. Note: `TemplateCard` already recomputes color dynamically — templates don't need fixing.
+
+**Session 2026-06-12 — Planner edit bugs (date/type reset), workout type editor, mobile template fix, running-related sports:**
+
+**Date reset bug (editing a planned workout cleared the date field):**
+- Root cause: `POST`/`PATCH /api/planner/workouts(/[id])` returned raw Prisma `Date` objects, which `JSON.stringify` serialises to full ISO timestamps (`"2026-06-15T00:00:00.000Z"`). `<input type="date">` requires exactly `"YYYY-MM-DD"` and renders empty for anything else — and the PATCH route's Zod schema (`/^\d{4}-\d{2}-\d{2}$/`) rejected that same timestamp on the next save, failing the **entire** PATCH (not just the date).
+- `app/api/planner/workouts/route.ts`: added `serialiseWorkout()` helper (normalises `date` to `YYYY-MM-DD`); GET and POST responses now run through it.
+- `app/api/planner/workouts/[id]/route.ts`: PATCH response now runs through the same `serialiseWorkout()` helper.
+
+**Type reset bug (workout's type sometimes reverted to "No type" after editing):**
+- Root cause: `PlannedWorkout` had no own type — type only existed via `template.typeId`. All planner-inserted workouts have `templateId: null`, so any type chosen for a templateless workout was never persisted (always reset to `type: null` when reopened).
+- `prisma/schema.prisma`: added `PlannedWorkout.typeId String?` + `type WorkoutType?` relation (pushed via `prisma db push`, applied to prod automatically by `deployment/deploy.sh`).
+- `lib/planner/types.ts`: `PlannedWorkout` gains `typeId: string | null` and `type: WorkoutType | null`; `WorkoutType` gains `defaultZone: number | null`; `SportCategory` gains `isRunningRelated: boolean`.
+- `app/api/planner/workouts/route.ts` / `[id]/route.ts`: `typeId` accepted on create/update (with ownership check — 404 if the type doesn't belong to the user), `type: true` added to the `include` clause.
+- `app/(dashboard)/planner/planner-client.tsx`: `editTemplate` useMemo now builds its `type`/`typeId` from `editWorkout.typeId`/`editWorkout.type` for templateless workouts, and detects a per-instance override when `editWorkout.typeId !== editWorkout.template.typeId`. `typeId` now flows end-to-end through copy/paste (`handleCopyWorkout`/`handlePasteWorkout`), template→date creation (`handleAddTemplateToDate`), and builder save/edit (`handleBuilderSave`/`handleEditBuilderSave`).
+
+**DB data verification (the 30 previously-inserted planned workouts):**
+- Confirmed correct: dates are stored as `@db.Date` (midnight UTC) — the expected Prisma representation, not corruption. `templateId: null` is intentional (these are standalone planned workouts, not template instances). The two bugs above were entirely in the API-serialization layer and a missing schema field — no DB data needed fixing. `typeId` is `null` for all 30 (no type was ever selected); this is accurate ("No type") and now persists correctly once a type is picked.
+
+**Workout type editor in Settings (`/settings/sports`):**
+- `app/api/sports/route.ts`: new `PATCH` handler — `{ kind: "type", id, name?, color?, order?, defaultZone? }`, ownership-checked, updates `WorkoutType`. `sportSchema` (POST sport) gains `isRunningRelated: z.boolean().optional()`.
+- `app/(dashboard)/settings/sports/page.tsx`: passes `isRunningRelated`, and per-type `order`/`defaultZone`, through to `SportsManager`.
+- `app/(dashboard)/settings/sports/sports-manager.tsx`: workout types are now rows (was a pill list) with: order up/down arrows (`moveType` — renumbers the whole sport's type list sequentially 0..n on every move, since existing types mostly share `order: 0`), a color dot that toggles an inline swatch picker (`updateType` PATCHes `/api/sports`), an editable name `<input>` (save on blur), and a "default zone" `<select>` (Auto / Z1–Z5 → `WorkoutType.defaultZone`). "Add new sport" form gained a "Related to running" checkbox (`isRunningRelated`).
+
+**Mobile "+" on a template opened the template editor instead of adding to the selected date:**
+- Root cause: `handleMobileTemplateSelect` opened the builder with `editTemplate={mobileTemplatePrefill}`, making `isEditing = true` — same header/footer/behaviour as actually editing the template.
+- `components/planner/WorkoutBuilder.tsx`: new `forceCreateMode?: boolean` prop decouples `isEditing` from `!!editTemplate`. When `forceCreateMode` is true, the builder pre-fills from `editTemplate` but shows "Build workout" / "Add to plan" (create-mode UI, no "save as template" option).
+- `app/(dashboard)/planner/planner-client.tsx`: passes `forceCreateMode={!!mobileTemplatePrefill}` to the create-new builder instance. `handleBuilderSave` now sets `templateId = mobileTemplatePrefill?.id ?? null` so the resulting planned workout keeps its link back to the source template (previously lost).
+
+**Weekly running-km projection now includes all running-related sports:**
+- `prisma/schema.prisma`: `SportCategory.isRunningRelated Boolean @default(false)`.
+- `lib/planner/sportTypeMap.ts` (new): `STRAVA_SPORT_MAP` — shared `Activity.sportType` → `SportCategory.name` map (Run/VirtualRun/TrailRun → Running, Ride/VirtualRide/EBikeRide → Cycling, NordicSki/BackcountrySki → Skiing, RollerSki → Roller Skiing, WeightTraining/Workout → Strength). Used by both `normalizeSportType` (planner-client) and the server-side weekly-activity query.
+- `components/planner/WeekSummaryStrip.tsx`: predicted weekly-km calculation now matches workouts whose `sportType` is in `{ sports where isRunningRelated }`, replacing the old `/run|trail|virtual/i` regex (which missed sports like Orienteering).
+- `app/(dashboard)/planner/page.tsx`: `sports` is now fetched before the main `Promise.all` (its `isRunningRelated` flags drive the activity query); `weekActivities` query's `sportType` filter is now `Array.from(runningActivityTypes)` (derived from `STRAVA_SPORT_MAP` reverse-lookup + running-related sport names) instead of the hardcoded `["Run","TrailRun","VirtualRun"]`.
+- `components/planner/WorkoutBuilder.tsx`: "Add new sport" panel gained the same "Related to running" checkbox, posted as `isRunningRelated`.
+- Data backfill: `Running` and `Orienteering` marked `isRunningRelated: true` for the existing user via `/api/planner/backfill-running-sports` (idempotent `POST`, ownership-checked), triggered automatically on next `/planner` page load via a `planner_running_sports_backfilled_v1` localStorage-gated `useEffect` — runs identically in production, no manual DB step needed.
+
+**Default workout-type zone (`defaultZone`) wiring:**
+- `prisma/schema.prisma`: `WorkoutType.defaultZone Int?` (1–5).
+- `components/planner/WorkoutBuilder.tsx`: initial section and `syncDefaultSection()` now use `type?.defaultZone ?? typeToZone(typeName)` — `defaultZone` (set in Settings) overrides the name-based heuristic when present.
 
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 

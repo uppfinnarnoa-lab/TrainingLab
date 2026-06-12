@@ -6,6 +6,7 @@ export interface SportCategory {
   color: string;
   icon: string;
   order: number;
+  isRunningRelated: boolean;
   workoutTypes: WorkoutType[];
 }
 
@@ -15,6 +16,7 @@ export interface WorkoutType {
   name: string;
   color: string | null;
   order: number;
+  defaultZone: number | null;
 }
 
 export interface WorkoutSection {
@@ -61,11 +63,13 @@ export interface PlannedWorkout {
   targetIntensity: string | null;
   color: string | null;
   templateId: string | null;
+  typeId: string | null;
   status: "planned" | "completed" | "missed" | "partial";
   missedReason: string | null;
   missedNote: string | null;
   markedAt: string | null;
   template: WorkoutTemplate | null;
+  type: WorkoutType | null;
 }
 
 export interface TrainingBlock {

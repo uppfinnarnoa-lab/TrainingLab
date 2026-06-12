@@ -13,7 +13,15 @@ const workoutSchema = z.object({
   targetIntensity: z.string().optional().nullable(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   templateId: z.string().cuid().optional().nullable(),
+  typeId: z.string().cuid().optional().nullable(),
 });
+
+// Prisma returns @db.Date columns as JS Date objects, which JSON-serialize to
+// full ISO timestamps. Normalize to YYYY-MM-DD so <input type="date"> and the
+// PATCH date regex both accept the value unchanged.
+function serialiseWorkout<T extends { date: Date }>(w: T) {
+  return { ...w, date: w.date.toISOString().slice(0, 10) };
+}
 
 // GET: planned workouts for a date range
 export async function GET(req: NextRequest) {
@@ -32,10 +40,10 @@ export async function GET(req: NextRequest) {
   const workouts = await prisma.plannedWorkout.findMany({
     where,
     orderBy: { date: "asc" },
-    include: { template: { include: { sport: true, sections: { orderBy: { order: "asc" } } } } },
+    include: { template: { include: { sport: true, sections: { orderBy: { order: "asc" } } } }, type: true },
   });
 
-  return NextResponse.json(workouts);
+  return NextResponse.json(workouts.map(serialiseWorkout));
 }
 
 // POST: create a planned workout
@@ -53,14 +61,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
+  if (parsed.data.typeId) {
+    const type = await prisma.workoutType.findUnique({ where: { id: parsed.data.typeId } });
+    if (!type || type.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
   const workout = await prisma.plannedWorkout.create({
     data: {
       ...parsed.data,
       date: new Date(parsed.data.date),
       userId: session.user.id,
     },
-    include: { template: { include: { sport: true, sections: { orderBy: { order: "asc" } } } } },
+    include: { template: { include: { sport: true, sections: { orderBy: { order: "asc" } } } }, type: true },
   });
 
-  return NextResponse.json(workout, { status: 201 });
+  return NextResponse.json(serialiseWorkout(workout), { status: 201 });
 }
