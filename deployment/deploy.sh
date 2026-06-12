@@ -17,6 +17,14 @@ PM2_APP="traininglab"
 echo "▶ TrainingLab deploy — $(date '+%Y-%m-%d %H:%M:%S')"
 cd "$APP_DIR"
 
+# Prisma CLI only auto-loads .env, not .env.local (Next.js loads both, with
+# .env.local taking precedence) — source both here so `prisma db push`/`generate`
+# can see DATABASE_URL.
+set -a
+[ -f .env ] && source .env
+[ -f .env.local ] && source .env.local
+set +a
+
 echo "→ Pulling latest code..."
 git pull --ff-only
 
