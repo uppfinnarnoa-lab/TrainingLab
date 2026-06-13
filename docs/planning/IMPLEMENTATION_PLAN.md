@@ -2079,6 +2079,14 @@ User reported that after entering Total time/distance and then adding sections w
 
 **Verification:** `pnpm build --no-lint` passes. No browser available in this session — not clicked through in the UI yet.
 
+**Session 2026-06-13d — WorkoutPill: remove redundant check/cross icon, keep status dot:**
+
+User reported the planner week grid's workout cards showed both a check/cross icon next to the name and a colored status dot in the corner — redundant.
+
+- `components/planner/WorkoutPill.tsx`: removed the `Check`/`X` icons rendered next to the workout name for past workouts (`isCompleted`/`isMissed`); the colored status dot (top-right corner, green/red) remains as the sole completion indicator. The `opacity-55` shading for missed workouts and `line-through` on the name are unchanged. Removed now-unused `Check`/`X` imports from `lucide-react`.
+
+**Verification:** `pnpm build --no-lint` passes. No browser available in this session — not clicked through in the UI yet.
+
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
 **Copy-paste workouts (Ctrl+C/V + right-click + long-press):**

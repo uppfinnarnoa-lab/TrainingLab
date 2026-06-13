@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Check, X } from "lucide-react";
 import type { PlannedWorkout } from "@/lib/planner/types";
 import { formatDuration, formatDistance } from "@/lib/utils";
 import { workoutColor } from "@/lib/planner/colors";
@@ -98,8 +97,6 @@ export function WorkoutPill({ workout, isPast, onClick, compact, inMoveMode, onC
       )}
 
       <div className="flex items-center gap-1.5 pl-0.5">
-        {showStatus && isCompleted && <Check size={10} className="shrink-0" style={{ color: "#22C55E" }} />}
-        {showStatus && isMissed    && <X     size={10} className="shrink-0" style={{ color: "#EF4444" }} />}
         <span className={cn(
           "font-medium truncate flex-1",
           isMissed && showStatus ? "line-through text-muted" : "text-primary"
