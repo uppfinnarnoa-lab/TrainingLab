@@ -2068,6 +2068,16 @@ User reported "Race" should always exist as a type for every sport and be the sa
 
 **Verification:** `pnpm exec prisma db push` applied the additive `isShared` column locally. Ran the backfill logic directly against the dev DB — all 6 existing sports got a "Race" type with `isShared: true`, `#FBBF24`, zone 5. `pnpm build --no-lint` passes. No browser available in this session — the sport name/color editing and the race picker have not been clicked through in the UI yet.
 
+**Session 2026-06-13c — WorkoutBuilder: section totals auto-grow Total time/distance, drag-and-drop section reorder:**
+
+User reported that after entering Total time/distance and then adding sections whose combined total exceeds those values, the top-level fields stayed at the originally-typed (now too-small) numbers. Also requested drag-and-drop reordering of sections.
+
+- `components/planner/WorkoutBuilder.tsx`:
+  - New `useEffect` (runs on `est.totalSec`/`est.totalM` changes, i.e. whenever sections change): if the sum of section durations (minutes, rounded) exceeds `totalDurMin`, raises `totalDurMin` to match; same for section distances (km, 1 decimal) vs `totalDistKm`. One-way ratchet — totals grow to cover the sections but never auto-shrink if sections are later reduced, since the field still represents "at least this much."
+  - Drag-and-drop section reorder: new `draggedKey`/`dragOverKey` state and `moveSection(fromKey, toKey)` helper (splices the dragged section to the drop target's position, renumbers `order` 0..n, sets `sectionsCustomized = true`). Implemented with native HTML5 DnD (`draggable`/`onDragStart`/`onDragOver`/`onDragLeave`/`onDrop`/`onDragEnd`) on each `SectionRow`'s header bar — same pattern as `TemplateCard.tsx`'s drag source. `SectionRow` gained `isDragging`/`isDragOver` props for opacity/border feedback; the `GripVertical` icon is now the visual drag handle (`cursor-grab`).
+
+**Verification:** `pnpm build --no-lint` passes. No browser available in this session — not clicked through in the UI yet.
+
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
 **Copy-paste workouts (Ctrl+C/V + right-click + long-press):**

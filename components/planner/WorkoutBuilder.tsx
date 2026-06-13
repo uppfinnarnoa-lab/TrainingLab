@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { X, Plus, GripVertical, Trash2, ChevronDown, Loader2 } from "lucide-react";
 import { ZoneBar } from "./ZoneBar";
 import { formatDuration, formatDistance } from "@/lib/utils";
@@ -289,6 +289,24 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     setSections(prev => prev.map(s => s._key === key ? { ...s, ...patch } : s));
   }
 
+  // ── Section drag-and-drop reorder ─────────────────────────────────────────
+  const [draggedKey, setDraggedKey] = useState<number | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<number | null>(null);
+
+  function moveSection(fromKey: number, toKey: number) {
+    if (fromKey === toKey) return;
+    setSectionsCustomized(true);
+    setSections(prev => {
+      const fromIdx = prev.findIndex(s => s._key === fromKey);
+      const toIdx = prev.findIndex(s => s._key === toKey);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next.map((s, i) => ({ ...s, order: i }));
+    });
+  }
+
   const estimated = useCallback(() => {
     let totalSec = 0, totalM = 0;
     const zoneSec: Record<string, number> = {};
@@ -307,6 +325,19 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   }, [sections]);
 
   const est = estimated();
+
+  // Auto-grow the top-level totals to match the sections — the displayed
+  // total can never be less than what the sections add up to.
+  useEffect(() => {
+    const sectionsMin = Math.round(est.totalSec / 60);
+    const curDur = typeof totalDurMin === "number" ? totalDurMin : 0;
+    if (sectionsMin > curDur) setTotalDurMin(sectionsMin);
+
+    const sectionsKm = Math.round(est.totalM / 100) / 10;
+    const curDist = typeof totalDistKm === "number" ? totalDistKm : 0;
+    if (sectionsKm > curDist) setTotalDistKm(sectionsKm);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [est.totalSec, est.totalM]);
 
   function handleSave() {
     if (!name.trim()) return;
@@ -516,7 +547,18 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
                 <SectionRow key={s._key} section={s} paceZones={paceZones} hrZones={hrZones}
                   onChange={patch => updateSection(s._key, patch)}
                   onRemove={() => removeSection(s._key)}
-                  canRemove={sections.length > 1} />
+                  canRemove={sections.length > 1}
+                  isDragging={draggedKey === s._key}
+                  isDragOver={dragOverKey === s._key && draggedKey !== s._key}
+                  onDragStart={() => setDraggedKey(s._key)}
+                  onDragOver={() => setDragOverKey(s._key)}
+                  onDragLeave={() => setDragOverKey(prev => prev === s._key ? null : prev)}
+                  onDrop={() => {
+                    if (draggedKey != null) moveSection(draggedKey, s._key);
+                    setDraggedKey(null);
+                    setDragOverKey(null);
+                  }}
+                  onDragEnd={() => { setDraggedKey(null); setDragOverKey(null); }} />
               ))}
             </div>
           </div>
@@ -570,13 +612,20 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
 
 // ── Section row ────────────────────────────────────────────────────────────
 
-function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRemove }: {
+function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRemove, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd }: {
   section: NewSection;
   paceZones?: number[][];
   hrZones?: number[][];
   onChange: (patch: Partial<NewSection>) => void;
   onRemove: () => void;
   canRemove: boolean;
+  isDragging: boolean;
+  isDragOver: boolean;
+  onDragStart: () => void;
+  onDragOver: () => void;
+  onDragLeave: () => void;
+  onDrop: () => void;
+  onDragEnd: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -587,9 +636,18 @@ function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRem
     : "No zone";
 
   return (
-    <div className="rounded-xl border border-border overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface transition cursor-pointer" onClick={() => setOpen(o => !o)}>
-        <GripVertical size={14} className="text-muted shrink-0" />
+    <div className={cn("rounded-xl border overflow-hidden transition", isDragOver ? "border-accent" : "border-border", isDragging && "opacity-40")}>
+      <div
+        className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface transition cursor-pointer"
+        onClick={() => setOpen(o => !o)}
+        draggable
+        onDragStart={e => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ""); onDragStart(); }}
+        onDragOver={e => { e.preventDefault(); onDragOver(); }}
+        onDragLeave={onDragLeave}
+        onDrop={e => { e.preventDefault(); onDrop(); }}
+        onDragEnd={onDragEnd}
+      >
+        <GripVertical size={14} className="text-muted shrink-0 cursor-grab active:cursor-grabbing" />
         <div className="flex-1 min-w-0">
           <span className="text-sm font-medium text-primary">{s.name}</span>
           <span className="ml-2 text-xs text-muted">
