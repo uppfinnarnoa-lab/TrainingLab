@@ -2073,10 +2073,12 @@ User reported "Race" should always exist as a type for every sport and be the sa
 User reported that after entering Total time/distance and then adding sections whose combined total exceeds those values, the top-level fields stayed at the originally-typed (now too-small) numbers. Also requested drag-and-drop reordering of sections.
 
 - `components/planner/WorkoutBuilder.tsx`:
-  - New `useEffect` (runs on `est.totalSec`/`est.totalM` changes, i.e. whenever sections change): if the sum of section durations (minutes, rounded) exceeds `totalDurMin`, raises `totalDurMin` to match; same for section distances (km, 1 decimal) vs `totalDistKm`. One-way ratchet — totals grow to cover the sections but never auto-shrink if sections are later reduced, since the field still represents "at least this much."
+  - New `useEffect` (runs on `est.totalSec`/`est.totalM`/`sectionsCustomized` changes): if the sum of section durations (minutes, rounded) exceeds `totalDurMin`, raises `totalDurMin` to match; same for section distances (km, 1 decimal) vs `totalDistKm`. One-way ratchet — totals grow to cover the sections but never auto-shrink if sections are later reduced, since the field still represents "at least this much." Gated on `sectionsCustomized` — for the single auto-synced default section, `estimated()` derives a pace-based time estimate (360 sec/km fallback) for distance-type sections, which would otherwise overwrite `totalDurMin` with a meaningless guess for non-running sports when only Total distance was entered.
   - Drag-and-drop section reorder: new `draggedKey`/`dragOverKey` state and `moveSection(fromKey, toKey)` helper (splices the dragged section to the drop target's position, renumbers `order` 0..n, sets `sectionsCustomized = true`). Implemented with native HTML5 DnD (`draggable`/`onDragStart`/`onDragOver`/`onDragLeave`/`onDrop`/`onDragEnd`) on each `SectionRow`'s header bar — same pattern as `TemplateCard.tsx`'s drag source. `SectionRow` gained `isDragging`/`isDragOver` props for opacity/border feedback; the `GripVertical` icon is now the visual drag handle (`cursor-grab`).
 
 **Verification:** `pnpm build --no-lint` passes. No browser available in this session — not clicked through in the UI yet.
+
+**Known limitation:** native HTML5 `draggable` does not fire on touch devices, so section reordering only works with a mouse (same limitation the codebase already has for template drag-and-drop, which was worked around there with always-visible buttons — no touch alternative exists yet for section reorder).
 
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
