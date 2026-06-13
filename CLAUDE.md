@@ -30,13 +30,21 @@ Then start pnpm dev again. Never start multiple dev servers — always kill all 
 ## Deploying to Production
 The live site (`training.helgars.se`, `/var/www/traininglab`) is the user's other server. **You cannot reach it from this machine** — `ssh ...@training.helgars.se` times out (port 22 unreachable). The user SSHes in themselves.
 
-After build + commit + push succeed, give the user this exact command to run on their end:
+After build + commit + push succeed, check whether `package.json`, `pnpm-lock.yaml`, or `prisma/schema.prisma` were touched by this session's commits.
+
+**Default — nothing in those 3 files changed (the common case):**
+```bash
+cd /var/www/traininglab && git pull --ff-only && pnpm exec next build --no-lint && pm2 reload traininglab --update-env
+```
+
+**Only if `package.json`/`pnpm-lock.yaml` or `prisma/schema.prisma` changed:**
 ```bash
 cd /var/www/traininglab && git pull --ff-only && pnpm install --frozen-lockfile --prod=false && pnpm exec prisma generate && set -a && source .env.local && set +a && pnpm exec prisma db push --skip-generate && pnpm exec next build --no-lint && pm2 reload traininglab --update-env
 ```
 - Prisma CLI only auto-loads `.env`, not `.env.local` (where prod's `DATABASE_URL` lives) — the `set -a && source .env.local && set +a` before `prisma db push`/`generate` is required or it fails with P1012.
 - Don't suggest `deployment/deploy.sh` — the user prefers this manual sequence.
 - `prisma db push --skip-generate` is required whenever `prisma/schema.prisma` changed (no migration files in this project).
+- Running the longer command when nothing changed is harmless (the install/prisma steps become no-ops) — but default to the shorter one so the user isn't waiting on a redundant `pnpm install`.
 
 ## Documentation — After Every Change (MANDATORY)
 **Update docs immediately after each task, before declaring it done.** Never defer this.
