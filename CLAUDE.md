@@ -15,7 +15,9 @@ Personal AI-powered training platform. Connects Strava activity data + Garmin ph
 2. Read the docs files relevant to your task (see below)
 
 ## Starting the dev server
-Always start the dev server with the Bash tool using `run_in_background: true`:
+Only start the dev server if explicitly asked (e.g. to test a UI change in a browser). It is **not** part of Session End — the user works directly against the production server.
+
+Start it with the Bash tool using `run_in_background: true`:
 ```
 cd "c:\Users\uppfi\Desktop\TrainingLab" && pnpm dev
 ```
@@ -23,7 +25,18 @@ If port 3000 is blocked, kill the blocking process first with PowerShell:
 ```powershell
 Get-Process -Name "node" -ErrorAction SilentlyContinue | Stop-Process -Force
 ```
-Then start pnpm dev again. Never start multiple dev servers — always kill all node processes first.
+Then start pnpm dev again. Never start multiple dev servers — always kill all node processes first. When done testing, kill the node process again — don't leave a dev server running.
+
+## Deploying to Production
+The live site (`training.helgars.se`, `/var/www/traininglab`) is the user's other server. **You cannot reach it from this machine** — `ssh ...@training.helgars.se` times out (port 22 unreachable). The user SSHes in themselves.
+
+After build + commit + push succeed, give the user this exact command to run on their end:
+```bash
+cd /var/www/traininglab && git pull --ff-only && pnpm install --frozen-lockfile --prod=false && pnpm exec prisma generate && set -a && source .env.local && set +a && pnpm exec prisma db push --skip-generate && pnpm exec next build --no-lint && pm2 reload traininglab --update-env
+```
+- Prisma CLI only auto-loads `.env`, not `.env.local` (where prod's `DATABASE_URL` lives) — the `set -a && source .env.local && set +a` before `prisma db push`/`generate` is required or it fails with P1012.
+- Don't suggest `deployment/deploy.sh` — the user prefers this manual sequence.
+- `prisma db push --skip-generate` is required whenever `prisma/schema.prisma` changed (no migration files in this project).
 
 ## Documentation — After Every Change (MANDATORY)
 **Update docs immediately after each task, before declaring it done.** Never defer this.
@@ -38,7 +51,7 @@ This is not optional. Future sessions (and future you) must be able to read IMPL
 After every task, do all of the following before declaring it done:
 1. Run `pnpm build --no-lint` to verify the build compiles without errors before pushing
 2. Stage changed files by name, commit, and push
-3. Restart the dev server on localhost:3000 (kill node, then `pnpm dev` with `run_in_background: true`)
+3. Give the user the production deploy command (see "Deploying to Production" below) so they can apply it on `training.helgars.se`
 4. Update documentation (see above — Documentation section)
 
 ## Keeping IMPLEMENTATION_PLAN.md Current
