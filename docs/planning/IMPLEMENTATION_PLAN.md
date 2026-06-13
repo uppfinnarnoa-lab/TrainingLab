@@ -2042,6 +2042,32 @@ Full audit documented in `docs/planning/bug-audit-2026-06-06.md`. All 8 confirme
 
 **Build fix:** removed a leftover `setMobileTemplatePrefill(null)` call in `handleBuilderSave` (planner-client.tsx) — dead reference to the state removed above, caught by `pnpm build --no-lint`.
 
+**Session 2026-06-13b — Shared "Race" workout type across all sports, sport name/color editing, planner race picker in block builder:**
+
+User reported "Race" should always exist as a type for every sport and be the same color — previously only sports created after a prior commit got an auto-generated "Race" `WorkoutType`, each an independent row with its own color, so older sports had no "Race" type at all and edits to one sport's "Race" didn't affect the others.
+
+**Shared "Race" type (`isShared` flag, additive schema change):**
+- `prisma/schema.prisma`: added `isShared Boolean @default(false)` to `WorkoutType`.
+- `lib/planner/types.ts`: `WorkoutType` interface gains `isShared: boolean`. Added missing `race: "#FBBF24"` entry to `BLOCK_TYPE_COLORS` — new "Race"-type training blocks were inheriting "base" blue via `BlockEditorModal.handleTypeChange` because no default color was registered for `"race"`.
+- `app/api/sports/route.ts`:
+  - `POST kind:"sport"`: the new sport's "Race" `WorkoutType` now copies `name`/`color`/`defaultZone` from any existing `isShared: true` row (falls back to `Race` / `#FBBF24` / zone 5 if none exist), created with `isShared: true`.
+  - `PATCH kind:"type"`: if the updated row is `isShared`, propagates `name`/`color`/`defaultZone` (excluding `order`, which is per-sport list position) to every other `isShared: true` row for the user via `updateMany`.
+  - `PATCH kind:"sport"` (new, via new `sportUpdateSchema`): updates a sport's `name`/`color`.
+  - `DELETE kind:"type"`: returns 400 `cannot_delete_shared_type` if the target row is `isShared` — "Race" can no longer be deleted.
+- `app/api/planner/backfill-shared-race-type/route.ts` (new): one-time POST — finds canonical `name`/`color`/`defaultZone` from any existing "Race" type for the user (defaults to `Race`/`#FBBF24`/zone 5 if none), then for every sport either updates its existing "Race" type to `isShared: true` + canonical values, or creates one with `order: 999`. Returns `{ sportsFixed }`.
+- `app/(dashboard)/planner/planner-client.tsx`: new one-time `useEffect` (localStorage flag `planner_shared_race_type_backfilled_v1`) calls the backfill endpoint and `router.refresh()`s if `sportsFixed > 0`.
+- `components/planner/WorkoutBuilder.tsx`: removed the `RACE_ID = "__race__"` synthetic-type hack added in the 2026-06-06 bug-audit session — every sport now has a real "Race" `WorkoutType` row, so it appears naturally in the type `<select>`. `effectiveTypeName` and the save payload no longer special-case `RACE_ID`.
+
+**Sport name/color editing (Settings → Training Types):**
+- `app/(dashboard)/settings/sports/sports-manager.tsx`: `WorkoutType` interface gains `isShared: boolean`. `updateType()` now also propagates `name`/`color`/`defaultZone` (not `order`) to every other `isShared` type across the local `sports` state, so cross-sport sync shows immediately without a refresh. Sport color dot is now a button opening a `PRESET_COLORS` swatch row (new `editingSportColorFor` state, row rendered between the header and the expanded types section regardless of expand state); sport name is now an editable `<input>` (`onBlur` saves via new `updateSport()`, `PATCH kind:"sport"`). Any `isShared` type (i.e. "Race") shows a "Shared" badge (title explains cross-sport editing) and has no delete button.
+- `app/(dashboard)/settings/sports/page.tsx`: added `isShared: t.isShared` to the `workoutTypes` mapping passed to `SportsManager` — was missing, so the client never saw the flag.
+
+**Block builder race picker:**
+- `components/planner/BlockEditorModal.tsx`: new optional prop `racePlannedWorkouts: { id; name; date }[]`. When `blockType === "race"`, a new "Pick from planner (optional)" `<select>` lists planner workouts of type "Race"; selecting one sets `name`, `startDate`, and new `targetRaceId` state, included in `onSave`'s payload. Also fixed a pre-existing bug that prevented saving any *new* race-type block: `handleSave`'s guard and the Save button's `disabled` check used raw `endDate` (always `""` for new blocks since the End-date input is hidden for `blockType === "race"`) — both now use `effectiveEndDate` (`= isRaceType ? startDate : endDate`), which is `startDate` for races.
+- `app/(dashboard)/planner/planner-client.tsx`: new `racePlannedWorkouts` memo — `workouts` filtered to `type?.name === "Race"`, mapped to `{id, name, date}`, sorted by date — passed to `BlockEditorModal`. `targetRaceId` already round-trips through `app/api/planner/blocks/route.ts` and `[id]/route.ts` (existing zod field, spread into Prisma create/update) — no API changes needed there.
+
+**Verification:** `pnpm exec prisma db push` applied the additive `isShared` column locally. Ran the backfill logic directly against the dev DB — all 6 existing sports got a "Race" type with `isShared: true`, `#FBBF24`, zone 5. `pnpm build --no-lint` passes. No browser available in this session — the sport name/color editing and the race picker have not been clicked through in the UI yet.
+
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
 **Copy-paste workouts (Ctrl+C/V + right-click + long-press):**

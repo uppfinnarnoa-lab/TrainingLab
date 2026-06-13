@@ -23,12 +23,13 @@ const PRESET_COLORS = [
 
 interface Props {
   initial?: Partial<TrainingBlock>;
+  racePlannedWorkouts?: { id: string; name: string; date: string }[];
   onSave: (data: Partial<TrainingBlock>) => Promise<boolean>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
 }
 
-export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) {
+export function BlockEditorModal({ initial, racePlannedWorkouts, onSave, onDelete, onClose }: Props) {
   const isNew = !initial?.id;
   const [name, setName]       = useState(initial?.name ?? "");
   const [blockType, setType]  = useState(initial?.blockType ?? "base");
@@ -37,6 +38,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
   const [endDate, setEnd]     = useState(initial?.endDate?.slice(0, 10) ?? "");
   const [notes, setNotes]     = useState(initial?.notes ?? "");
   const [kmPerWeek, setKm]    = useState(initial?.targetKmPerWeek ? String(initial.targetKmPerWeek) : "");
+  const [targetRaceId, setTargetRaceId] = useState<string | null>(initial?.targetRaceId ?? null);
   const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [deleting, setDeleting]   = useState(false);
@@ -52,7 +54,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
   }
 
   async function handleSave() {
-    if (!name.trim() || !startDate || !endDate) return;
+    if (!name.trim() || !startDate || !effectiveEndDate) return;
     if (!isRaceType && startDate > endDate) return;
     setSaving(true);
     setSaveError(false);
@@ -64,6 +66,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
       endDate: effectiveEndDate,
       notes: notes || null,
       targetKmPerWeek: !isRaceType && kmPerWeek ? parseFloat(kmPerWeek) : null,
+      targetRaceId: isRaceType ? targetRaceId : null,
     });
     setSaving(false);
     if (ok) onClose();
@@ -125,6 +128,33 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
               {BLOCK_TYPES.find(t => t.value === blockType)?.desc}
             </p>
           </div>
+
+          {/* Pick from planner — race blocks only */}
+          {isRaceType && racePlannedWorkouts && racePlannedWorkouts.length > 0 && (
+            <div>
+              <label className="text-xs text-muted mb-1 block">Pick from planner (optional)</label>
+              <select
+                value={targetRaceId ?? ""}
+                onChange={e => {
+                  const id = e.target.value || null;
+                  setTargetRaceId(id);
+                  if (id) {
+                    const race = racePlannedWorkouts.find(r => r.id === id);
+                    if (race) {
+                      setName(race.name);
+                      setStart(race.date);
+                    }
+                  }
+                }}
+                className={inp}
+              >
+                <option value="">— Manual entry —</option>
+                {racePlannedWorkouts.map(r => (
+                  <option key={r.id} value={r.id}>{r.name} ({r.date})</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Date range — race only shows start date */}
           <div className={isRaceType ? "" : "grid grid-cols-1 sm:grid-cols-2 gap-3"}>
@@ -203,7 +233,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
           <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-primary transition">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving || !name.trim() || !startDate || !endDate || invalidDateRange}
+          <button onClick={handleSave} disabled={saving || !name.trim() || !startDate || !effectiveEndDate || invalidDateRange}
             className="px-5 py-2 rounded-xl text-sm font-semibold text-white dark:text-background hover:opacity-90 disabled:opacity-40 transition"
             style={{ backgroundColor: color }}>
             {saving ? <Loader2 size={14} className="animate-spin inline mr-1" /> : null}

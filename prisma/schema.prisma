@@ -190,6 +190,7 @@ model WorkoutType {
   color   String?
   order   Int     @default(0)
   defaultZone Int?
+  isShared    Boolean @default(false) // shared across all sports — edits propagate to every sport's copy
   sport   SportCategory   @relation(fields: [sportId], references: [id])
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   templates WorkoutTemplate[]

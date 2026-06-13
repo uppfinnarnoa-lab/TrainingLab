@@ -17,6 +17,7 @@ export interface WorkoutType {
   color: string | null;
   order: number;
   defaultZone: number | null;
+  isShared: boolean;
 }
 
 export interface WorkoutSection {
@@ -104,4 +105,5 @@ export const BLOCK_TYPE_COLORS: Record<string, string> = {
   peak:    "#EF4444",
   taper:   "#14B8A6",
   custom:  "#8B5CF6",
+  race:    "#FBBF24",
 };

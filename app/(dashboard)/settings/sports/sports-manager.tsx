@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, ChevronDown, ChevronRight, ChevronUp, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface WorkoutType { id: string; name: string; color: string | null; order: number; defaultZone: number | null; }
+interface WorkoutType { id: string; name: string; color: string | null; order: number; defaultZone: number | null; isShared: boolean; }
 interface Sport { id: string; name: string; color: string; icon: string; isDefault?: boolean; isRunningRelated: boolean; workoutTypes: WorkoutType[]; }
 
 const PRESET_COLORS = [
@@ -42,6 +42,7 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
   const [saving, setSaving] = useState(false);
   const [confirmDeleteSportId, setConfirmDeleteSportId] = useState<string | null>(null);
   const [editingColorFor, setEditingColorFor] = useState<string | null>(null);
+  const [editingSportColorFor, setEditingSportColorFor] = useState<string | null>(null);
 
   // New sport form
   const [newSportName, setNewSportName]   = useState("");
@@ -77,6 +78,15 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
     setSports(prev => prev.filter(s => s.id !== id));
   }
 
+  async function updateSport(id: string, patch: Partial<Pick<Sport, "name" | "color">>) {
+    setSports(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+    await fetch("/api/sports", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "sport", id, ...patch }),
+    });
+  }
+
   async function addType(sportId: string) {
     const name = newTypeName[sportId]?.trim();
     if (!name) return;
@@ -109,10 +119,21 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
   }
 
   async function updateType(sportId: string, typeId: string, patch: Partial<Pick<WorkoutType, "name" | "color" | "order" | "defaultZone">>) {
-    setSports(prev => prev.map(s => s.id === sportId
-      ? { ...s, workoutTypes: s.workoutTypes.map(t => t.id === typeId ? { ...t, ...patch } : t) }
-      : s
-    ));
+    const sport = sports.find(s => s.id === sportId);
+    const type = sport?.workoutTypes.find(t => t.id === typeId);
+    const isShared = type?.isShared ?? false;
+    // `order` is per-sport list position — never propagate it to other sports' copies.
+    const { order, ...syncPatch } = patch;
+
+    setSports(prev => prev.map(s => ({
+      ...s,
+      workoutTypes: s.workoutTypes.map(t => {
+        if (t.id === typeId) return { ...t, ...patch };
+        if (isShared && t.isShared) return { ...t, ...syncPatch };
+        return t;
+      }),
+    })));
+
     await fetch("/api/sports", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -152,8 +173,21 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
             className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-surface-2 transition-colors"
             onClick={() => setExpanded(e => { const n = new Set(e); n.has(sport.id) ? n.delete(sport.id) : n.add(sport.id); return n; })}
           >
-            <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: sport.color }} />
-            <span className="font-semibold text-primary flex-1 min-w-0 truncate">{sport.name}</span>
+            <button
+              onClick={e => { e.stopPropagation(); setEditingSportColorFor(c => c === sport.id ? null : sport.id); }}
+              className="w-3 h-3 rounded-full shrink-0 border border-border/40"
+              style={{ backgroundColor: sport.color }}
+            />
+            <input
+              defaultValue={sport.name}
+              onClick={e => e.stopPropagation()}
+              onBlur={e => {
+                const name = e.target.value.trim();
+                if (name && name !== sport.name) updateSport(sport.id, { name });
+                else e.target.value = sport.name;
+              }}
+              className="font-semibold text-primary flex-1 min-w-0 bg-transparent px-1 py-0.5 rounded truncate focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
+            />
             {sport.isRunningRelated && (
               <span className="text-[10px] font-medium text-accent bg-accent/10 px-1.5 py-0.5 rounded shrink-0">Running</span>
             )}
@@ -181,6 +215,20 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
             )}
             {expanded.has(sport.id) ? <ChevronDown size={15} className="text-muted" /> : <ChevronRight size={15} className="text-muted" />}
           </div>
+
+          {/* Sport color picker */}
+          {editingSportColorFor === sport.id && (
+            <div className="border-t border-border px-4 py-2 flex flex-wrap gap-1.5">
+              {PRESET_COLORS.map(c => (
+                <button
+                  key={c}
+                  onClick={() => { updateSport(sport.id, { color: c }); setEditingSportColorFor(null); }}
+                  className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
+                  style={{ backgroundColor: c, borderColor: sport.color === c ? "white" : "transparent" }}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Types */}
           {expanded.has(sport.id) && (
@@ -219,6 +267,16 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
                         className="flex-1 min-w-0 bg-transparent text-sm text-primary px-1 py-0.5 rounded focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
                       />
 
+                      {/* Shared badge */}
+                      {type.isShared && (
+                        <span
+                          className="text-[10px] font-medium text-warning bg-warning/10 px-1.5 py-0.5 rounded shrink-0"
+                          title="Editing this updates it for every sport"
+                        >
+                          Shared
+                        </span>
+                      )}
+
                       {/* Default zone */}
                       <select
                         value={type.defaultZone != null ? String(type.defaultZone) : ""}
@@ -231,12 +289,14 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
                       </select>
 
                       {/* Delete */}
-                      <button
-                        onClick={() => deleteType(sport.id, type.id)}
-                        className="p-1 text-muted hover:text-error transition-colors"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {!type.isShared && (
+                        <button
+                          onClick={() => deleteType(sport.id, type.id)}
+                          className="p-1 text-muted hover:text-error transition-colors"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
 
                     {/* Color picker */}

@@ -44,7 +44,6 @@ let _key = 0;
 const newKey = () => ++_key;
 
 const ZONE_NAMES = ["", "Z1 Recovery", "Z2 Aerobic", "Z3 Tempo", "Z4 Threshold", "Z5 VO2max"];
-const RACE_ID = "__race__";
 
 const COLOR_PALETTE = [
   "#7DD3FC", "#2DD4BF", "#F472B6", "#818CF8", "#3B82F6",
@@ -189,7 +188,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
 
   const selectedSport = localSports.find(s => s.id === sportId);
   const selectedType  = selectedSport?.workoutTypes.find(t => t.id === typeId);
-  const effectiveTypeName = typeId === RACE_ID ? "Race" : (selectedType?.name ?? null);
+  const effectiveTypeName = selectedType?.name ?? null;
   const autoColor = workoutColor(selectedSport?.name ?? "", effectiveTypeName);
 
   // ── Sync helpers for the single default section ───────────────────────────
@@ -327,7 +326,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
       totalDistance = Math.round(totalDistKm * 1000);
 
     onSave({
-      name: name.trim(), sportId, typeId: typeId === RACE_ID ? null : typeId,
+      name: name.trim(), sportId, typeId,
       description, color: autoColor,
       sections: secs,
       saveAsTemplate, date: date || undefined,
@@ -424,13 +423,10 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
               <select value={typeId ?? ""} onChange={e => {
                 const val = e.target.value || null;
                 setTypeId(val);
-                const newType = val === RACE_ID ? null
-                  : (localSports.find(s => s.id === sportId)?.workoutTypes.find(t => t.id === val) ?? null);
-                const typeName = val === RACE_ID ? "Race" : (newType?.name ?? null);
-                syncDefaultSection({ typeName, type: newType });
+                const newType = localSports.find(s => s.id === sportId)?.workoutTypes.find(t => t.id === val) ?? null;
+                syncDefaultSection({ typeName: newType?.name ?? null, type: newType });
               }} className={inputCls}>
                 <option value="">No type</option>
-                <option value={RACE_ID}>Race 🏆</option>
                 {selectedSport?.workoutTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
               {!showAddType ? (

@@ -24,7 +24,7 @@ export default async function SportsSettingsPage() {
         id: s.id, name: s.name, color: s.color, icon: s.icon,
         isDefault: s.isDefault, isRunningRelated: s.isRunningRelated,
         workoutTypes: s.workoutTypes.map((t: (typeof s.workoutTypes)[number]) => ({
-          id: t.id, name: t.name, color: t.color, order: t.order, defaultZone: t.defaultZone,
+          id: t.id, name: t.name, color: t.color, order: t.order, defaultZone: t.defaultZone, isShared: t.isShared,
         })),
       }))} />
     </section>

@@ -84,6 +84,21 @@ export function PlannerClient(props: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One-time backfill: ensure every sport has a shared "Race" workout type.
+  useEffect(() => {
+    if (localStorage.getItem("planner_shared_race_type_backfilled_v1")) return;
+    fetch("/api/planner/backfill-shared-race-type", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          localStorage.setItem("planner_shared_race_type_backfilled_v1", "1");
+          if ((data.sportsFixed ?? 0) > 0) startTransition(() => router.refresh());
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [plannerError, setPlannerError] = useState<string | null>(null);
   function showError(msg: string) {
     setPlannerError(msg);
@@ -418,6 +433,14 @@ export function PlannerClient(props: Props) {
     startTransition(() => router.refresh());
   }
 
+  // Planned workouts of type "Race" — selectable in the block builder's race picker.
+  const racePlannedWorkouts = useMemo(() =>
+    workouts
+      .filter(w => w.type?.name === "Race")
+      .map(w => ({ id: w.id, name: w.name, date: w.date }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  [workouts]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Block banner — race markers added manually as blockType="race" */}
@@ -550,6 +573,7 @@ export function PlannerClient(props: Props) {
       {(showNewBlock || editingBlock) && (
         <BlockEditorModal
           initial={editingBlock ?? undefined}
+          racePlannedWorkouts={racePlannedWorkouts}
           onSave={handleBlockSave}
           onDelete={editingBlock ? handleBlockDelete : undefined}
           onClose={() => { setShowNewBlock(false); setEditingBlock(null); }}

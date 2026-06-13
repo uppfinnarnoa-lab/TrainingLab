@@ -11,6 +11,12 @@ const sportSchema = z.object({
   isRunningRelated: z.boolean().optional(),
 });
 
+const sportUpdateSchema = z.object({
+  id: z.string().cuid(),
+  name: z.string().min(1).max(60).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+});
+
 const typeSchema = z.object({
   name: z.string().min(1).max(60),
   sportId: z.string().cuid(),
@@ -58,9 +64,21 @@ export async function POST(req: NextRequest) {
       data: { ...parsed.data, userId: session.user.id },
     });
 
-    // Every new sport gets Race as a default type (yellow)
+    // Every sport gets a "Race" type — shared across all sports, so it
+    // inherits whatever name/color/zone the user has already set elsewhere.
+    const existingShared = await prisma.workoutType.findFirst({
+      where: { userId: session.user.id, isShared: true },
+    });
     await prisma.workoutType.create({
-      data: { name: "Race", sportId: sport.id, userId: session.user.id, color: "#FBBF24", order: 999 },
+      data: {
+        name: existingShared?.name ?? "Race",
+        color: existingShared?.color ?? "#FBBF24",
+        defaultZone: existingShared?.defaultZone ?? 5,
+        sportId: sport.id,
+        userId: session.user.id,
+        isShared: true,
+        order: 999,
+      },
     });
 
     const sportWithTypes = await prisma.sportCategory.findUnique({
@@ -85,12 +103,26 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ error: "unknown_kind" }, { status: 400 });
 }
 
-// PATCH: update a workout type's name, color, order, or default zone
+// PATCH: update a sport's name/color, or a workout type's name, color, order, or default zone
 export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => null);
+
+  if (body?.kind === "sport") {
+    const parsed = sportUpdateSchema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
+
+    const { id, ...data } = parsed.data;
+    const sport = await prisma.sportCategory.findUnique({ where: { id } });
+    if (!sport || sport.userId !== session.user.id)
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+    const updated = await prisma.sportCategory.update({ where: { id }, data });
+    return NextResponse.json(updated);
+  }
+
   if (body?.kind !== "type") return NextResponse.json({ error: "unknown_kind" }, { status: 400 });
 
   const parsed = typeUpdateSchema.safeParse(body);
@@ -102,6 +134,20 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   const updated = await prisma.workoutType.update({ where: { id }, data });
+
+  // Shared types (e.g. "Race") are one conceptual type duplicated per sport —
+  // propagate name/color/zone edits to every other copy, but not `order`,
+  // which is per-sport list position.
+  if (updated.isShared) {
+    const { order, ...syncData } = data;
+    if (Object.keys(syncData).length > 0) {
+      await prisma.workoutType.updateMany({
+        where: { userId: session.user.id, isShared: true, id: { not: id } },
+        data: syncData,
+      });
+    }
+  }
+
   return NextResponse.json(updated);
 }
 
@@ -122,6 +168,8 @@ export async function DELETE(req: NextRequest) {
     const type = await prisma.workoutType.findUnique({ where: { id } });
     if (!type || type.userId !== session.user.id)
       return NextResponse.json({ error: "not_found" }, { status: 404 });
+    if (type.isShared)
+      return NextResponse.json({ error: "cannot_delete_shared_type" }, { status: 400 });
     await prisma.workoutType.delete({ where: { id } });
   }
 
