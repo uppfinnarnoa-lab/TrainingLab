@@ -326,9 +326,13 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
 
   const est = estimated();
 
-  // Auto-grow the top-level totals to match the sections — the displayed
-  // total can never be less than what the sections add up to.
+  // Auto-grow the top-level totals to match custom sections — the displayed
+  // total can never be less than what the sections add up to. Skipped for the
+  // single auto-synced default section (!sectionsCustomized), since its
+  // distance→time pace estimate would otherwise bleed into Total time.
   useEffect(() => {
+    if (!sectionsCustomized) return;
+
     const sectionsMin = Math.round(est.totalSec / 60);
     const curDur = typeof totalDurMin === "number" ? totalDurMin : 0;
     if (sectionsMin > curDur) setTotalDurMin(sectionsMin);
@@ -337,7 +341,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     const curDist = typeof totalDistKm === "number" ? totalDistKm : 0;
     if (sectionsKm > curDist) setTotalDistKm(sectionsKm);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [est.totalSec, est.totalM]);
+  }, [est.totalSec, est.totalM, sectionsCustomized]);
 
   function handleSave() {
     if (!name.trim()) return;
