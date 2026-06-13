@@ -58,6 +58,8 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
   const weekEnd      = format(addDays(weekStart, 6), "yyyy-MM-dd");
   const isCurrentWeek = today >= weekStartStr && today <= weekEnd;
 
+  const runningSportNames = new Set(sports.filter(s => s.isRunningRelated).map(s => s.name));
+
   let predictedRunKm: number | null = null;
   if (isCurrentWeek) {
     // Build a map of days that already have actual Strava runs
@@ -71,7 +73,6 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
     for (const [, km] of actualByDate) pred += km;
 
     // Add planned running km for days without actual activities (today + future)
-    const runningSportNames = new Set(sports.filter(s => s.isRunningRelated).map(s => s.name));
     const runningWorkouts = workouts.filter(w =>
       runningSportNames.has(w.sportType) && w.date >= today
     );
@@ -83,6 +84,19 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
 
     if (pred > 0) predictedRunKm = Math.round(pred * 10) / 10;
   }
+
+  // ── Total planned run distance for future weeks ───────────────────────
+  let plannedRunKm: number | null = null;
+  if (weekStartStr > today) {
+    const km = workouts
+      .filter(w => runningSportNames.has(w.sportType) && w.targetDistance)
+      .reduce((s, w) => s + (w.targetDistance ?? 0) / 1000, 0);
+    if (km > 0) plannedRunKm = Math.round(km * 10) / 10;
+  }
+
+  const displayRunKm = predictedRunKm ?? plannedRunKm;
+  const runKmTitle = predictedRunKm !== null ? "Predicted weekly run distance" : "Planned running distance this week";
+
   const topSports = Object.entries(bySport)
     .sort((a, b) => b[1].timeSec - a[1].timeSec)
     .slice(0, 3);
@@ -131,11 +145,11 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
         {/* Zone bar */}
         {hasZones && <ZoneBar distribution={totalZones} height={3} />}
 
-        {/* Predicted km + completion on same row */}
+        {/* Predicted/planned km + completion on same row */}
         <div className="flex items-center gap-1 mt-auto pt-0.5">
-          {predictedRunKm !== null && (
-            <span className="text-[10px] text-accent font-mono" title="Predicted weekly run distance">
-              ~{predictedRunKm}km
+          {displayRunKm !== null && (
+            <span className="text-[10px] text-accent font-mono" title={runKmTitle}>
+              ~{displayRunKm}km
             </span>
           )}
           {isPast && (
@@ -199,10 +213,10 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
           </div>
         )}
 
-        {/* Predicted total running distance */}
-        {predictedRunKm !== null && (
-          <span className="shrink-0 text-xs text-accent font-mono ml-auto" title="Predicted weekly run distance">
-            ~{predictedRunKm}km
+        {/* Predicted/planned total running distance */}
+        {displayRunKm !== null && (
+          <span className="shrink-0 text-xs text-accent font-mono ml-auto" title={runKmTitle}>
+            ~{displayRunKm}km
           </span>
         )}
 
@@ -210,7 +224,7 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
         {isPast && (
           <span className={cn(
             "shrink-0 text-xs font-semibold",
-            predictedRunKm !== null ? "" : "ml-auto",
+            displayRunKm !== null ? "" : "ml-auto",
             missed > 0 ? "text-error" : "text-accent"
           )}>
             {completed}/{workouts.length}

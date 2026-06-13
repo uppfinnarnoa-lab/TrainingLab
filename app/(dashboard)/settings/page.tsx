@@ -7,11 +7,6 @@ import { getCredentials } from "@/lib/config";
 import { StravaConnectSection } from "./strava-connect";
 import { GarminConnectSection } from "./garmin-connect";
 import { AISettingsSection } from "./ai-settings";
-import { AthleteProfileForm } from "./athlete-profile";
-import { ChangePasswordForm } from "./change-password";
-import { AppearanceSettings } from "./appearance-settings";
-import { AccountActions } from "./account-actions";
-import { UsersAdminSection } from "./users-admin";
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -28,13 +23,12 @@ export default async function SettingsPage() {
   const stravaWebhookUrl = `${webhookBaseUrl}/api/strava/webhook`;
   const garminCallback = `${origin}/api/garmin/callback`;
 
-  const [stravaAccount, garminAccount, aiSettings, user, athleteProfile, appConfig] =
+  const [stravaAccount, garminAccount, aiSettings, user, appConfig] =
     await Promise.all([
       prisma.stravaAccount.findUnique({ where: { userId } }),
       prisma.garminAccount.findUnique({ where: { userId } }),
       prisma.aISettings.findUnique({ where: { userId } }),
-      prisma.user.findUnique({ where: { id: userId }, select: { name: true, isAdmin: true } }),
-      prisma.athleteProfile.findUnique({ where: { userId } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } }),
       // App-level API config — read from this user's record
       // (admin sets it; non-admins get it from env vars via lib/config.ts)
       prisma.appConfig.findUnique({ where: { userId } }),
@@ -63,12 +57,7 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-semibold text-primary">Settings</h1>
-        <p className="text-sm text-muted mt-1">Connect your services and configure your coach</p>
-      </div>
-
+    <>
       {/* ── Strava ── */}
       <IntegrationCard logo="🟠" name="Strava" description="Activity data source — all your training history" connected={!!stravaAccount}>
         <StravaConnectSection
@@ -114,67 +103,7 @@ export default async function SettingsPage() {
           geminiCurrentSpend={aiSettings?.geminiCurrentMonthSpendUsd ?? 0}
         />
       </IntegrationCard>
-
-      {/* ── Athlete Profile ── */}
-      <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
-        <div>
-          <h2 className="font-semibold text-primary">Athlete Profile</h2>
-          <p className="text-xs text-muted mt-0.5">Physical data used by your AI coach for personalized advice and accurate predictions</p>
-        </div>
-        <AthleteProfileForm initial={{
-          name: user?.name,
-          weightKg: athleteProfile?.weightKg,
-          heightCm: athleteProfile?.heightCm,
-          dateOfBirth: athleteProfile?.dateOfBirth?.toISOString() ?? null,
-          sex: athleteProfile?.sex,
-          maxHeartRate: athleteProfile?.maxHeartRate,
-          restingHeartRate: athleteProfile?.restingHeartRate,
-          manualLT1HR: athleteProfile?.manualLT1HR,
-          manualLT2HR: athleteProfile?.manualLT2HR,
-          maxHRArtifactCap: athleteProfile?.maxHRArtifactCap,
-          primaryGoal: athleteProfile?.primaryGoal,
-          yearsTraining: athleteProfile?.yearsTraining,
-        }} />
-      </section>
-
-      {/* ── Appearance ── */}
-      <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
-        <div>
-          <h2 className="font-semibold text-primary">Appearance</h2>
-          <p className="text-xs text-muted mt-0.5">Theme and display preferences</p>
-        </div>
-        <AppearanceSettings />
-      </section>
-
-      {/* ── Change password ── */}
-      <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
-        <div>
-          <h2 className="font-semibold text-primary">Change password</h2>
-          <p className="text-xs text-muted mt-0.5">Update your login password</p>
-        </div>
-        <ChangePasswordForm />
-      </section>
-
-      {/* ── Users (admin only) ── */}
-      {isAdmin && (
-        <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
-          <div>
-            <h2 className="font-semibold text-primary">Users</h2>
-            <p className="text-xs text-muted mt-0.5">Approve or reject access requests</p>
-          </div>
-          <UsersAdminSection />
-        </section>
-      )}
-
-      {/* ── Account actions ── */}
-      <section className="rounded-2xl bg-surface border border-border p-6 space-y-4">
-        <div>
-          <h2 className="font-semibold text-primary">Account</h2>
-          <p className="text-xs text-muted mt-0.5">Log out or permanently delete your account and all data</p>
-        </div>
-        <AccountActions />
-      </section>
-    </div>
+    </>
   );
 }
 

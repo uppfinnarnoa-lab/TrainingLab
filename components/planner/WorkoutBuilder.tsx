@@ -24,8 +24,6 @@ interface Props {
   initialDate?: string;
   editTemplate?: WorkoutTemplate;
   plannedWorkoutMode?: boolean;
-  /** Pre-fill from editTemplate but behave as "create new" (used for mobile template tap → add to date). */
-  forceCreateMode?: boolean;
   onSportsUpdated?: (sports: SportCategory[]) => void;
 }
 
@@ -137,8 +135,8 @@ function ColorSwatches({ value, onChange }: { value: string; onChange: (c: strin
 
 // ── Main component ────────────────────────────────────────────────────────
 
-export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave, onCancel, onDelete, initialDate, editTemplate, plannedWorkoutMode, forceCreateMode, onSportsUpdated }: Props) {
-  const isEditing = !!editTemplate && !forceCreateMode;
+export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave, onCancel, onDelete, initialDate, editTemplate, plannedWorkoutMode, onSportsUpdated }: Props) {
+  const isEditing = !!editTemplate;
 
   const [localSports, setLocalSports] = useState<SportCategory[]>(sportsProp);
 
@@ -172,7 +170,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   });
 
   const showTemplateOption = !isEditing;
-  const [saveAsTemplate, setSaveAsTemplate] = useState(!isEditing && !initialDate);
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
   const [date, setDate]           = useState(initialDate ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -566,7 +564,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
           <button onClick={onCancel} className="px-4 py-2 text-sm text-muted hover:text-primary transition">Cancel</button>
           <button onClick={handleSave} disabled={!name.trim()}
             className="px-5 py-2 rounded-xl bg-accent text-sm font-semibold text-white dark:text-background hover:opacity-90 disabled:opacity-40 transition">
-            {isEditing ? "Save changes" : forceCreateMode || date ? "Add to plan" : "Save template"}
+            {isEditing ? "Save changes" : date ? "Add to plan" : "Save template"}
           </button>
         </div>
       </div>

@@ -100,8 +100,9 @@ export function PlannerClient(props: Props) {
 
   // Mobile template library overlay
   const [mobileLibOpen, setMobileLibOpen] = useState(false);
-  // When a template is tapped on mobile, pre-fill the builder instead of drag-dropping
-  const [mobileTemplatePrefill, setMobileTemplatePrefill] = useState<WorkoutTemplate | null>(null);
+  // When a template is tapped on mobile, the user picks its destination day
+  // directly on the calendar (placement mode) instead of drag-dropping.
+  const [placingTemplate, setPlacingTemplate] = useState<WorkoutTemplate | null>(null);
 
   // Copy-paste state
   const [copiedWorkout, setCopiedWorkout] = useState<CopiedWorkout | null>(null);
@@ -164,16 +165,6 @@ export function PlannerClient(props: Props) {
     const template = templates.find(t => t.id === templateId);
     if (!template) return;
 
-    if (mobileLibOpen) {
-      // On mobile: drag-drop isn't available. Close the overlay and open the
-      // WorkoutBuilder pre-filled with this template so the user can pick a date.
-      setMobileLibOpen(false);
-      setMobileTemplatePrefill(template);
-      setBuilderDate(null);
-      setShowBuilder(true);
-      return;
-    }
-
     const targetDate = date ?? builderDate ?? new Date().toISOString().slice(0, 10);
     createWorkout({
       date: targetDate,
@@ -229,14 +220,19 @@ export function PlannerClient(props: Props) {
     });
   }
 
-  // ── Mobile: tap template in overlay → open builder pre-filled ─────
+  // ── Mobile: tap template in overlay → pick destination day on calendar ─────
   function handleMobileTemplateSelect(templateId: string) {
     const template = templates.find(t => t.id === templateId);
     if (!template) return;
     setMobileLibOpen(false);
-    setMobileTemplatePrefill(template);
-    setBuilderDate(null);
-    setShowBuilder(true);
+    setPlacingTemplate(template);
+  }
+
+  // ── Mobile: day tapped while placing a template → add it directly ─────────
+  function handlePlaceTemplate(date: string) {
+    if (!placingTemplate) return;
+    handleAddTemplateToDate(placingTemplate.id, date);
+    setPlacingTemplate(null);
   }
 
   // ── Move workout to another date ──────────────────────────────────
@@ -271,7 +267,7 @@ export function PlannerClient(props: Props) {
 
   // ── Save workout from builder ──────────────────────────────────────
   async function handleBuilderSave(data: BuilderData) {
-    let templateId: string | null = mobileTemplatePrefill?.id ?? null;
+    let templateId: string | null = null;
 
     if (data.saveAsTemplate) {
       const res = await fetch("/api/planner/templates", {
@@ -310,7 +306,6 @@ export function PlannerClient(props: Props) {
     }
 
     setShowBuilder(false);
-    setMobileTemplatePrefill(null);
     startTransition(() => router.refresh());
   }
 
@@ -491,21 +486,22 @@ export function PlannerClient(props: Props) {
             onCopyWorkout={handleCopyWorkout}
             onPasteWorkout={handlePasteWorkout}
             onClearCopy={() => setCopiedWorkout(null)}
+            placingTemplate={placingTemplate}
+            onPlaceTemplate={handlePlaceTemplate}
+            onCancelPlaceTemplate={() => setPlacingTemplate(null)}
           />
         </div>
       </div>
 
-      {/* Workout builder — create new (optionally pre-filled from a mobile template tap) */}
+      {/* Workout builder — create new */}
       {showBuilder && (
         <WorkoutBuilder
           sports={sports}
           paceZones={props.paceZoneRanges}
           hrZones={props.hrZoneRanges}
           initialDate={builderDate ?? undefined}
-          editTemplate={mobileTemplatePrefill ?? undefined}
-          forceCreateMode={!!mobileTemplatePrefill}
           onSave={handleBuilderSave}
-          onCancel={() => { setShowBuilder(false); setMobileTemplatePrefill(null); }}
+          onCancel={() => setShowBuilder(false)}
           onSportsUpdated={setSports}
         />
       )}

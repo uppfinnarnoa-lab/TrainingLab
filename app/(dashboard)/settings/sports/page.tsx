@@ -13,10 +13,10 @@ export default async function SportsSettingsPage() {
   });
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold text-primary">Sports & Workout Types</h1>
-        <p className="text-sm text-muted mt-1">
+        <h2 className="font-semibold text-primary">Sports & Workout Types</h2>
+        <p className="text-xs text-muted mt-0.5">
           Manage the sports and workout types used in your training planner
         </p>
       </div>
@@ -27,6 +27,6 @@ export default async function SportsSettingsPage() {
           id: t.id, name: t.name, color: t.color, order: t.order, defaultZone: t.defaultZone,
         })),
       }))} />
-    </div>
+    </section>
   );
 }

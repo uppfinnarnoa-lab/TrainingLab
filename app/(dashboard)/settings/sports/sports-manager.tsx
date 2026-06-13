@@ -153,11 +153,11 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
             onClick={() => setExpanded(e => { const n = new Set(e); n.has(sport.id) ? n.delete(sport.id) : n.add(sport.id); return n; })}
           >
             <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: sport.color }} />
-            <span className="font-semibold text-primary flex-1">{sport.name}</span>
+            <span className="font-semibold text-primary flex-1 min-w-0 truncate">{sport.name}</span>
             {sport.isRunningRelated && (
-              <span className="text-[10px] font-medium text-accent bg-accent/10 px-1.5 py-0.5 rounded">Running</span>
+              <span className="text-[10px] font-medium text-accent bg-accent/10 px-1.5 py-0.5 rounded shrink-0">Running</span>
             )}
-            <span className="text-xs text-muted">{sport.workoutTypes.length} types</span>
+            <span className="hidden sm:inline text-xs text-muted shrink-0">{sport.workoutTypes.length} types</span>
             {!sport.isDefault && (
               confirmDeleteSportId === sport.id ? (
                 <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
@@ -281,9 +281,9 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
                   </button>
                 </div>
                 {/* Color picker for new type */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-muted">Color:</span>
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 flex-wrap">
                     {TYPE_COLOR_PALETTE.map(c => (
                       <button
                         key={c}
@@ -309,7 +309,7 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
       {/* Add sport */}
       <div className="rounded-2xl bg-surface border border-border p-4 space-y-3">
         <p className="text-sm font-semibold text-primary">Add new sport</p>
-        <div className="flex gap-3 items-end">
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex-1">
             <label className="text-xs text-muted mb-1 block">Sport name</label>
             <input
@@ -322,7 +322,7 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
           </div>
           <div>
             <label className="text-xs text-muted mb-1 block">Color</label>
-            <div className="flex gap-1.5 flex-wrap w-40">
+            <div className="flex gap-1.5 flex-wrap w-full sm:w-40">
               {PRESET_COLORS.map(c => (
                 <button
                   key={c}

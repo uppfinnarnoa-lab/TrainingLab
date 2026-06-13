@@ -9,7 +9,7 @@ import {
 } from "date-fns";
 import { WorkoutPill } from "./WorkoutPill";
 import { WeekSummaryStrip } from "./WeekSummaryStrip";
-import type { PlannedWorkout, TrainingBlock, SportCategory } from "@/lib/planner/types";
+import type { PlannedWorkout, TrainingBlock, SportCategory, WorkoutTemplate } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 
 type SummaryLayout = "row" | "sidebar";
@@ -49,6 +49,9 @@ interface Props {
   onPasteWorkout?: (date: string) => void;
   onCopyWorkout?: (workout: PlannedWorkout) => void;
   onClearCopy?: () => void;
+  placingTemplate?: WorkoutTemplate | null;
+  onPlaceTemplate?: (date: string) => void;
+  onCancelPlaceTemplate?: () => void;
 }
 
 function FloatingMenu({ items, x, y, onClose }: {
@@ -87,6 +90,7 @@ export function PlannerCalendar({
   workouts, blocks, sports, onDayClick, onWorkoutClick, onTemplateDrop, onWorkoutMove,
   weekRunActivities = [], onOpenTemplates,
   copiedWorkout, onPasteWorkout, onCopyWorkout, onClearCopy,
+  placingTemplate, onPlaceTemplate, onCancelPlaceTemplate,
 }: Props) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [summaryLayout, setSummaryLayout] = useState<SummaryLayout>("row");
@@ -277,6 +281,17 @@ export function PlannerCalendar({
         </div>
       )}
 
+      {/* Template placement mode banner (mobile "+" on a template) */}
+      {placingTemplate && (
+        <div className="flex items-center gap-2.5 mb-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-accent">
+          <Plus size={13} className="shrink-0" />
+          <span className="flex-1 font-medium">Placing &ldquo;{placingTemplate.name}&rdquo; — tap a day to add it here</span>
+          <button onClick={onCancelPlaceTemplate} className="text-muted hover:text-primary transition">
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
       {/* Weekday headers — always 7 columns on mobile, sidebar mode only on md+.
           Sidebar mode uses minmax(140px,1fr) per day so columns are wide enough
           to read workout names; the container scrolls horizontally if needed. */}
@@ -353,12 +368,14 @@ export function PlannerCalendar({
                   const isDragOver   = dragOverDate === key;
                   const isPasteMode  = !!copiedWorkout;
                   const isMoveMode   = !!moveWorkout;
+                  const isPlaceMode  = !!placingTemplate;
 
                   return (
                     <div
                       key={key}
                       onClick={() => {
-                        if (moveWorkout && onWorkoutMove) { onWorkoutMove(moveWorkout.id, key); setMoveWorkout(null); }
+                        if (isPlaceMode && onPlaceTemplate) { onPlaceTemplate(key); }
+                        else if (moveWorkout && onWorkoutMove) { onWorkoutMove(moveWorkout.id, key); setMoveWorkout(null); }
                         else if (isPasteMode && onPasteWorkout) { onPasteWorkout(key); }
                         else { onDayClick(key); }
                       }}
@@ -383,7 +400,7 @@ export function PlannerCalendar({
                         "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors overflow-hidden",
                         isDragOver
                           ? "border-accent bg-accent/10"
-                          : isPasteMode || isMoveMode
+                          : isPasteMode || isMoveMode || isPlaceMode
                           ? "border-accent/30 hover:border-accent hover:bg-accent/5"
                           : isToday(day)
                           ? "border-accent/50 bg-accent/5"
@@ -405,10 +422,13 @@ export function PlannerCalendar({
                         )}>
                           {format(day, "d")}
                         </span>
-                        {isMoveMode && (
+                        {isPlaceMode && (
+                          <Plus size={10} className="text-accent/50 shrink-0" />
+                        )}
+                        {!isPlaceMode && isMoveMode && (
                           <MoveRight size={10} className="text-accent/50 shrink-0" />
                         )}
-                        {!isMoveMode && isPasteMode && (
+                        {!isPlaceMode && !isMoveMode && isPasteMode && (
                           <ClipboardPaste size={10} className="text-accent/50 shrink-0" />
                         )}
                       </div>

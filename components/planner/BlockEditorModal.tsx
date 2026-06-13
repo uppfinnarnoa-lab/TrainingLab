@@ -110,7 +110,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
           {/* Block type */}
           <div>
             <label className="text-xs text-muted mb-2 block">Type</label>
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
               {BLOCK_TYPES.map(t => (
                 <button key={t.value} onClick={() => handleTypeChange(t.value)}
                   className={cn(
@@ -127,7 +127,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
           </div>
 
           {/* Date range — race only shows start date */}
-          <div className={isRaceType ? "" : "grid grid-cols-2 gap-3"}>
+          <div className={isRaceType ? "" : "grid grid-cols-1 sm:grid-cols-2 gap-3"}>
             <div>
               <label className="text-xs text-muted mb-1 block">{isRaceType ? "Race date *" : "Start date *"}</label>
               <input type="date" value={startDate} onChange={e => setStart(e.target.value)} className={inp} />
@@ -179,7 +179,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
           </div>
         </div>
 
-        <div className="px-5 py-4 border-t border-border flex items-center gap-2">
+        <div className="px-5 py-4 border-t border-border flex flex-wrap items-center gap-2">
           {!isNew && onDelete && !confirmDelete && (
             <button onClick={handleDelete} disabled={deleting}
               className="px-3 py-2 rounded-xl border border-border text-sm text-muted hover:text-error hover:border-error/30 transition flex items-center gap-1.5">
@@ -187,7 +187,7 @@ export function BlockEditorModal({ initial, onSave, onDelete, onClose }: Props) 
             </button>
           )}
           {!isNew && onDelete && confirmDelete && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button onClick={() => setConfirmDelete(false)}
                 className="px-3 py-2 rounded-xl border border-border text-sm text-muted hover:bg-surface-2 transition">
                 Cancel

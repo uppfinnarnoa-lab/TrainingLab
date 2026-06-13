@@ -1984,6 +1984,7 @@ Full audit documented in `docs/planning/bug-audit-2026-06-06.md`. All 8 confirme
 - Root cause: `handleMobileTemplateSelect` opened the builder with `editTemplate={mobileTemplatePrefill}`, making `isEditing = true` — same header/footer/behaviour as actually editing the template.
 - `components/planner/WorkoutBuilder.tsx`: new `forceCreateMode?: boolean` prop decouples `isEditing` from `!!editTemplate`. When `forceCreateMode` is true, the builder pre-fills from `editTemplate` but shows "Build workout" / "Add to plan" (create-mode UI, no "save as template" option).
 - `app/(dashboard)/planner/planner-client.tsx`: passes `forceCreateMode={!!mobileTemplatePrefill}` to the create-new builder instance. `handleBuilderSave` now sets `templateId = mobileTemplatePrefill?.id ?? null` so the resulting planned workout keeps its link back to the source template (previously lost).
+- **Superseded 2026-06-13**: this whole `mobileTemplatePrefill`/`forceCreateMode` approach (open the builder pre-filled) was replaced by a calendar placement mode — tap a template, then tap the destination day directly, no form shown. See Session 2026-06-13.
 
 **Weekly running-km projection now includes all running-related sports:**
 - `prisma/schema.prisma`: `SportCategory.isRunningRelated Boolean @default(false)`.
@@ -2002,6 +2003,44 @@ Full audit documented in `docs/planning/bug-audit-2026-06-06.md`. All 8 confirme
 - Root cause: `app/(dashboard)/settings/strava-connect.tsx` gated the entire Step 3 block (including the already-connected management UI) on `(isAdmin ? credentialsSet : hasClientId)`. For a connected non-admin user this credentials-availability check is both redundant (OAuth already succeeded) and could evaluate falsy depending on the `getCredentials()` fallback-chain result for that user, hiding all of Step 3.
 - Fix: gating condition is now `((isAdmin ? credentialsSet : hasClientId) || connected)` — an already-connected account always shows its management UI regardless of the credentials check; the credentials check still controls whether the pre-connection "Connect with Strava" link is shown.
 - No DB/schema change required — pure client-component conditional-rendering fix, picked up automatically by the next `deployment/deploy.sh` run.
+
+**Session 2026-06-13 — Settings restructured into tabs, template placement mode, mobile pass on BlockEditorModal/Training Types, future-week running km:**
+
+**Settings restructured into tabbed sub-pages (`/settings` had become a dumping ground; `/settings/sports` — the workout-type editor from 2026-06-12 — had zero inbound links and was unreachable):**
+- New `components/settings/settings-nav.tsx`: client component, tab bar — Integrations (`/settings`), Profile (`/settings/profile`), Training Types (`/settings/sports`), Account (`/settings/account`). Highlights the active tab via `usePathname()`.
+- New `app/(dashboard)/settings/layout.tsx`: shared layout — renders the "Settings" heading + `<SettingsNav>` once, wraps all tab pages.
+- `app/(dashboard)/settings/page.tsx` rewritten: now only the **Integrations** tab — Strava, Garmin, AI Coach cards (`IntegrationCard` helper retained locally). Removed the profile/appearance/password/account/admin sections and the page's own heading (now in the shared layout).
+- New `app/(dashboard)/settings/profile/page.tsx`: **Profile** tab — Athlete Profile form, Appearance settings, Change password (moved verbatim from the old `/settings/page.tsx`).
+- New `app/(dashboard)/settings/account/page.tsx`: **Account** tab — Users admin section (admins only) + Account actions (moved verbatim).
+- `app/(dashboard)/settings/sports/page.tsx`: restyled its outer wrapper from a standalone page (`<h1>` + max-w-2xl div) to a card section (`<section className="rounded-2xl bg-surface border ...">` with `<h2>`) matching the other tabs — this is now the **Training Types** tab, making the 2026-06-12 type/zone/color/order editor reachable from Settings.
+- No schema or route changes; all `/settings` links (dashboard, sidebar, coach chat) continue to point at the Integrations tab unchanged.
+
+**"Save as reusable template" now defaults off:**
+- `components/planner/WorkoutBuilder.tsx`: `saveAsTemplate` initial state changed from `!isEditing && !initialDate` (on by default when creating a workout with no date) to always `false`. User opts in explicitly every time.
+
+**Mobile template placement mode (replaces the 2026-06-12 `forceCreateMode` approach):**
+- `app/(dashboard)/planner/planner-client.tsx`: removed `mobileTemplatePrefill`/`forceCreateMode` state entirely. New `placingTemplate: WorkoutTemplate | null` state + `handlePlaceTemplate(date)`. `handleMobileTemplateSelect` now just closes the mobile template-library overlay and sets `placingTemplate` — no builder is opened. `handlePlaceTemplate` calls the existing `handleAddTemplateToDate(placingTemplate.id, date)` directly, creating the planned workout with `templateId` set and no form shown.
+- `components/planner/PlannerCalendar.tsx`: new props `placingTemplate`, `onPlaceTemplate`, `onCancelPlaceTemplate`. New banner (reusing the existing "move mode" visual pattern): `Placing "<name>" — tap a day to add it here`, with a cancel (×) button. Day-cell click handler and highlight styling extended with an `isPlaceMode` branch (checked before move/paste modes); day-number row shows a `+` icon while placing.
+- `components/planner/WorkoutBuilder.tsx`: removed the now-dead `forceCreateMode` prop and its branch in the footer button label.
+
+**Future weeks now show total running distance alongside total time in `WeekSummaryStrip.tsx`:**
+- `runningSportNames` (sports where `isRunningRelated`) is now computed once for all weeks, not just the current week.
+- New `plannedRunKm`: for weeks starting after today, sums `targetDistance` (→ km) across all planned workouts whose sport is running-related.
+- `displayRunKm = predictedRunKm ?? plannedRunKm` — current week keeps showing the blended actual+planned prediction; future weeks show the pure planned total. Tooltip text (`runKmTitle`) switches between "Predicted weekly run distance" and "Planned running distance this week" accordingly. Both compact (sidebar) and row render modes updated.
+
+**Mobile pass — `BlockEditorModal.tsx` (training-block builder, primary target of this session's mobile review):**
+- Block-type picker (6 buttons): `grid-cols-5` → `grid-cols-3 sm:grid-cols-5` (was cramped to 5 narrow columns on phones).
+- Start/end date inputs: `grid-cols-2` → `grid-cols-1 sm:grid-cols-2` (stacks on phones, matching the existing WorkoutBuilder date-field pattern).
+- Footer: `flex items-center gap-2` → `flex flex-wrap items-center gap-2`; the delete-confirmation button pair gets `w-full sm:w-auto` so "Cancel/Confirm deletion" wraps onto its own row instead of squeezing in alongside the main Cancel/Save buttons.
+
+**Mobile pass — `app/(dashboard)/settings/sports/sports-manager.tsx` (Training Types tab, newly reachable this session):**
+- Sport header row: sport name gets `min-w-0 truncate` (was unbounded, could push the "Running"/type-count/delete/chevron controls off narrow screens); "Running" badge gets `shrink-0`; the "N types" count label is hidden below `sm:` (least essential info, freed up space for the badge + action icons).
+- "Color:" row for a new workout type's color: added `flex-wrap` so the 10 swatches + preview wrap onto a second line instead of overflowing on narrow screens.
+- "Add new sport" row: `flex gap-3 items-end` → `flex flex-col sm:flex-row gap-3 sm:items-end`, and its fixed `w-40` color-swatch box → `w-full sm:w-40` — stacks the name input above the color swatches on mobile instead of squeezing both into one row.
+
+**Reviewed, no changes needed:** `OutcomeModal.tsx` (already mobile-friendly — stacked full-width buttons, sensible grid). `ZoneBar.tsx` and `BlockBanner.tsx` (display-only, no form inputs; `BlockBanner`'s horizontal timeline already scrolls on overflow).
+
+**Build fix:** removed a leftover `setMobileTemplatePrefill(null)` call in `handleBuilderSave` (planner-client.tsx) — dead reference to the state removed above, caught by `pnpm build --no-lint`.
 
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
