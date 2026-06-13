@@ -92,18 +92,22 @@ export async function syncActivities(
         }
 
         const data = { ...mapActivity(fullRaw, userId), splitDetailFetched: detailFetched };
+        // For existing activities, fullRaw is the SummaryActivity from the list endpoint,
+        // which has no description/perceivedExertion fields — don't blast those to null.
+        const detailOnlyFields = detailFetched
+          ? { description: data.description, perceivedExertion: data.perceivedExertion }
+          : {};
         const saved = await prisma.activity.upsert({
           where: { stravaId: data.stravaId },
           create: data,
           update: {
             name: data.name,
-            description: data.description,
             averageHeartrate: data.averageHeartrate,
             maxHeartrate: data.maxHeartrate,
             sufferScore: data.sufferScore,
-            perceivedExertion: data.perceivedExertion,
             startLat: data.startLat,
             startLng: data.startLng,
+            ...detailOnlyFields,
           },
         });
         // Fetch weather from Open-Meteo for new activities that have coordinates

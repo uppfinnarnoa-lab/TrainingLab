@@ -2087,6 +2087,24 @@ User reported the planner week grid's workout cards showed both a check/cross ic
 
 **Verification:** `pnpm build --no-lint` passes. No browser available in this session — not clicked through in the UI yet.
 
+**Session 2026-06-13e — Strava description sync bug, activity map rendering fix, webhook sync coordination:**
+
+User reported descriptions no longer importing correctly from Strava, the activity map still rendering broken (fragmented/dark tiles, despite the earlier "double init" fix), and asked for webhook syncs to take priority over an in-progress backfill plus a 3-day resync on every webhook event.
+
+**Description-wipe bug in `syncActivities` (re-sync of existing activities):**
+- Confirmed via a live Strava API call that the `/athlete/activities` list endpoint (SummaryActivity) has no `description`/`perceived_exertion` fields — only the per-activity `/activities/{id}` endpoint (DetailedActivity) does.
+- `lib/strava/sync.ts` `syncActivities()`: for activities that already `exist` in the DB, the per-activity `update` previously included `description`/`perceivedExertion` unconditionally, sourced from `mapActivity(fullRaw, ...)` where `fullRaw` is the list-summary (no detail fetch) — both were always `null`, silently wiping any previously-imported description on every re-sync pass. Fix: `description`/`perceivedExertion` are now only included in `update` when `detailFetched` is true (i.e. for genuinely new activities, where a full `/activities/{id}` fetch was made).
+
+**Activity map rendering — root cause was a CSP-blocked stylesheet, not tile timing:**
+- The earlier fix addressed a double-init issue (React Strict Mode), but the CartoDB tiles still rendered as fragments with large dark gaps. Root cause: `app/layout.tsx` loaded Leaflet's CSS from `cdnjs.cloudflare.com`, but `next.config.ts`'s CSP `style-src 'self' 'unsafe-inline'` does not allow that origin — the browser silently blocks the stylesheet. Without `.leaflet-tile-pane`/`.leaflet-tile` positioning rules, tile `<img>`s render in normal document flow instead of an absolutely-positioned grid, producing exactly the fragmented/dark-gap layout from the screenshot.
+- Fix: removed the CDN `<link rel="stylesheet">` from `app/layout.tsx`; `app/(dashboard)/activities/[id]/activity-map.tsx` now does `import "leaflet/dist/leaflet.css"` (self-hosted via the existing `leaflet` npm dependency, same-origin, no CSP change needed). Also removed the dead `L.Icon.Default.mergeOptions(...)`/`_getIconUrl` CDN-marker-icon hack — the component only uses `L.circleMarker()` (canvas-drawn), never `L.marker()` with the default icon.
+
+**Webhook sync coordination:**
+- `app/api/strava/webhook/route.ts` `handleEvent()`: on `create`/`update`, now calls `backfillRunner.pause(userId)` before syncing and `backfillRunner.resume(userId)` in a `finally` — an in-progress historical backfill (`lib/strava/backfill-runner.ts`) is paused while the webhook's Strava API calls run, so it doesn't consume the 15-min rate-limit budget the webhook needs. Both calls are no-ops if no backfill is running for that user.
+- After `syncSingleActivity`, also calls `resyncRecentActivities(userId, 3)` — Strava doesn't send webhooks for description-only edits to older activities, so every webhook sync now re-checks the last 3 days for such edits (per user's diagnosis of the description bug above).
+
+**Verification:** `pnpm build --no-lint` passes. No browser available in this session — the map fix has not been visually verified; check on `training.helgars.se` after deploy (CartoDB tiles + Leaflet zoom control should render as a proper grid with no dark gaps).
+
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
 **Copy-paste workouts (Ctrl+C/V + right-click + long-press):**

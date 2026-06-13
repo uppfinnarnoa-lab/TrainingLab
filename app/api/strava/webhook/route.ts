@@ -13,8 +13,9 @@
 
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { syncSingleActivity, deleteStravaActivity } from "@/lib/strava/sync";
+import { syncSingleActivity, deleteStravaActivity, resyncRecentActivities } from "@/lib/strava/sync";
 import { backfillWeather } from "@/lib/weather/backfill";
+import { backfillRunner } from "@/lib/strava/backfill-runner";
 
 // GET — Strava sends this to verify the endpoint during subscription setup
 export async function GET(req: NextRequest) {
@@ -71,9 +72,19 @@ async function handleEvent(event: StravaEvent): Promise<void> {
   const { userId } = stravaAccount;
 
   if (event.aspect_type === "create" || event.aspect_type === "update") {
-    await syncSingleActivity(userId, event.object_id);
-    // Fetch weather for the newly synced activity (limit 1 — just the newest missing)
-    backfillWeather(userId, 1).catch(e => console.error("[webhook] weather fetch error", e));
+    // Webhook syncs take priority over an in-progress historical backfill —
+    // pause it so the backfill doesn't eat the Strava rate limit while we sync.
+    backfillRunner.pause(userId);
+    try {
+      await syncSingleActivity(userId, event.object_id);
+      // Fetch weather for the newly synced activity (limit 1 — just the newest missing)
+      backfillWeather(userId, 1).catch(e => console.error("[webhook] weather fetch error", e));
+      // Strava doesn't send webhooks for description-only edits on older activities,
+      // so re-check the last 3 days on every webhook sync to catch those updates.
+      await resyncRecentActivities(userId, 3).catch(e => console.error("[webhook] resync error", e));
+    } finally {
+      backfillRunner.resume(userId);
+    }
   } else if (event.aspect_type === "delete") {
     await deleteStravaActivity(userId, event.object_id);
   }
