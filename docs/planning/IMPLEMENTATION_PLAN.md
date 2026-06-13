@@ -2105,6 +2105,19 @@ User reported descriptions no longer importing correctly from Strava, the activi
 
 **Verification:** `pnpm build --no-lint` passes. No browser available in this session — the map fix has not been visually verified; check on `training.helgars.se` after deploy (CartoDB tiles + Leaflet zoom control should render as a proper grid with no dark gaps).
 
+**Session 2026-06-13f — Smoothed-pace display option, light-mode map tiles:**
+
+User requested a "slightly smoothed" pace display option on the activity performance chart, and a light-mode tile theme for the activity map (previously always dark).
+
+**Smoothed pace toggle:**
+- `app/(dashboard)/activities/[id]/activity-charts.tsx`: new `movingAverage()` helper — centered moving average over a configurable window, ignoring `null`s. `StreamPoint` gains `paceSmoothSecKm`; computed by smoothing the raw `velocity_smooth` stream over a 21-sample window *before* converting to pace (averaging velocity rather than pace directly, since pace = 1/v is nonlinear and skews under direct averaging).
+- New `paceMode` state (`"raw" | "smoothed"`, default `"raw"`) with a "Raw pace / Smoothed" toggle next to the series buttons, shown only when the pace series is active. The pace `<Line>`'s `dataKey` switches between `paceSecKm` and `paceSmoothSecKm`; `CustomTooltip` formats both as `m:ss/km`.
+
+**Light-mode activity map:**
+- `app/(dashboard)/activities/[id]/activity-map.tsx`: now reads `resolvedTheme` via `useTheme()` (next-themes) and picks the CartoDB tile set accordingly — `light_all` in light mode, `dark_all` otherwise (unchanged default). `resolvedTheme` added to the map-init effect's dependency array, so the map re-creates with the correct tile layer if the user toggles theme while viewing an activity. Container's loading-state background changed from a hardcoded dark `#1a1d27` to `var(--surface-2)` so it matches whichever theme/color-scheme is active before tiles load.
+
+**Verification:** `pnpm build --no-lint` passes. No browser available in this session — neither the pace-smoothing toggle nor the light-mode map tiles have been visually verified; check both on `training.helgars.se` after deploy.
+
 **Session 2026-06-06 — Planner: copy-paste, drag past sessions, sport normalization, template mobile fix:**
 
 **Copy-paste workouts (Ctrl+C/V + right-click + long-press):**

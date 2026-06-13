@@ -12,12 +12,28 @@ interface StreamPoint {
   distKm: number;
   timeSec: number;
   paceSecKm: number | null;
+  paceSmoothSecKm: number | null;
   heartrate: number | null;
   altitude: number | null;
 }
 
 type Serie = "pace" | "heartrate" | "altitude";
 type XMode = "distance" | "time";
+type PaceMode = "raw" | "smoothed";
+
+// Centered moving average over `window` samples — smooths out the
+// second-to-second jitter in instant pace without flattening real trends.
+function movingAverage(values: (number | null)[], window: number): (number | null)[] {
+  const half = Math.floor(window / 2);
+  return values.map((_, i) => {
+    let sum = 0, count = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(values.length - 1, i + half); j++) {
+      const v = values[j];
+      if (v != null) { sum += v; count++; }
+    }
+    return count > 0 ? sum / count : null;
+  });
+}
 
 const SERIES_CONFIG: Record<Serie, { label: string; color: string }> = {
   pace:      { label: "Pace",       color: "#6EE7B7" },
@@ -46,6 +62,7 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
   const [visible, setVisible] = useState<Set<Serie>>(new Set(["pace", "heartrate"]));
   const [hasAlt, setHasAlt]   = useState(false);
   const [xMode, setXMode]     = useState<XMode>("distance");
+  const [paceMode, setPaceMode] = useState<PaceMode>("raw");
 
   useEffect(() => {
     fetch(`/api/activities/${activityId}/streams`)
@@ -67,15 +84,22 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
         if (altPresent)           active.add("altitude");
         setVisible(active);
 
+        // Smooth velocity (not pace directly — averaging 1/v is skewed) over a
+        // ~21-sample window before converting to pace, for the "smoothed" view.
+        const smoothVel = movingAverage(vel.map(v => (v && v > 0.5 ? v : null)), 21);
+
         const step = Math.max(1, Math.floor(dist.length / 400));
         const points: StreamPoint[] = [];
         for (let i = 0; i < dist.length; i += step) {
           const v = vel[i];
           const pace = v && v > 0.5 ? Math.round(1000 / v) : null;
+          const sv = smoothVel[i];
+          const paceSmooth = sv ? Math.round(1000 / sv) : null;
           points.push({
-            distKm:    Math.round(dist[i] / 10) / 100,
-            timeSec:   time[i] ?? 0,
-            paceSecKm: pace && pace > 60 && pace < 600 ? pace : null,
+            distKm:          Math.round(dist[i] / 10) / 100,
+            timeSec:         time[i] ?? 0,
+            paceSecKm:       pace       && pace       > 60 && pace       < 600 ? pace       : null,
+            paceSmoothSecKm: paceSmooth && paceSmooth > 60 && paceSmooth < 600 ? paceSmooth : null,
             heartrate: hr[i] > 30 ? hr[i] : null,
             altitude:  altPresent && alt[i] != null ? Math.round(alt[i]) : null,
           });
@@ -119,7 +143,7 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
         <p className="font-semibold text-muted">{xLabel}</p>
         {payload.map((p: { dataKey: string; value: number; color: string }) => {
           let display = "";
-          if (p.dataKey === "paceSecKm") display = formatPaceStr(p.value) + "/km";
+          if (p.dataKey === "paceSecKm" || p.dataKey === "paceSmoothSecKm") display = formatPaceStr(p.value) + "/km";
           if (p.dataKey === "heartrate") display = `${p.value} bpm`;
           if (p.dataKey === "altitude")  display = `${p.value} m`;
           if (!display) return null;
@@ -155,22 +179,43 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
             );
           })}
         </div>
-        {/* X-axis toggle */}
-        <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
-          <button
-            onClick={() => setXMode("distance")}
-            className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
-              xMode === "distance" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
-          >
-            Distance
-          </button>
-          <button
-            onClick={() => setXMode("time")}
-            className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
-              xMode === "time" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
-          >
-            Time
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Pace smoothing toggle */}
+          {visible.has("pace") && (
+            <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
+              <button
+                onClick={() => setPaceMode("raw")}
+                className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+                  paceMode === "raw" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+              >
+                Raw pace
+              </button>
+              <button
+                onClick={() => setPaceMode("smoothed")}
+                className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+                  paceMode === "smoothed" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+              >
+                Smoothed
+              </button>
+            </div>
+          )}
+          {/* X-axis toggle */}
+          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
+            <button
+              onClick={() => setXMode("distance")}
+              className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+                xMode === "distance" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+            >
+              Distance
+            </button>
+            <button
+              onClick={() => setXMode("time")}
+              className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
+                xMode === "time" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
+            >
+              Time
+            </button>
+          </div>
         </div>
       </div>
 
@@ -211,7 +256,7 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
           )}
 
           {visible.has("pace") && (
-            <Line yAxisId="pace" type="monotone" dataKey="paceSecKm"
+            <Line yAxisId="pace" type="monotone" dataKey={paceMode === "smoothed" ? "paceSmoothSecKm" : "paceSecKm"}
               stroke="#6EE7B7" strokeWidth={1.8} dot={false} connectNulls
               isAnimationActive={false} />
           )}

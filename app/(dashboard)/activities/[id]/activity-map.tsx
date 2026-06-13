@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTheme } from "next-themes";
 import "leaflet/dist/leaflet.css";
 
 interface Props {
@@ -26,6 +27,7 @@ function decodePolyline(encoded: string): [number, number][] {
 
 export function ActivityMap({ polyline, color }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const { resolvedTheme } = useTheme();
 
   useEffect(() => {
     if (!ref.current || typeof window === "undefined") return;
@@ -44,7 +46,8 @@ export function ActivityMap({ polyline, color }: Props) {
       if (coords.length === 0) return;
 
       map = L.map(container, { zoomControl: true, scrollWheelZoom: false });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      const tileTheme = resolvedTheme === "light" ? "light_all" : "dark_all";
+      L.tileLayer(`https://{s}.basemaps.cartocdn.com/${tileTheme}/{z}/{x}/{y}{r}.png`, {
         attribution: "© CartoDB",
         maxZoom: 18,
       }).addTo(map);
@@ -89,7 +92,7 @@ export function ActivityMap({ polyline, color }: Props) {
       map?.remove();
       map = null;
     };
-  }, [polyline, color]);
+  }, [polyline, color, resolvedTheme]);
 
-  return <div ref={ref} style={{ width: "100%", height: "100%", minHeight: 320, background: "#1a1d27" }} />;
+  return <div ref={ref} style={{ width: "100%", height: "100%", minHeight: 320, background: "var(--surface-2)" }} />;
 }
