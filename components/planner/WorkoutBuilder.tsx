@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { X, Plus, GripVertical, Trash2, ChevronDown, Loader2 } from "lucide-react";
+import { X, Plus, GripVertical, Trash2, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { ZoneBar } from "./ZoneBar";
 import { formatDuration, formatDistance } from "@/lib/utils";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
@@ -307,6 +307,13 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     });
   }
 
+  function moveSectionStep(key: number, dir: "up" | "down") {
+    const idx = sections.findIndex(s => s._key === key);
+    const targetIdx = dir === "up" ? idx - 1 : idx + 1;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= sections.length) return;
+    moveSection(key, sections[targetIdx]._key);
+  }
+
   const estimated = useCallback(() => {
     let totalSec = 0, totalM = 0;
     const zoneSec: Record<string, number> = {};
@@ -547,7 +554,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
               </button>
             </div>
             <div className="space-y-2">
-              {sections.map(s => (
+              {sections.map((s, i) => (
                 <SectionRow key={s._key} section={s} paceZones={paceZones} hrZones={hrZones}
                   onChange={patch => updateSection(s._key, patch)}
                   onRemove={() => removeSection(s._key)}
@@ -562,7 +569,11 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
                     setDraggedKey(null);
                     setDragOverKey(null);
                   }}
-                  onDragEnd={() => { setDraggedKey(null); setDragOverKey(null); }} />
+                  onDragEnd={() => { setDraggedKey(null); setDragOverKey(null); }}
+                  canMoveUp={i > 0}
+                  canMoveDown={i < sections.length - 1}
+                  onMoveUp={() => moveSectionStep(s._key, "up")}
+                  onMoveDown={() => moveSectionStep(s._key, "down")} />
               ))}
             </div>
           </div>
@@ -616,7 +627,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
 
 // ── Section row ────────────────────────────────────────────────────────────
 
-function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRemove, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd }: {
+function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRemove, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd, canMoveUp, canMoveDown, onMoveUp, onMoveDown }: {
   section: NewSection;
   paceZones?: number[][];
   hrZones?: number[][];
@@ -630,6 +641,10 @@ function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRem
   onDragLeave: () => void;
   onDrop: () => void;
   onDragEnd: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -651,7 +666,17 @@ function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRem
         onDrop={e => { e.preventDefault(); onDrop(); }}
         onDragEnd={onDragEnd}
       >
-        <GripVertical size={14} className="text-muted shrink-0 cursor-grab active:cursor-grabbing" />
+        <GripVertical size={14} className="text-muted shrink-0 cursor-grab active:cursor-grabbing hidden sm:block" />
+        <div className="flex flex-col shrink-0">
+          <button onClick={e => { e.stopPropagation(); onMoveUp(); }} disabled={!canMoveUp}
+            className="text-muted hover:text-primary disabled:opacity-25 transition leading-none">
+            <ChevronUp size={12} />
+          </button>
+          <button onClick={e => { e.stopPropagation(); onMoveDown(); }} disabled={!canMoveDown}
+            className="text-muted hover:text-primary disabled:opacity-25 transition leading-none">
+            <ChevronDown size={12} />
+          </button>
+        </div>
         <div className="flex-1 min-w-0">
           <span className="text-sm font-medium text-primary">{s.name}</span>
           <span className="ml-2 text-xs text-muted">
