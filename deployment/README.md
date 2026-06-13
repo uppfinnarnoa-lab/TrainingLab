@@ -268,12 +268,14 @@ ssh-keygen -t ed25519 -C "windows-deploy"
 type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh noa@training.helgars.se "cat >> ~/.ssh/authorized_keys"
 ```
 
-Then deploy without any password:
-```powershell
-ssh noa@training.helgars.se "/var/www/traininglab/deployment/deploy.sh"
+Claude cannot reach this server (port 22 is unreachable from the dev machine) — at the end of each session it hands you this command to run yourself over your own SSH session:
+```bash
+cd /var/www/traininglab && git pull --ff-only && pnpm install --frozen-lockfile --prod=false && pnpm exec prisma generate && set -a && source .env.local && set +a && pnpm exec prisma db push --skip-generate && pnpm exec next build --no-lint && pm2 reload traininglab --update-env
 ```
 
-The `deploy.sh` script: pulls latest code, regenerates Prisma client, applies schema changes (additive only), builds, reloads PM2.
+- Prisma CLI only auto-loads `.env`, not `.env.local` (where prod's `DATABASE_URL` lives) — the `set -a && source .env.local && set +a` step before `prisma db push`/`generate` is required, or it fails with `Error: Environment variable not found: DATABASE_URL` (P1012).
+- `prisma db push --skip-generate` applies additive schema changes — required whenever `prisma/schema.prisma` changed (this project has no migration files).
+- `deployment/deploy.sh` exists (pulls, regenerates Prisma client, applies schema changes, builds, reloads PM2) but is not the preferred path — use the manual sequence above.
 
 ---
 
