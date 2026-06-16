@@ -2497,4 +2497,40 @@ Every internal API endpoint and cross-module function that crosses a boundary (H
 
 ---
 
+### Session 2026-06-16 — Bug fixes, chart styling, goals page, coach tool insert
+
+**Bug fixes:**
+
+- **`lib/utils.ts` `formatPace`:** Round total seconds first (`Math.round(1000/speed)`) then `Math.floor/mod 60` — prevents "3:60" output when `secPerKm % 60 = 59.5` rounded up.
+- **`app/(dashboard)/activities/[id]/page.tsx` Pa:HR decoupling labels:** Made sign-aware. Negative drift (second half more efficient) shows "Negativ split — bättre effektivitet i andra halvlek" (accent color) instead of "High drift" warning. Positive >10% = error, positive 5–10% = warning, negative < -10% = warning-yellow, else accent.
+- **`app/(dashboard)/stats/page.tsx` training monotony fast path:** Was using `fpDailyTSSMap` (`act.trainingLoad ?? 0`), meaning null trainingLoad → 0 TSS all 7 days → stddev=0 → monotony=null → card hidden. Fixed: fast path now reads from `curveTSSMap` (built with `computeTSS` HR-based fallback) for the current week's daily TSS.
+- **`app/(dashboard)/stats/stats-client.tsx` EF delta comparison:** Label said "vs 4–8 veckor sen" but code used `efByWeek.slice(0, 4)` (oldest 4 weeks). Fixed to `efByWeek.slice(-8, -4)`. Guard now requires `efByWeek.length >= 8`.
+- **`app/(dashboard)/planner/planner-client.tsx` week panel:** Previous change added an inline week detail bottom-sheet panel and `onWeekClick` prop that overrode `WeekSummaryStrip`'s native navigation to `/planner/week`. Removed `selectedWeek` state, `handleWeekClick`, `selectedWeekStats`, `onWeekClick` prop, panel JSX, and unused `startOfWeek` import. Clicking a week strip now navigates to `/planner/week` again.
+- **GAP threshold (`activities/[id]/page.tsx`):** Changed from `elevGainPerKm >= 20` to `elevGainPerKm >= 10` so GAP shows on more activities.
+- **PB markers removed** from activity detail page: removed `raceRecords` query, `pbMap`, `newPBs` array, and PB banner JSX entirely. `Mountain` icon import also removed.
+
+**Chart styling (`app/(dashboard)/stats/stats-client.tsx`):**
+- Cadence chart (`ComposedChart`): added `CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false}`, styled `XAxis`/`YAxis` ticks with `fill: var(--text-muted)`, `axisLine: false`, `tickLine: false`, formatted X labels as `MM-DD`, added styled `Tooltip` with surface background.
+- EF chart (`LineChart`): same grid/axis/tooltip treatment. Both now match the style of volume/history charts.
+- Added `CartesianGrid` to recharts import.
+
+**Recovery days explanation (`app/(dashboard)/stats/stats-client.tsx`):** Added a second paragraph below the metric value explaining what "recovery days" means: TSB dropping below −15 = fatigue state, days to return to neutral = recovery profile.
+
+**Coach tool picker (`components/coach/ChatInterface.tsx`):**
+- `selectTool(name)` now inserts `/${primaryTool} ` (with trailing space) instead of the full hint template. Multi-tool names (e.g. `get_upcoming_plan + delete_workout`) take only the first tool.
+- Tool button `onClick` changed from `selectTool(tool.hint)` to `selectTool(tool.name)`.
+- Preset commands (/plan, /taper, /analyze, /week, /compare): renamed `name` fields from `preset_plan` etc. to `plan`/`taper`/`analyze`/`week`/`compare`; removed `hint` field; `onClick` now uses `tool.name`. Hint column in button row replaced with `/${tool.name}` display.
+
+**New: Training Goals feature:**
+- **`prisma/schema.prisma`:** Added `TrainingGoal` model (`userId`, `sport String @default("")` where `""` = all sports, `metric` distance/time, `period` week/month/year, `target Float`). Unique constraint on `(userId, sport, metric, period)`. Added `trainingGoals TrainingGoal[]` to `User`. Added `paceUnitBySport Json?` to `AthleteProfile` for per-sport pace unit overrides.
+- **`app/api/settings/goals/route.ts`:** GET (list), POST (upsert by sport+metric+period), DELETE (by id with userId guard).
+- **`app/(dashboard)/settings/goals/page.tsx` + `goals-manager.tsx`:** Client component with sport/metric/period/target selectors; shows existing goals grouped by period+metric; delete button per goal; add goal form.
+- **`components/settings/settings-nav.tsx`:** Added "Goals" tab linking to `/settings/goals`.
+- **`app/(dashboard)/dashboard/page.tsx`:** Fetches `trainingGoal` records; computes per-sport per-period km/min aggregates from activities since `weekStart` (includes all three periods); renders progress bars with 80% threshold for "on-track" (accent), 50–80% neutral (blue), <50% warning. Links to `/settings/goals`.
+- **`app/api/settings/profile/route.ts`:** Added `paceUnitBySport` to schema (validates `Record<string, "min_per_km"|"min_per_mi"|"km_h">`).
+
+**Schema changes:** `TrainingGoal` model added, `AthleteProfile.paceUnitBySport Json?` added. Requires `prisma db push` on production.
+
+---
+
 *Last updated: 2026-06-16 (mega feature session — activity matching, activity page stats, cadence/EF/monotony trends, planner DnD + taper + week panel, stream caching, coach commands, PWA, color palettes)*
