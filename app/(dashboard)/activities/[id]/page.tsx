@@ -248,10 +248,10 @@ export default async function ActivityDetailPage({
       {decoupling && (() => {
         const d = decoupling.drift;
         const color = d > 0.10 ? "text-error" : d > 0.05 ? "text-warning" : d < -0.15 ? "text-warning" : "text-accent";
-        const label = d > 0.10 ? "Avkoppling — HF stiger vs tempo"
-          : d > 0.05 ? "Måttlig drift uppåt"
-          : d < -0.10 ? "Negativ split — bättre effektivitet i andra halvlek"
-          : "Välkopplat — aerobt";
+        const label = d > 0.10 ? "Decoupling — HR rising vs pace"
+          : d > 0.05 ? "Moderate upward drift"
+          : d < -0.10 ? "Negative split — better efficiency in second half"
+          : "Well-coupled — aerobic";
         return (
           <div className="rounded-2xl bg-surface border border-border p-4 flex items-center gap-6">
             <div>
@@ -262,7 +262,7 @@ export default async function ActivityDetailPage({
               <p className="text-xs text-muted mt-0.5">{label}</p>
             </div>
             <p className="text-xs text-muted flex-1">
-              Pa:HR drift mäter aerob effektivitet. Positivt (HF/fart stiger) = avkoppling. Negativt = effektivare i andra halvlek. Inom ±5% = välkopplat.
+              Pa:HR drift measures aerobic efficiency. Positive (HR/pace rising) = decoupling. Negative = more efficient in second half. Within ±5% = well-coupled.
             </p>
           </div>
         );

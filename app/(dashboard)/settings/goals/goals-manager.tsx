@@ -19,8 +19,8 @@ interface Props {
 const PERIODS = ["week", "month", "year"] as const;
 const METRICS = ["distance", "time"] as const;
 
-const periodLabel = { week: "Vecka", month: "Månad", year: "År" };
-const metricLabel = { distance: "Distans (km)", time: "Tid (min)" };
+const periodLabel = { week: "Week", month: "Month", year: "Year" };
+const metricLabel = { distance: "Distance (km)", time: "Time (min)" };
 
 export function GoalsManager({ initialGoals, sports }: Props) {
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
@@ -82,7 +82,7 @@ export function GoalsManager({ initialGoals, sports }: Props) {
                   <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface-2 border border-border">
                     <div className="flex-1">
                       <p className="text-sm font-medium text-primary">
-                        {g.sport === "" ? "Alla sporter" : g.sport}
+                        {g.sport === "" ? "All sports" : g.sport}
                       </p>
                       <p className="text-xs text-muted">
                         {g.metric === "distance" ? `${g.target} km` : `${g.target} min`} per {periodLabel[g.period as keyof typeof periodLabel].toLowerCase()}
@@ -104,12 +104,12 @@ export function GoalsManager({ initialGoals, sports }: Props) {
       )}
 
       {goals.length === 0 && (
-        <p className="text-sm text-muted text-center py-4">Inga mål inställda än. Lägg till ditt första mål nedan.</p>
+        <p className="text-sm text-muted text-center py-4">No goals set yet. Add your first goal below.</p>
       )}
 
       {/* Add new goal */}
       <div className="border-t border-border pt-5">
-        <p className="text-sm font-semibold text-primary mb-3">Lägg till mål</p>
+        <p className="text-sm font-semibold text-primary mb-3">Add goal</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div>
             <label className="text-xs text-muted block mb-1">Sport</label>
@@ -118,19 +118,19 @@ export function GoalsManager({ initialGoals, sports }: Props) {
               onChange={e => setNewSport(e.target.value)}
               className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
             >
-              <option value="">Alla sporter</option>
+              <option value="">All sports</option>
               {sports.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-muted block mb-1">Mätvärde</label>
+            <label className="text-xs text-muted block mb-1">Metric</label>
             <select
               value={newMetric}
               onChange={e => setNewMetric(e.target.value as "distance" | "time")}
               className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
             >
-              <option value="distance">Distans (km)</option>
-              <option value="time">Tid (min)</option>
+              <option value="distance">Distance (km)</option>
+              <option value="time">Time (min)</option>
             </select>
           </div>
           <div>
@@ -140,13 +140,13 @@ export function GoalsManager({ initialGoals, sports }: Props) {
               onChange={e => setNewPeriod(e.target.value as "week" | "month" | "year")}
               className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
             >
-              <option value="week">Vecka</option>
-              <option value="month">Månad</option>
-              <option value="year">År</option>
+              <option value="week">Week</option>
+              <option value="month">Month</option>
+              <option value="year">Year</option>
             </select>
           </div>
           <div>
-            <label className="text-xs text-muted block mb-1">Mål</label>
+            <label className="text-xs text-muted block mb-1">Target</label>
             <input
               type="number"
               value={newTarget}
@@ -164,7 +164,7 @@ export function GoalsManager({ initialGoals, sports }: Props) {
           className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-background text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition"
         >
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-          Spara mål
+          Save goal
         </button>
       </div>
     </div>

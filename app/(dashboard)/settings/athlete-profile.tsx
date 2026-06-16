@@ -60,13 +60,13 @@ export function AthleteProfileForm({ initial, sports }: { initial: Profile; spor
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setSaveError(body.error ?? "Kunde inte spara — kontrollera värdena.");
+        setSaveError(body.error ?? "Could not save — check the values.");
       } else {
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       }
     } catch {
-      setSaveError("Nätverksfel — försök igen.");
+      setSaveError("Network error — please try again.");
     } finally {
       setSaving(false);
     }

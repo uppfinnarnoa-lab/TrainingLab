@@ -248,22 +248,22 @@ export function StatsClient(props: Props) {
 
           {monotony !== null && (
             <div className="rounded-xl bg-surface border border-border p-4 space-y-3">
-              <p className="text-xs font-medium text-muted uppercase tracking-wide">Träningsmonotoni (vecka)</p>
+              <p className="text-xs font-medium text-muted uppercase tracking-wide">Training Monotony (week)</p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className={`text-2xl font-semibold font-mono ${
                     monotony > 2.0 ? 'text-error' : monotony > 1.5 ? 'text-warning' : 'text-accent'
                   }`}>{monotony.toFixed(2)}</p>
                   <p className="text-xs text-muted mt-0.5">
-                    {monotony > 2.0 ? 'Hög — variera mer' : monotony > 1.5 ? 'Lite hög' : 'Bra variation'}
+                    {monotony > 2.0 ? 'High — vary more' : monotony > 1.5 ? 'Slightly high' : 'Good variation'}
                   </p>
-                  <p className="text-[10px] text-muted mt-1">Monotoni = dagssnitt / stddev TSS</p>
+                  <p className="text-[10px] text-muted mt-1">Monotony = daily mean / stddev TSS</p>
                 </div>
                 {strain !== null && (
                   <div>
                     <p className="text-2xl font-semibold font-mono text-primary">{Math.round(strain)}</p>
                     <p className="text-xs text-muted mt-0.5">Stress (Strain)</p>
-                    <p className="text-[10px] text-muted mt-1">Strain = veckaTSS × monotoni</p>
+                    <p className="text-[10px] text-muted mt-1">Strain = weekly TSS × monotony</p>
                   </div>
                 )}
               </div>
@@ -272,14 +272,14 @@ export function StatsClient(props: Props) {
 
           {avgRecoveryDays !== null && (
             <div className="rounded-xl bg-surface border border-border p-4">
-              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-2">Personlig återhämtningstid</p>
-              <p className="text-2xl font-semibold font-mono text-primary">{avgRecoveryDays} dagar</p>
+              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-2">Personal Recovery Time</p>
+              <p className="text-2xl font-semibold font-mono text-primary">{avgRecoveryDays} days</p>
               <p className="text-xs text-muted mt-1">
-                Genomsnittlig tid från TSB −15 till neutral — baserat på {recoveryDaysCount} tillfällen.
-                {avgRecoveryDays < 5 ? ' Snabb återhämtning.' : avgRecoveryDays > 8 ? ' Tar tid — prioritera sömn och näring.' : ' Normal.'}
+                Average time from TSB −15 to neutral — based on {recoveryDaysCount} occurrences.
+                {avgRecoveryDays < 5 ? ' Fast recovery.' : avgRecoveryDays > 8 ? ' Takes time — prioritize sleep and nutrition.' : ' Normal.'}
               </p>
               <p className="text-xs text-muted/70 mt-2 leading-relaxed border-t border-border pt-2">
-                Recovery days mäter hur lång tid det tar för din kropp att återhämta sig från ett hårt träningsblock. TSB (Training Stress Balance) är ett mått på din form minus trötthet — när TSB sjunker under −15 är du i ett trötthetstillstånd, och antalet dagar det tar att komma tillbaka till neutral ger din personliga återhämtningsprofil.
+                Recovery days measures how long it takes to bounce back from a hard training block. TSB (Training Stress Balance) quantifies form minus fatigue — when TSB drops below −15 you are in a fatigue state, and the number of days to return to neutral defines your personal recovery profile.
               </p>
             </div>
           )}
@@ -448,9 +448,9 @@ export function StatsClient(props: Props) {
 
           {/* Cadence + stride length trend (1A) */}
           {cadenceByWeek.length > 0 && (
-            <SectionCard title="Kadens & steglängd">
+            <SectionCard title="Cadence & stride length">
               <div className="text-sm text-muted mb-3">
-                Spm (vänster) · Steglängd m (höger) — senaste 26 veckor
+                SPM (left) · Stride length m (right) — last 26 weeks
               </div>
               <ResponsiveContainer width="100%" height={160}>
                 <ComposedChart data={cadenceByWeek} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -462,7 +462,7 @@ export function StatsClient(props: Props) {
                   <YAxis yAxisId="stride" orientation="right" domain={['auto', 'auto']} width={36} tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
                   <Tooltip
                     contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: number, name: string) => name === 'spm' ? [`${v} spm`, 'Kadens'] : [`${(v as number).toFixed(2)} m`, 'Steglängd']}
+                    formatter={(v: number, name: string) => name === 'spm' ? [`${v} spm`, 'Cadence'] : [`${(v as number).toFixed(2)} m`, 'Stride length']}
                     labelFormatter={(w: string) => `Vecka ${w}`}
                   />
                   <Line yAxisId="spm" type="monotone" dataKey="spm" stroke="#6EE7B7" dot={false} strokeWidth={2} />
@@ -470,18 +470,18 @@ export function StatsClient(props: Props) {
                 </ComposedChart>
               </ResponsiveContainer>
               <div className="flex gap-4 mt-2 text-xs text-muted">
-                <span><span className="inline-block w-3 h-0.5 bg-accent mr-1 align-middle" />Kadens (spm)</span>
-                <span><span className="inline-block w-3 h-0.5 bg-blue-400 mr-1 align-middle" />Steglängd (m)</span>
+                <span><span className="inline-block w-3 h-0.5 bg-accent mr-1 align-middle" />Cadence (SPM)</span>
+                <span><span className="inline-block w-3 h-0.5 bg-blue-400 mr-1 align-middle" />Stride length (m)</span>
               </div>
             </SectionCard>
           )}
 
           {/* Efficiency Factor trend (2A) */}
           {efByWeek.length > 4 && (
-            <SectionCard title="Efficiency Factor (EF) — aerob effektivitet">
+            <SectionCard title="Efficiency Factor (EF) — aerobic efficiency">
               <div className="text-xs text-muted mb-3">
-                EF = fart (m/min) / HF — lätta löpningar sista 16 veckor.
-                Stigande EF = ökad aerob effektivitet. 1.35–1.55 = vältränad.
+                EF = speed (m/min) / HR — easy runs last 16 weeks.
+                Rising EF = improved aerobic efficiency. 1.35–1.55 = well-trained.
               </div>
               <ResponsiveContainer width="100%" height={120}>
                 <LineChart data={efByWeek} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -504,8 +504,8 @@ export function StatsClient(props: Props) {
                 const delta = ((recent - older) / older * 100);
                 return (
                   <p className="text-xs text-muted mt-2">
-                    Senaste 4 veckor: <span className="font-mono font-semibold text-primary">{recent.toFixed(3)}</span>
-                    {' '}{delta >= 0 ? '↑' : '↓'} <span className={delta >= 0 ? 'text-accent' : 'text-warning'}>{Math.abs(delta).toFixed(1)}%</span> vs period 4–8 veckor sen
+                    Last 4 weeks: <span className="font-mono font-semibold text-primary">{recent.toFixed(3)}</span>
+                    {' '}{delta >= 0 ? '↑' : '↓'} <span className={delta >= 0 ? 'text-accent' : 'text-warning'}>{Math.abs(delta).toFixed(1)}%</span> vs 4–8 weeks ago
                   </p>
                 );
               })()}
@@ -972,7 +972,7 @@ function HRZoneTable({ hrZones, ltBounds, manualMaxHR, manualRestHR }: {
           <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">LT2 — Lactate Threshold</p>
           <p className="font-mono font-semibold text-primary">{ltBounds.lt2} bpm</p>
           <p className="text-xs text-muted mt-0.5">Training range: <span className="font-mono text-warning">{ltBounds.ltTrainingRange[0]}–{ltBounds.ltTrainingRange[1]} bpm</span></p>
-          <p className="text-xs text-muted mt-0.5">Threshold intervals (4×10 min), tempopass</p>
+          <p className="text-xs text-muted mt-0.5">Threshold intervals (4×10 min), tempo runs</p>
         </div>
       </div>
 

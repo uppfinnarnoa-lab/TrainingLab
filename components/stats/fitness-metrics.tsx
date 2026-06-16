@@ -27,7 +27,7 @@ export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr
   const form = tsbLabel(todayLoad.tsb);
   const [selectedModel, setSelectedModel] = useState<string>("Weighted (default)");
   const acwrColor = !acwr ? "#94A3B8" : acwr > 1.5 ? "#F87171" : acwr > 1.3 ? "#FBBF24" : "#6EE7B7";
-  const acwrLabel = !acwr ? "—" : acwr > 1.5 ? "Skaderisk" : acwr > 1.3 ? "Hög belastning" : acwr >= 0.8 ? "Grön zon" : "För låg belastning";
+  const acwrLabel = !acwr ? "—" : acwr > 1.5 ? "Injury risk" : acwr > 1.3 ? "High load" : acwr >= 0.8 ? "Green zone" : "Too low";
 
   return (
     <div className="space-y-6">
@@ -60,7 +60,7 @@ export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr
       {acwr !== null && (
         <div className="rounded-xl border border-border p-4 flex items-center gap-6">
           <div>
-            <p className="text-xs font-medium text-muted mb-1">ACWR — Belastningskvot (7d/28d)</p>
+            <p className="text-xs font-medium text-muted mb-1">ACWR — Load Ratio (7d/28d)</p>
             <p className="text-3xl font-semibold font-mono" style={{ color: acwrColor }}>{acwr.toFixed(2)}</p>
             <p className="text-xs font-medium mt-1" style={{ color: acwrColor }}>{acwrLabel}</p>
           </div>
@@ -72,7 +72,7 @@ export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr
             <div className="flex justify-between text-[10px] text-muted mt-1">
               <span>0.8</span><span className="text-accent">1.0</span><span className="text-warning">1.3</span><span className="text-error">1.5+</span>
             </div>
-            <p className="text-xs text-muted mt-1">Säker zon: 0.8–1.3. Över 1.5 = förhöjd skaderisk.</p>
+            <p className="text-xs text-muted mt-1">Safe zone: 0.8–1.3. Over 1.5 = elevated injury risk.</p>
           </div>
         </div>
       )}

@@ -46,7 +46,7 @@ export default async function RacesPage() {
       <div>
         <h1 className="text-2xl font-semibold text-primary">Races & PBs</h1>
         <p className="text-sm text-muted mt-1">
-          Personliga rekord per distans — lägg till manuellt
+          Personal records by distance — add manually
         </p>
       </div>
       <RacesClient records={serialised} perfTrend={perfTrend} />

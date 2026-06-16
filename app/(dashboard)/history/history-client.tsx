@@ -29,7 +29,7 @@ function ActivityPill({ a, customTypeName }: { a: Activity; customTypeName: stri
     <div
       className="rounded px-1 py-0.5 text-[9px] font-medium leading-tight flex items-center gap-0.5 min-w-0"
       style={{ backgroundColor: a.hasLaps ? `${color}20` : "#94A3B820", color: a.hasLaps ? color : "#94A3B8" }}
-      title={a.hasLaps ? a.name : `${a.name} — saknar detaljdata (laps ej backfillad)`}
+      title={a.hasLaps ? a.name : `${a.name} — missing lap data (not yet backfilled)`}
     >
       {a.isRace && "🏆 "}
       <span className="truncate">{a.name}</span>
@@ -91,7 +91,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
 
       {/* Weekday headers */}
       <div className="grid grid-cols-7 mb-1 gap-x-1">
-        {["Mån","Tis","Ons","Tor","Fre","Lör","Sön"].map(d => (
+        {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
           <div key={d} className="text-center text-xs font-medium text-muted py-1">{d}</div>
         ))}
       </div>
@@ -170,7 +170,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
                       {a.isRace && <Trophy size={13} className="text-warning shrink-0" />}
                       {!a.hasLaps && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded font-medium bg-surface-2 text-muted border border-border shrink-0">
-                          sammanfattad
+                          no laps
                         </span>
                       )}
                     </div>

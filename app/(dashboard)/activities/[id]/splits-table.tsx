@@ -88,9 +88,9 @@ export function SplitsTable({ splits, isLaps, pvi }: { splits: Split[]; isLaps?:
       </table>
       {pvi != null && (
         <p className="text-xs text-muted px-1 pt-2">
-          Pace variabilitet: {pvi.toFixed(1)}%&nbsp;&nbsp;
+          Pace variability: {pvi.toFixed(1)}%&nbsp;&nbsp;
           <span className={pvi < 3 ? "text-accent" : pvi < 6 ? "text-warning" : "text-error"}>
-            {pvi < 3 ? "Utmärkt pacingkontroll" : pvi < 6 ? "OK" : "Variabelt"}
+            {pvi < 3 ? "Excellent pacing" : pvi < 6 ? "OK" : "Variable"}
           </span>
         </p>
       )}

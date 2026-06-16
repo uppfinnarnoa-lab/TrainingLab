@@ -161,7 +161,7 @@ export function ChatInterface({
     if (!gotDone || !fullContent.trim()) {
       setMessages(prev => prev.map(m =>
         m.id === assistantId && !m.content
-          ? { ...m, content: "Inget svar mottaget. Kontrollera API-nyckeln och budgeten." }
+          ? { ...m, content: "No response received. Check your API key and budget." }
           : m
       ));
     }
@@ -201,7 +201,7 @@ export function ChatInterface({
 
   function handleSummarize() {
     if (streaming || !convId) return;
-    const summaryText = "Sammanfatta de viktigaste insikterna och besluten från den här konversationen i 5–8 punkter. Fokusera på: träningsrekommendationer som gavs, identifierade mönster, och beslut vi tog.";
+    const summaryText = "Summarize the most important insights and decisions from this conversation in 5–8 bullet points. Focus on: training recommendations given, patterns identified, and decisions made.";
     setInput(summaryText);
     textareaRef.current?.focus();
   }
@@ -350,7 +350,7 @@ export function ChatInterface({
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center gap-3 text-muted">
               <Bot size={36} className="opacity-40" />
-              <p className="text-sm">Fråga din tränare om din träning.</p>
+              <p className="text-sm">Ask your coach about your training.</p>
               <div className="flex flex-wrap gap-2 justify-center mt-2">
                 {["How is my fitness?", "Plan next 4 weeks", "What is my VO2max?", "Analyze my last week", "/summarize"].map(q => (
                   <button key={q}
@@ -446,33 +446,33 @@ export function ChatInterface({
                 ))}
                 {/* Preset prompts section */}
                 <div className="px-3 py-1.5 bg-surface-2 border-t border-b border-border/50">
-                  <p className="text-[10px] font-semibold text-muted uppercase tracking-wide">Snabbkommandon</p>
+                  <p className="text-[10px] font-semibold text-muted uppercase tracking-wide">Quick commands</p>
                 </div>
                 {[
                   {
                     name: "plan",
-                    label: "/plan — Skapa träningsplan",
-                    desc: "Planera veckorna fram till din nästa tävling",
+                    label: "/plan — Create training plan",
+                    desc: "Plan the weeks up to your next race",
                   },
                   {
                     name: "taper",
-                    label: "/taper — Taper-schema",
-                    desc: "Optimalt nedtrappningsschema inför tävling",
+                    label: "/taper — Taper schedule",
+                    desc: "Optimal taper schedule for a race",
                   },
                   {
                     name: "analyze",
-                    label: "/analyze — Analysera ett pass",
-                    desc: "Djupanalys av ett specifikt träningspass",
+                    label: "/analyze — Analyze a session",
+                    desc: "Deep analysis of a specific training session",
                   },
                   {
                     name: "week",
-                    label: "/week — Veckosummering",
-                    desc: "AI-summering av förra veckan + råd för nästa",
+                    label: "/week — Week summary",
+                    desc: "AI summary of last week + advice for next",
                   },
                   {
                     name: "compare",
-                    label: "/compare — Jämför perioder",
-                    desc: "Jämför din träning mellan två tidsperioder",
+                    label: "/compare — Compare periods",
+                    desc: "Compare your training between two time periods",
                   },
                 ].map(tool => (
                   <button
@@ -506,19 +506,19 @@ export function ChatInterface({
                   </div>
                 </div>
               </div>
-              <p className="px-3 py-1.5 text-[10px] text-muted border-t border-border">Skriv / för att öppna · Esc stänger · Klicka för att välja — skriv sedan din egna fråga</p>
+              <p className="px-3 py-1.5 text-[10px] text-muted border-t border-border">Type / to open · Esc closes · Click to select — then type your question</p>
             </div>
           )}
-          {messages.length >= 20 && !messages.some(m => m.content.includes("Sammanfattning:")) && (
+          {messages.length >= 20 && !messages.some(m => m.content.includes("Summary:")) && (
             <div className="mb-2 flex items-center gap-2 px-3 py-2 rounded-lg border border-border/50 bg-surface-2 text-xs text-muted">
-              <span>Lång konversation —</span>
+              <span>Long conversation —</span>
               <button
                 onClick={handleSummarize}
                 className="text-accent hover:underline"
               >
-                sammanfatta den
+                summarize it
               </button>
-              <span>för att minska tokenanvändning.</span>
+              <span>to reduce token usage.</span>
             </div>
           )}
           <div className="flex gap-2 items-end">
@@ -527,7 +527,7 @@ export function ChatInterface({
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKey}
-              placeholder="Fråga din tränare… (/ för verktyg · Enter skickar)"
+              placeholder="Ask your coach… (/ for tools · Enter sends)"
               rows={2}
               disabled={streaming}
               className="flex-1 rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none disabled:opacity-50 transition"
@@ -575,11 +575,11 @@ function ToolActionCard({ action, onApprove, onReject }: {
         <div className="flex gap-2">
           <button onClick={onApprove}
             className="flex-1 py-1 rounded-lg bg-accent text-white text-xs font-semibold hover:opacity-90 transition">
-            Godkänn
+            Approve
           </button>
           <button onClick={onReject}
             className="flex-1 py-1 rounded-lg border border-border text-xs text-muted hover:text-primary transition">
-            Avbryt
+            Cancel
           </button>
         </div>
       </div>

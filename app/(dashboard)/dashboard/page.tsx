@@ -229,7 +229,7 @@ export default async function DashboardPage() {
 
           {todayPlanned.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs text-muted uppercase tracking-wide">Planerat idag</p>
+              <p className="text-xs text-muted uppercase tracking-wide">Planned today</p>
               {(todayPlanned as { id: string; name: string; sportType: string; targetDuration: number | null; targetDistance: number | null; notes: string | null }[]).map(pw => (
                 <div key={pw.id} className="flex items-center gap-3 rounded-xl bg-surface-2 border border-border px-3 py-2">
                   <div className="flex-1">
@@ -249,7 +249,7 @@ export default async function DashboardPage() {
           {latestGarmin && (
             <div className="flex flex-wrap gap-3 text-xs text-muted">
               {latestGarmin.sleepScore != null && (
-                <span>😴 Sömn {latestGarmin.sleepScore}/100</span>
+                <span>😴 Sleep {latestGarmin.sleepScore}/100</span>
               )}
               {latestGarmin.sleepDuration != null && (
                 <span>{(latestGarmin.sleepDuration / 3600).toFixed(1)}h</span>
@@ -264,7 +264,7 @@ export default async function DashboardPage() {
           )}
 
           {!latestGarmin && (
-            <p className="text-xs text-muted">Anslut Garmin i Inställningar för fullständig readiness-data.</p>
+            <p className="text-xs text-muted">Connect Garmin in Settings for full readiness data.</p>
           )}
         </div>
       )}
@@ -353,15 +353,15 @@ export default async function DashboardPage() {
       {goalProgress.length > 0 && (
         <div className="rounded-2xl bg-surface border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-primary">Träningsmål</p>
-            <a href="/settings/goals" className="text-xs text-muted hover:text-accent transition">Ändra →</a>
+            <p className="text-sm font-semibold text-primary">Training Goals</p>
+            <a href="/settings/goals" className="text-xs text-muted hover:text-accent transition">Edit →</a>
           </div>
           <div className="space-y-3">
             {goalProgress.map(g => {
               const pct = Math.min(Math.round((g.actual / g.target) * 100), 100);
               const onTrack = pct >= 80;
-              const periodLabel = g.period === "week" ? "vecka" : g.period === "month" ? "månad" : "år";
-              const sportLabel = g.sport === "" ? "Alla sporter" : g.sport;
+              const periodLabel = g.period === "week" ? "week" : g.period === "month" ? "month" : "year";
+              const sportLabel = g.sport === "" ? "All sports" : g.sport;
               const actualStr = g.metric === "distance" ? `${g.actual.toFixed(0)} km` : `${Math.round(g.actual)} min`;
               const targetStr = g.metric === "distance" ? `${g.target} km` : `${g.target} min`;
               return (
@@ -389,8 +389,8 @@ export default async function DashboardPage() {
       {Object.keys(goalsThisYear).length > 0 && (
         <div className="rounded-2xl bg-surface border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-primary">{currentYear} — Årsgoal</p>
-            <a href="/settings/profile" className="text-xs text-muted hover:text-accent transition">Ändra →</a>
+            <p className="text-sm font-semibold text-primary">{currentYear} — Annual Goal</p>
+            <a href="/settings/profile" className="text-xs text-muted hover:text-accent transition">Edit →</a>
           </div>
           <div className="space-y-3">
             {Object.entries(goalsThisYear).map(([sport, goalKm]) => {
@@ -404,7 +404,7 @@ export default async function DashboardPage() {
                     <span className="text-muted">{sport}</span>
                     <span className={onTrack ? "text-accent" : "text-warning"}>
                       {ytdKm} / {goalKm} km ({pct}%)
-                      {onTrack ? " ✓" : ` — prognos ${projectedKm} km`}
+                      {onTrack ? " ✓" : ` — projected ${projectedKm} km`}
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
@@ -455,7 +455,7 @@ function computeReadiness(
 
   score = Math.min(100, Math.max(0, Math.round(score)));
   const color = score >= 70 ? "#6EE7B7" : score >= 45 ? "#FBBF24" : "#F87171";
-  const label = score >= 70 ? "Redo" : score >= 45 ? "Moderat" : "Återhämta";
+  const label = score >= 70 ? "Ready" : score >= 45 ? "Moderate" : "Recover";
   return { score, color, label };
 }
 
@@ -466,7 +466,7 @@ function ACWRCard({ acwr }: { acwr: number }) {
   return (
     <div className="rounded-xl bg-surface border border-border p-4 flex items-center gap-6">
       <div className="shrink-0">
-        <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">ACWR — Belastningskvot</p>
+        <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">ACWR — Load Ratio</p>
         <p className="text-3xl font-semibold font-mono" style={{ color }}>{acwr.toFixed(2)}</p>
         <p className="text-xs font-medium mt-0.5" style={{ color }}>{label}</p>
       </div>

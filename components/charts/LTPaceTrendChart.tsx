@@ -54,7 +54,7 @@ function CustomTooltip({ active, payload, label }: any) {
   const d = payload[0].payload as LTPacePoint & { projected?: boolean };
   return (
     <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-lg space-y-0.5">
-      <p className="font-semibold text-primary">{label}{d.projected ? " (prognos)" : ""}</p>
+      <p className="font-semibold text-primary">{label}{d.projected ? " (projected)" : ""}</p>
       <p style={{ color: LT2_COLOR }}>LT2: {formatPace(d.lt2PaceSecPerKm)}/km</p>
       <p style={{ color: LT1_COLOR }}>LT1: {formatPace(d.lt1PaceSecPerKm)}/km</p>
       {!d.projected && <p className="text-muted">R²: {d.r2.toFixed(2)}</p>}
@@ -96,7 +96,7 @@ export function LTPaceTrendChart({ data, currentLT1, currentLT2 }: Props) {
   if (data.length === 0) {
     return (
       <p className="text-xs text-muted py-4 text-center">
-        Ingen data — kräver tillräckligt med laps per månadsruta.
+        No data — requires sufficient laps per monthly period.
       </p>
     );
   }
@@ -134,11 +134,11 @@ export function LTPaceTrendChart({ data, currentLT1, currentLT2 }: Props) {
           )}
           {projected.length >= 2 && (
             <p className={`text-[10px] mt-0.5 ${improving ? "text-accent" : "text-orange-400"}`}>
-              3-månadersprognos: {improving ? "förbättring" : "platå/försämring"}
+              3-month projection: {improving ? "improving" : "plateau/declining"}
             </p>
           )}
           <p className="text-[10px] text-muted mt-0.5">
-            Rullande 90-dagarsfönster · lägre sek/km = snabbare · streckad = prognos
+            Rolling 90-day window · lower sec/km = faster · dashed = projected
           </p>
         </div>
         <div className="flex gap-0.5 rounded-lg border border-border p-0.5">
@@ -159,7 +159,7 @@ export function LTPaceTrendChart({ data, currentLT1, currentLT2 }: Props) {
 
       {rangeFiltered.length < 3 ? (
         <p className="text-xs text-muted py-4 text-center">
-          För lite data i valt tidsintervall.
+          Not enough data in selected period.
         </p>
       ) : (
         <ResponsiveContainer width="100%" height={220}>

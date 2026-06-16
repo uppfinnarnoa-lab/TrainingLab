@@ -74,11 +74,11 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
           }}
           className="text-xs bg-surface border border-border rounded-lg px-2 py-1.5 text-primary focus:outline-none focus:ring-1 focus:ring-accent/50"
         >
-          <option value="date_desc">Nyast first</option>
-          <option value="dist_desc">Längst distans</option>
-          <option value="dist_asc">Kortast distans</option>
-          <option value="pace_asc">Snabbast pace</option>
-          <option value="pace_desc">Långsammast pace</option>
+          <option value="date_desc">Newest first</option>
+          <option value="dist_desc">Longest distance</option>
+          <option value="dist_asc">Shortest distance</option>
+          <option value="pace_asc">Fastest pace</option>
+          <option value="pace_desc">Slowest pace</option>
         </select>
 
         {/* Right: races only toggle */}
@@ -94,7 +94,7 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
             racesOnly ? "bg-warning/10 border-warning/30 text-warning" : "border-border text-muted hover:text-primary"
           )}
         >
-          {racesOnly ? "🏆 Tävlingar" : "Tävlingar"}
+          {racesOnly ? "🏆 Races" : "Races"}
         </button>
       </div>
 

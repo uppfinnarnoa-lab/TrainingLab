@@ -107,7 +107,7 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
       {/* Header + toggle */}
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-semibold text-muted uppercase tracking-wide">
-          {isLaps ? "Laps" : "Splits"} — höjd = tempo · bredd = {xMode === "time" ? "tid" : "distans"}
+          {isLaps ? "Laps" : "Splits"} — height = pace · width = {xMode === "time" ? "time" : "distance"}
         </p>
         <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
           <button
@@ -115,14 +115,14 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
             className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
               xMode === "distance" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
           >
-            Distans
+            Distance
           </button>
           <button
             onClick={() => setXMode("time")}
             className={cn("px-2.5 py-1 rounded-md transition-colors font-medium",
               xMode === "time" ? "bg-accent/15 text-accent" : "text-muted hover:text-primary")}
           >
-            Tid
+            Time
           </button>
         </div>
       </div>
@@ -135,7 +135,7 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
         <div
           className="absolute left-0 right-10 border-b border-dashed border-accent/50 pointer-events-none"
           style={{ bottom: 7 + chartHeight * avgLineFrac }}
-          title={`Snittempo: ${secPerKmStr(avgSecPerKm)}/km`}
+          title={`Avg pace: ${secPerKmStr(avgSecPerKm)}/km`}
         />
 
         {/* Bars — right-10 reserves space for pace scale labels */}

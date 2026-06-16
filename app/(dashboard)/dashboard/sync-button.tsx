@@ -43,7 +43,7 @@ export function SyncButton({ lastSyncAt }: Props) {
         </p>
       )}
       {synced !== null && (
-        <p className="text-xs text-accent">{synced > 0 ? `+${synced} aktiviteter` : "Uppdaterat"}</p>
+        <p className="text-xs text-accent">{synced > 0 ? `+${synced} activities` : "Up to date"}</p>
       )}
       <button
         onClick={handleSync}
@@ -52,7 +52,7 @@ export function SyncButton({ lastSyncAt }: Props) {
         className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-medium text-muted hover:text-primary hover:border-accent/40 transition disabled:opacity-50"
       >
         {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-        {loading ? "Syncar…" : "Sync Strava"}
+        {loading ? "Syncing…" : "Sync Strava"}
       </button>
     </div>
   );

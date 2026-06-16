@@ -121,7 +121,7 @@ export async function POST(req: Request) {
       thresholdHR: cache.thresholdHR,
       zones: cache.zones, paces: cache.paces,
       computedAt: cache.computedAt,
-      aiInsights: "Ingen API-nyckel konfigurerad — algoritmisk estimering användes.",
+      aiInsights: "No API key configured — algorithmic estimation used.",
       rSquared: result.rSquared ?? null,
       zonesMethod: result.zonesMethod,
       lt1HR: result.lt1HR,
@@ -252,14 +252,14 @@ Din JSON med rätt värden:`;
         // Do NOT write maxHR to AthleteProfile — only user-entered values go there.
         // Calibration results are stored exclusively in FitnessCache.
       } else {
-        aiInsights = "AI returnerade ogiltiga zonvärden — algoritmiska zoner behålls.";
+        aiInsights = "AI returned invalid zone values — algorithmic zones retained.";
       }
     } else {
-      aiInsights = "AI-svar kunde inte parsas — algoritmiska zoner behålls.";
+      aiInsights = "AI response could not be parsed — algorithmic zones retained.";
     }
   } catch (e) {
     console.error("[calibrate/ai] failed:", e);
-    aiInsights = "AI-estimering misslyckades — algoritmiska zoner behålls.";
+    aiInsights = "AI estimation failed — algorithmic zones retained.";
   }
 
   const finalCache = await prisma.fitnessCache.findUnique({ where: { userId } });
