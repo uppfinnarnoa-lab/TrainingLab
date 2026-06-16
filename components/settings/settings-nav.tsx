@@ -8,6 +8,7 @@ const tabs = [
   { href: "/settings",         label: "Integrations" },
   { href: "/settings/profile", label: "Profile" },
   { href: "/settings/sports",  label: "Training Types" },
+  { href: "/settings/goals",   label: "Goals" },
   { href: "/settings/account", label: "Account" },
 ];
 

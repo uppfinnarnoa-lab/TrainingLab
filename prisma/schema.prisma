@@ -38,6 +38,7 @@ model User {
   appConfig          AppConfig?
   fitnessCache       FitnessCache?
   sessions           Session[]
+  trainingGoals      TrainingGoal[]
 }
 
 model AthleteProfile {
@@ -56,6 +57,7 @@ model AthleteProfile {
   yearsTraining    Int?
   annualGoals      Json?     // { "2026": { "Run": 2000, "Ride": 3000 }, ... } km targets per year per sport
   paceUnit         String    @default("min_per_km") // "min_per_km" | "min_per_mi" | "km_h"
+  paceUnitBySport  Json?     // { "Run": "min_per_km", "Ride": "km_h" } per-sport override
   updatedAt        DateTime  @updatedAt
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -405,6 +407,21 @@ model FitnessCache {
   wPrimeMeters         Float?   // W' anaerobic capacity in meters
   computedAt   DateTime @default(now()) @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TrainingGoal {
+  id        String   @id @default(cuid())
+  userId    String
+  sport     String   @default("") // "" = all sports combined
+  metric    String   // "distance" | "time"
+  period    String   // "week" | "month" | "year"
+  target    Float    // km (distance) or minutes (time)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sport, metric, period])
+  @@index([userId])
 }
 
 // Integration credentials stored in DB — lets users configure everything via the UI

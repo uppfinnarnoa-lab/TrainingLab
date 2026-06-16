@@ -62,7 +62,7 @@ export default async function DashboardPage() {
     runWeek, runMonth, runYtd,
     prev4w, runLyYtd, allLyYtd, runLyFull, allLyFull,
     todayPlanned, latestGarmin, garmin7d,
-    athleteProfile,
+    athleteProfile, trainingGoals,
   ] = await Promise.all([
     prisma.activity.count({ where: { userId } }),
     prisma.stravaAccount.findUnique({ where: { userId }, select: { totalSynced: true, lastSyncAt: true } }),
@@ -97,6 +97,7 @@ export default async function DashboardPage() {
       where: { userId },
       select: { annualGoals: true },
     }),
+    prisma.trainingGoal.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
   ]);
 
   // Use FitnessCache for ATL/CTL/TSB — eliminates the 365-day activity fetch
@@ -143,6 +144,40 @@ export default async function DashboardPage() {
     });
     for (const act of ytdActivities) {
       ytdBySport[act.sportType] = (ytdBySport[act.sportType] ?? 0) + act.distance;
+    }
+  }
+
+  // Training goals progress
+  type GoalProgress = { sport: string; metric: string; period: string; target: number; actual: number };
+  const goalProgress: GoalProgress[] = [];
+  if (trainingGoals.length > 0) {
+    const earliestStart = weekStart < monthStart ? weekStart : monthStart;
+    const goalActivities = await prisma.activity.findMany({
+      where: { userId, startDateLocal: { gte: earliestStart < yearStart ? yearStart : earliestStart } },
+      select: { sportType: true, distance: true, movingTime: true, startDateLocal: true },
+    });
+    const bySportPeriod: Record<string, Record<string, { km: number; min: number }>> = {};
+    for (const act of goalActivities) {
+      const sport = act.sportType;
+      const km = act.distance / 1000;
+      const min = act.movingTime / 60;
+      const d = act.startDateLocal;
+      const periods: string[] = [];
+      if (d >= weekStart) periods.push("week");
+      if (d >= monthStart) periods.push("month");
+      if (d >= yearStart) periods.push("year");
+      for (const p of periods) {
+        for (const key of [sport, ""]) {
+          if (!bySportPeriod[key]) bySportPeriod[key] = {};
+          if (!bySportPeriod[key][p]) bySportPeriod[key][p] = { km: 0, min: 0 };
+          bySportPeriod[key][p].km += km;
+          bySportPeriod[key][p].min += min;
+        }
+      }
+    }
+    for (const g of trainingGoals) {
+      const agg = bySportPeriod[g.sport]?.[g.period] ?? { km: 0, min: 0 };
+      goalProgress.push({ sport: g.sport, metric: g.metric, period: g.period, target: g.target, actual: g.metric === "distance" ? agg.km : agg.min });
     }
   }
 
@@ -311,6 +346,42 @@ export default async function DashboardPage() {
             <a href="/settings" className="text-accent hover:underline font-medium">Settings</a>{" "}
             to start syncing your training history.
           </p>
+        </div>
+      )}
+
+      {/* Training goals progress */}
+      {goalProgress.length > 0 && (
+        <div className="rounded-2xl bg-surface border border-border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-primary">Träningsmål</p>
+            <a href="/settings/goals" className="text-xs text-muted hover:text-accent transition">Ändra →</a>
+          </div>
+          <div className="space-y-3">
+            {goalProgress.map(g => {
+              const pct = Math.min(Math.round((g.actual / g.target) * 100), 100);
+              const onTrack = pct >= 80;
+              const periodLabel = g.period === "week" ? "vecka" : g.period === "month" ? "månad" : "år";
+              const sportLabel = g.sport === "" ? "Alla sporter" : g.sport;
+              const actualStr = g.metric === "distance" ? `${g.actual.toFixed(0)} km` : `${Math.round(g.actual)} min`;
+              const targetStr = g.metric === "distance" ? `${g.target} km` : `${g.target} min`;
+              return (
+                <div key={`${g.sport}-${g.metric}-${g.period}`} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted">{sportLabel} · {periodLabel}</span>
+                    <span className={onTrack ? "text-accent" : pct >= 50 ? "text-primary" : "text-warning"}>
+                      {actualStr} / {targetStr} ({pct}%)
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${onTrack ? "bg-accent" : pct >= 50 ? "bg-blue-400" : "bg-warning"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

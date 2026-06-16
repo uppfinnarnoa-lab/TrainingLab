@@ -192,10 +192,9 @@ export function ChatInterface({
     }
   }
 
-  function selectTool(hint: string) {
-    // Insert the example query (minus "ex: " prefix) so user can complete it
-    const text = hint.replace(/^ex:\s*/i, "");
-    setInput(text);
+  function selectTool(name: string) {
+    const primaryTool = name.split(/\s*\+\s*/)[0].trim();
+    setInput(`/${primaryTool} `);
     setShowToolMenu(false);
     textareaRef.current?.focus();
   }
@@ -435,14 +434,14 @@ export function ChatInterface({
                 ].map(tool => (
                   <button
                     key={tool.name}
-                    onClick={() => selectTool(tool.hint)}
+                    onClick={() => selectTool(tool.name)}
                     className="w-full text-left px-3 py-2.5 hover:bg-surface-2 transition flex items-start gap-3"
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-primary">{tool.label}</p>
                       <p className="text-[10px] text-muted truncate">{tool.desc}</p>
                     </div>
-                    <p className="text-[10px] text-accent/70 shrink-0 mt-0.5 hidden sm:block">{tool.hint}</p>
+                    <p className="text-[10px] text-accent/70 shrink-0 mt-0.5 hidden sm:block">/{tool.name}</p>
                   </button>
                 ))}
                 {/* Preset prompts section */}
@@ -451,39 +450,34 @@ export function ChatInterface({
                 </div>
                 {[
                   {
-                    name: "preset_plan",
+                    name: "plan",
                     label: "/plan — Skapa träningsplan",
                     desc: "Planera veckorna fram till din nästa tävling",
-                    hint: "Planera de närmaste 8 veckorna inför [tävling]. Jag vill förbättra min [fart/uthållighet/volym].",
                   },
                   {
-                    name: "preset_taper",
+                    name: "taper",
                     label: "/taper — Taper-schema",
                     desc: "Optimalt nedtrappningsschema inför tävling",
-                    hint: "Skapa ett taper-schema inför [tävling] om [antal] dagar. Baserat på mina tidigare tävlingsresultat — vilket TSB är optimalt på tävlingsdagen?",
                   },
                   {
-                    name: "preset_analyze",
+                    name: "analyze",
                     label: "/analyze — Analysera ett pass",
                     desc: "Djupanalys av ett specifikt träningspass",
-                    hint: "Analysera mitt senaste [intervall/tempolöpning/långpass]. Vad gick bra och vad kan förbättras?",
                   },
                   {
-                    name: "preset_week",
+                    name: "week",
                     label: "/week — Veckosummering",
                     desc: "AI-summering av förra veckan + råd för nästa",
-                    hint: "Summera förra veckan och ge mig konkreta råd för den kommande veckan baserat på min form och plan.",
                   },
                   {
-                    name: "preset_compare",
+                    name: "compare",
                     label: "/compare — Jämför perioder",
                     desc: "Jämför din träning mellan två tidsperioder",
-                    hint: "Jämför min träning [period1, ex: jan-mar 2026] med [period2, ex: jan-mar 2025]. Vad skiljer sig och hur har jag utvecklats?",
                   },
                 ].map(tool => (
                   <button
                     key={tool.name}
-                    onClick={() => selectTool(tool.hint)}
+                    onClick={() => selectTool(tool.name)}
                     className="w-full text-left px-3 py-2.5 hover:bg-surface-2 transition flex items-start gap-3"
                   >
                     <div className="flex-1 min-w-0">

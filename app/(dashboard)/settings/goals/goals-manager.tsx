@@ -1,0 +1,172 @@
+"use client";
+
+import { useState } from "react";
+import { Trash2, Plus, Loader2 } from "lucide-react";
+
+interface Goal {
+  id: string;
+  sport: string;
+  metric: string;
+  period: string;
+  target: number;
+}
+
+interface Props {
+  initialGoals: Goal[];
+  sports: string[];
+}
+
+const PERIODS = ["week", "month", "year"] as const;
+const METRICS = ["distance", "time"] as const;
+
+const periodLabel = { week: "Vecka", month: "Månad", year: "År" };
+const metricLabel = { distance: "Distans (km)", time: "Tid (min)" };
+
+export function GoalsManager({ initialGoals, sports }: Props) {
+  const [goals, setGoals] = useState<Goal[]>(initialGoals);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const [newSport, setNewSport] = useState("");
+  const [newMetric, setNewMetric] = useState<"distance" | "time">("distance");
+  const [newPeriod, setNewPeriod] = useState<"week" | "month" | "year">("month");
+  const [newTarget, setNewTarget] = useState("");
+
+  async function addGoal() {
+    const target = parseFloat(newTarget);
+    if (!target || target <= 0) return;
+    setSaving(true);
+    const res = await fetch("/api/settings/goals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sport: newSport, metric: newMetric, period: newPeriod, target }),
+    });
+    if (res.ok) {
+      const goal = await res.json();
+      setGoals(prev => {
+        const idx = prev.findIndex(g => g.sport === goal.sport && g.metric === goal.metric && g.period === goal.period);
+        return idx >= 0 ? prev.map((g, i) => i === idx ? goal : g) : [...prev, goal];
+      });
+      setNewTarget("");
+    }
+    setSaving(false);
+  }
+
+  async function deleteGoal(id: string) {
+    setDeleting(id);
+    await fetch(`/api/settings/goals?id=${id}`, { method: "DELETE" });
+    setGoals(prev => prev.filter(g => g.id !== id));
+    setDeleting(null);
+  }
+
+  const grouped = PERIODS.flatMap(period =>
+    METRICS.map(metric => ({
+      period,
+      metric,
+      goals: goals.filter(g => g.period === period && g.metric === metric),
+    }))
+  ).filter(g => g.goals.length > 0);
+
+  return (
+    <div className="space-y-6">
+      {/* Existing goals */}
+      {grouped.length > 0 && (
+        <div className="space-y-4">
+          {grouped.map(({ period, metric, goals: gs }) => (
+            <div key={`${period}-${metric}`}>
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">
+                {periodLabel[period]} — {metricLabel[metric as keyof typeof metricLabel]}
+              </p>
+              <div className="space-y-2">
+                {gs.map(g => (
+                  <div key={g.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface-2 border border-border">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-primary">
+                        {g.sport === "" ? "Alla sporter" : g.sport}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {g.metric === "distance" ? `${g.target} km` : `${g.target} min`} per {periodLabel[g.period as keyof typeof periodLabel].toLowerCase()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => deleteGoal(g.id)}
+                      disabled={deleting === g.id}
+                      className="text-muted hover:text-error transition p-1 rounded"
+                    >
+                      {deleting === g.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {goals.length === 0 && (
+        <p className="text-sm text-muted text-center py-4">Inga mål inställda än. Lägg till ditt första mål nedan.</p>
+      )}
+
+      {/* Add new goal */}
+      <div className="border-t border-border pt-5">
+        <p className="text-sm font-semibold text-primary mb-3">Lägg till mål</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div>
+            <label className="text-xs text-muted block mb-1">Sport</label>
+            <select
+              value={newSport}
+              onChange={e => setNewSport(e.target.value)}
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="">Alla sporter</option>
+              {sports.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted block mb-1">Mätvärde</label>
+            <select
+              value={newMetric}
+              onChange={e => setNewMetric(e.target.value as "distance" | "time")}
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="distance">Distans (km)</option>
+              <option value="time">Tid (min)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted block mb-1">Period</label>
+            <select
+              value={newPeriod}
+              onChange={e => setNewPeriod(e.target.value as "week" | "month" | "year")}
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="week">Vecka</option>
+              <option value="month">Månad</option>
+              <option value="year">År</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted block mb-1">Mål</label>
+            <input
+              type="number"
+              value={newTarget}
+              onChange={e => setNewTarget(e.target.value)}
+              placeholder={newMetric === "distance" ? "km" : "min"}
+              min={0}
+              step={newMetric === "distance" ? 5 : 30}
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+        </div>
+        <button
+          onClick={addGoal}
+          disabled={saving || !newTarget}
+          className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-background text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          Spara mål
+        </button>
+      </div>
+    </div>
+  );
+}

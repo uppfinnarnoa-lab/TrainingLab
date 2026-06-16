@@ -23,6 +23,7 @@ const schema = z.object({
   primaryGoal:        z.string().max(200).optional().nullable(),
   yearsTraining:   z.coerce.number().int().min(0).max(80).optional().nullable(),
   paceUnit:        z.enum(["min_per_km", "min_per_mi", "km_h"]).optional(),
+  paceUnitBySport: z.record(z.string(), z.enum(["min_per_km", "min_per_mi", "km_h"])).optional().nullable(),
   annualGoals:     annualGoalsSchema.optional().nullable(),
 });
 

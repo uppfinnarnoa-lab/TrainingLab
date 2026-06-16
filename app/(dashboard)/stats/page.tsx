@@ -357,15 +357,10 @@ export default async function StatsPage() {
       .map(([week, d]) => ({ week, ef: +(d.efSum / d.n).toFixed(3) }));
 
     // ── Training Monotony + Strain (2C) — fast path ─────────────────────────
-    const fpDailyTSSMap = new Map<string, number>();
-    for (const act of recentForCurve as CurveActExt[]) {
-      const dk = format(act.startDate, "yyyy-MM-dd");
-      fpDailyTSSMap.set(dk, (fpDailyTSSMap.get(dk) ?? 0) + (act.trainingLoad ?? 0));
-    }
     const fpWeekStart = startOfWeek(now, { weekStartsOn: 1 });
     const fpWeekDays = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(fpWeekStart); d.setDate(d.getDate() + i);
-      return fpDailyTSSMap.get(format(d, "yyyy-MM-dd")) ?? 0;
+      return curveTSSMap.get(format(d, "yyyy-MM-dd")) ?? 0;
     });
     const fpWeekTSSTotal = fpWeekDays.reduce((a, b) => a + b, 0);
     const fpWeekMean = fpWeekTSSTotal / 7;

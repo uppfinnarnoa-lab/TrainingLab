@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Trophy, Thermometer, Mountain, Heart, Zap, Flame } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trophy, Thermometer, Heart, Zap, Flame } from "lucide-react";
 import { format } from "date-fns";
 import { formatDuration, formatDistance, formatPace } from "@/lib/utils";
 import { workoutColor } from "@/lib/planner/colors";
@@ -56,13 +56,6 @@ export default async function ActivityDetailPage({
     return `${m}:${String(sec).padStart(2, "0")}/km`;
   }
 
-  function formatTime(sec: number): string {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    return `${m}:${String(s).padStart(2, "0")}`;
-  }
   interface LapRaw {
     lap_index: number;
     distance: number;
@@ -94,22 +87,9 @@ export default async function ActivityDetailPage({
   // 3E — Grade Adjusted Pace
   const rawPaceSecPerKm = activity.averageSpeed ? 1000 / activity.averageSpeed : null;
   const elevGainPerKm = activity.distance > 0 ? (activity.totalElevationGain / activity.distance) * 1000 : 0;
-  const gapSecPerKm = rawPaceSecPerKm && elevGainPerKm >= 20 && /run/i.test(activity.sportType)
+  const gapSecPerKm = rawPaceSecPerKm && elevGainPerKm >= 10 && /run/i.test(activity.sportType)
     ? gradeAdjustedPace(rawPaceSecPerKm, activity.totalElevationGain, activity.distance)
     : null;
-
-  // 3C — PB highlight banner
-  const raceRecords = await prisma.raceRecord.findMany({
-    where: { userId },
-    select: { distanceM: true, time: true },
-  });
-  const pbMap = new Map<number, number>(raceRecords.map((r: { distanceM: number; time: number }) => [Math.round(r.distanceM), r.time] as [number, number]));
-  const newPBs = bestEffortsRaw
-    .filter(e => {
-      const ex = pbMap.get(Math.round(e.distance));
-      return ex == null || e.elapsed_time < ex;
-    })
-    .map(e => ({ name: e.name, time: e.elapsed_time }));
 
   // 3F — Prev/Next navigation
   const [prevAct, nextAct] = await Promise.all([
@@ -197,18 +177,6 @@ export default async function ActivityDetailPage({
         )}
       </div>
 
-      {/* 3C — PB highlight banner */}
-      {newPBs.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {newPBs.map(pb => (
-            <div key={pb.name} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-warning/10 border border-warning/30 text-xs font-semibold text-warning">
-              <Trophy size={12} />
-              Nytt PB! {pb.name} — {formatTime(pb.time)}
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -277,26 +245,28 @@ export default async function ActivityDetailPage({
       )}
 
       {/* 1B/3D — Aerobic decoupling (Pa:HR) */}
-      {decoupling && (
-        <div className="rounded-2xl bg-surface border border-border p-4 flex items-center gap-6">
-          <div>
-            <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Pa:HR Aerobic Coupling</p>
-            <p className={`text-2xl font-semibold font-mono ${
-              Math.abs(decoupling.drift) < 0.05 ? "text-accent" :
-              Math.abs(decoupling.drift) < 0.10 ? "text-warning" : "text-error"
-            }`}>
-              {decoupling.drift >= 0 ? "+" : ""}{(decoupling.drift * 100).toFixed(1)}%
-            </p>
-            <p className="text-xs text-muted mt-0.5">
-              {Math.abs(decoupling.drift) < 0.05 ? "Well coupled — aerobic" :
-               Math.abs(decoupling.drift) < 0.10 ? "Moderate drift" : "High drift — HR rising vs pace"}
+      {decoupling && (() => {
+        const d = decoupling.drift;
+        const color = d > 0.10 ? "text-error" : d > 0.05 ? "text-warning" : d < -0.15 ? "text-warning" : "text-accent";
+        const label = d > 0.10 ? "Avkoppling — HF stiger vs tempo"
+          : d > 0.05 ? "Måttlig drift uppåt"
+          : d < -0.10 ? "Negativ split — bättre effektivitet i andra halvlek"
+          : "Välkopplat — aerobt";
+        return (
+          <div className="rounded-2xl bg-surface border border-border p-4 flex items-center gap-6">
+            <div>
+              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Pa:HR Aerobic Coupling</p>
+              <p className={`text-2xl font-semibold font-mono ${color}`}>
+                {d >= 0 ? "+" : ""}{(d * 100).toFixed(1)}%
+              </p>
+              <p className="text-xs text-muted mt-0.5">{label}</p>
+            </div>
+            <p className="text-xs text-muted flex-1">
+              Pa:HR drift mäter aerob effektivitet. Positivt (HF/fart stiger) = avkoppling. Negativt = effektivare i andra halvlek. Inom ±5% = välkopplat.
             </p>
           </div>
-          <p className="text-xs text-muted flex-1">
-            Pa:HR drift measures aerobic efficiency. Under 5% = well coupled. Above 5% may indicate fatigue, heat, or working above LT1.
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Splits table */}
       {splits && splits.length > 0 && (

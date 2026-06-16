@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { RefreshCw, Loader2 } from "lucide-react";
 import {
   LineChart, Line, ComposedChart,
-  XAxis, YAxis, Tooltip, ResponsiveContainer,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import Link from "next/link";
 import { OverviewCard } from "@/components/stats/overview-card";
@@ -278,6 +278,9 @@ export function StatsClient(props: Props) {
                 Genomsnittlig tid från TSB −15 till neutral — baserat på {recoveryDaysCount} tillfällen.
                 {avgRecoveryDays < 5 ? ' Snabb återhämtning.' : avgRecoveryDays > 8 ? ' Tar tid — prioritera sömn och näring.' : ' Normal.'}
               </p>
+              <p className="text-xs text-muted/70 mt-2 leading-relaxed border-t border-border pt-2">
+                Recovery days mäter hur lång tid det tar för din kropp att återhämta sig från ett hårt träningsblock. TSB (Training Stress Balance) är ett mått på din form minus trötthet — när TSB sjunker under −15 är du i ett trötthetstillstånd, och antalet dagar det tar att komma tillbaka till neutral ger din personliga återhämtningsprofil.
+              </p>
             </div>
           )}
         </div>
@@ -450,12 +453,16 @@ export function StatsClient(props: Props) {
                 Spm (vänster) · Steglängd m (höger) — senaste 26 veckor
               </div>
               <ResponsiveContainer width="100%" height={160}>
-                <ComposedChart data={cadenceByWeek}>
-                  <XAxis dataKey="week" hide />
-                  <YAxis yAxisId="spm" domain={['auto', 'auto']} width={35} tick={{ fontSize: 10 }} />
-                  <YAxis yAxisId="stride" orientation="right" domain={['auto', 'auto']} width={35} tick={{ fontSize: 10 }} />
+                <ComposedChart data={cadenceByWeek} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="week" tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false}
+                    interval={Math.max(0, Math.floor(cadenceByWeek.length / 8) - 1)}
+                    tickFormatter={(w: string) => w.slice(5)} />
+                  <YAxis yAxisId="spm" domain={['auto', 'auto']} width={36} tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="stride" orientation="right" domain={['auto', 'auto']} width={36} tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
                   <Tooltip
-                    formatter={(v: number, name: string) => name === 'spm' ? [`${v} spm`, 'Kadens'] : [`${v} m`, 'Steglängd']}
+                    contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number, name: string) => name === 'spm' ? [`${v} spm`, 'Kadens'] : [`${(v as number).toFixed(2)} m`, 'Steglängd']}
                     labelFormatter={(w: string) => `Vecka ${w}`}
                   />
                   <Line yAxisId="spm" type="monotone" dataKey="spm" stroke="#6EE7B7" dot={false} strokeWidth={2} />
@@ -477,16 +484,23 @@ export function StatsClient(props: Props) {
                 Stigande EF = ökad aerob effektivitet. 1.35–1.55 = vältränad.
               </div>
               <ResponsiveContainer width="100%" height={120}>
-                <LineChart data={efByWeek}>
-                  <XAxis dataKey="week" hide />
-                  <YAxis domain={['auto', 'auto']} width={42} tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(v: number) => [v.toFixed(3), 'EF']} labelFormatter={(w: string) => `Vecka ${w}`} />
+                <LineChart data={efByWeek} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="week" tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false}
+                    interval={Math.max(0, Math.floor(efByWeek.length / 8) - 1)}
+                    tickFormatter={(w: string) => w.slice(5)} />
+                  <YAxis domain={['auto', 'auto']} width={42} tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number) => [v.toFixed(3), 'EF']}
+                    labelFormatter={(w: string) => `Vecka ${w}`}
+                  />
                   <Line type="monotone" dataKey="ef" stroke="#6EE7B7" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
-              {efByWeek.length >= 4 && (() => {
+              {efByWeek.length >= 8 && (() => {
                 const recent = efByWeek.slice(-4).reduce((s, v) => s + v.ef, 0) / 4;
-                const older = efByWeek.slice(0, 4).reduce((s, v) => s + v.ef, 0) / 4;
+                const older = efByWeek.slice(-8, -4).reduce((s, v) => s + v.ef, 0) / 4;
                 const delta = ((recent - older) / older * 100);
                 return (
                   <p className="text-xs text-muted mt-2">

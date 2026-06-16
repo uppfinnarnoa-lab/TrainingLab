@@ -8,7 +8,7 @@ import {
   addMonths, subMonths, subWeeks, addWeeks,
 } from "date-fns";
 import {
-  DndContext, DragOverlay, PointerSensor, TouchSensor,
+  DndContext, DragOverlay, TouchSensor,
   useSensor, useSensors, useDroppable, useDraggable,
   type DragEndEvent, type DragStartEvent, type DragOverEvent,
 } from "@dnd-kit/core";
@@ -141,7 +141,6 @@ export function PlannerCalendar({
   const [dndOverDate, setDndOverDate] = useState<string | null>(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 500, tolerance: 5 } }),
   );
 
