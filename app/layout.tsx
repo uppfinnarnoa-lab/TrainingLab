@@ -14,6 +14,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "TrainingLab",
   description: "AI-powered personal training platform",
+  manifest: "/manifest.json",
   icons: {
     icon: "/icon.svg",
     shortcut: "/icon.svg",

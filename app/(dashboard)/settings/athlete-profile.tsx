@@ -16,9 +16,11 @@ interface Profile {
   maxHRArtifactCap?: number | null;
   primaryGoal?: string | null;
   yearsTraining?: number | null;
+  paceUnit?: string | null;
+  annualGoals?: Record<string, Record<string, number>> | null;
 }
 
-export function AthleteProfileForm({ initial }: { initial: Profile }) {
+export function AthleteProfileForm({ initial, sports }: { initial: Profile; sports: string[] }) {
   const [form, setForm] = useState<Profile>({
     ...initial,
     dateOfBirth: initial.dateOfBirth?.split("T")[0] ?? null,
@@ -27,8 +29,24 @@ export function AthleteProfileForm({ initial }: { initial: Profile }) {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  const currentYear = String(new Date().getFullYear());
+
   function set(k: keyof Profile, v: string) {
     setForm(f => ({ ...f, [k]: v === "" ? null : v }));
+  }
+
+  function setGoal(sport: string, value: string) {
+    const km = value === "" ? undefined : parseFloat(value);
+    setForm(f => {
+      const existing = f.annualGoals ?? {};
+      const yearGoals = { ...(existing[currentYear] ?? {}) };
+      if (km === undefined || isNaN(km)) {
+        delete yearGoals[sport];
+      } else {
+        yearGoals[sport] = km;
+      }
+      return { ...f, annualGoals: { ...existing, [currentYear]: yearGoals } };
+    });
   }
 
   async function handleSave() {
@@ -129,6 +147,53 @@ export function AthleteProfileForm({ initial }: { initial: Profile }) {
           placeholder="e.g. orienteering performance, sub-3h marathon, general fitness"
           className={inputCls} />
       </Field>
+
+      {/* Pace unit */}
+      <Field label="Pace unit" hint="How pace is displayed throughout the app" className="sm:col-span-2">
+        <div className="flex gap-3 flex-wrap">
+          {[
+            { value: "min_per_km", label: "min/km" },
+            { value: "min_per_mi", label: "min/mi" },
+            { value: "km_h", label: "km/h" },
+          ].map(opt => (
+            <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="paceUnit"
+                value={opt.value}
+                checked={(form.paceUnit ?? "min_per_km") === opt.value}
+                onChange={() => setForm(f => ({ ...f, paceUnit: opt.value }))}
+                className="accent-accent"
+              />
+              <span className="text-sm text-primary">{opt.label}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+
+      {/* Annual goals */}
+      {sports.length > 0 && (
+        <div className="sm:col-span-2">
+          <label className="block text-sm font-medium text-primary mb-1">Annual distance goals {currentYear}</label>
+          <p className="text-xs text-muted mb-3">Target km per sport for {currentYear}. Leave blank to skip a sport.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {sports.map(sport => (
+              <div key={sport} className="flex items-center gap-3">
+                <span className="text-sm text-primary min-w-[90px] truncate">{sport}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={form.annualGoals?.[currentYear]?.[sport] ?? ""}
+                  onChange={e => setGoal(sport, e.target.value)}
+                  placeholder="km"
+                  className={inputCls}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="sm:col-span-2 flex items-center gap-3 flex-wrap">
         <button onClick={handleSave} disabled={saving}

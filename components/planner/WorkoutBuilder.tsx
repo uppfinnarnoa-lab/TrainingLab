@@ -46,9 +46,16 @@ const newKey = () => ++_key;
 const ZONE_NAMES = ["", "Z1 Recovery", "Z2 Aerobic", "Z3 Tempo", "Z4 Threshold", "Z5 VO2max"];
 
 const COLOR_PALETTE = [
-  "#7DD3FC", "#2DD4BF", "#F472B6", "#818CF8", "#3B82F6",
-  "#FBBF24", "#FB923C", "#F97316", "#F87171", "#A78BFA",
-  "#34D399", "#14B8A6", "#60A5FA", "#BAE6FD", "#E879F9", "#6EE7B7",
+  // Blues
+  "#7DD3FC","#BAE6FD","#60A5FA","#3B82F6","#2563EB","#1D4ED8",
+  // Teals & greens
+  "#2DD4BF","#14B8A6","#0D9488","#34D399","#6EE7B7","#10B981","#84CC16",
+  // Purples & pinks
+  "#818CF8","#6366F1","#A78BFA","#8B5CF6","#C4B5FD","#E879F9","#F472B6","#EC4899","#F9A8D4",
+  // Oranges & reds & yellows
+  "#FB923C","#F97316","#FBBF24","#FCD34D","#FDE68A","#F87171","#FCA5A5","#EF4444",
+  // Neutrals
+  "#94A3B8","#64748B","#D946EF","#22D3EE",
 ];
 
 /** Map a workout type name to a default target zone (1–5). Zone 1 for no type. */

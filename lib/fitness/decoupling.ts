@@ -8,7 +8,7 @@
  * Reference: Coggan (2003); Friel "The Triathlete's Training Bible" (2009).
  */
 
-interface SplitWithHR {
+export interface SplitWithHR {
   distance: number;
   moving_time: number;
   average_speed: number;
@@ -49,7 +49,7 @@ function halfRatio(segs: SplitWithHR[]): number {
   return avgGAP > 0 ? avgHR / avgGAP : 0;
 }
 
-function computeDrift(splits: SplitWithHR[]): { avgHR: number; drift: number } | null {
+export function computeDrift(splits: SplitWithHR[]): { avgHR: number; drift: number } | null {
   const valid = splits.filter(
     s => s.average_heartrate && s.average_heartrate > 50 &&
          s.average_speed > 0 && s.moving_time > 0 && s.distance > 200,

@@ -10,10 +10,12 @@ import { RACE_DISTANCES } from "@/lib/fitness/paces";
 import { subDays, format, startOfWeek, startOfYear } from "date-fns";
 
 type A = {
-  id: string; sportType: string; startDate: Date; name: string;
+  id: string; sportType: string; startDate: Date; startDateLocal: Date; name: string;
   distance: number; movingTime: number; totalElevationGain: number;
   averageHeartrate: number | null; maxHeartrate: number | null;
-  averageSpeed: number | null; isRace: boolean; weatherTemp: number | null;
+  averageSpeed: number | null; averageCadence: number | null;
+  trainingLoad: number | null;
+  isRace: boolean; weatherTemp: number | null;
 };
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour — cache valid if sync runs hourly
@@ -186,8 +188,8 @@ export default async function StatsPage() {
     // 3 years: load curve uses only the last 2 years internally; extra year supplies fresh viz data
     const recentForCurve = await prisma.activity.findMany({
       where: { userId, startDate: { gte: subDays(now, 3 * 365) } },
-      select: { movingTime: true, averageHeartrate: true, startDate: true, sportType: true, averageSpeed: true,
-        distance: true, totalElevationGain: true, isRace: true },
+      select: { movingTime: true, averageHeartrate: true, startDate: true, startDateLocal: true, sportType: true, averageSpeed: true,
+        distance: true, totalElevationGain: true, isRace: true, averageCadence: true, trainingLoad: true },
       orderBy: { startDate: "asc" },
     });
     const curveTSSMap = new Map<string, number>();
@@ -316,6 +318,75 @@ export default async function StatsPage() {
       ? extraViz.easyPaceTrend
       : computeEasyPaceTrend(recentForCurve as EasyPaceAct[], hrZones.z3[0]);
 
+    // ── Cadence trend (1A) — fast path ──────────────────────────────────────
+    type CurveActExt = { movingTime: number; averageHeartrate: number | null; startDate: Date; startDateLocal: Date; sportType: string | null; averageSpeed: number | null; averageCadence: number | null; trainingLoad: number | null };
+    const fpCadenceWeekMap = new Map<string, { spmSum: number; strideSum: number; n: number }>();
+    for (const act of recentForCurve as CurveActExt[]) {
+      if (!act.sportType || !/run/i.test(act.sportType)) continue;
+      if (!act.averageCadence || act.averageCadence < 50) continue;
+      if (!act.averageSpeed || act.averageSpeed < 1) continue;
+      const wk = format(startOfWeek(act.startDateLocal, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      if (!fpCadenceWeekMap.has(wk)) fpCadenceWeekMap.set(wk, { spmSum: 0, strideSum: 0, n: 0 });
+      const entry = fpCadenceWeekMap.get(wk)!;
+      const spm = act.averageCadence * 2;
+      const strideM = act.averageSpeed / (act.averageCadence * 2 / 60);
+      entry.spmSum += spm; entry.strideSum += strideM; entry.n++;
+    }
+    const fpCadenceByWeek = [...fpCadenceWeekMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-26)
+      .map(([week, d]) => ({ week, spm: Math.round(d.spmSum / d.n), strideM: +(d.strideSum / d.n).toFixed(2) }));
+
+    // ── Efficiency Factor trend (2A) — fast path ────────────────────────────
+    const fpLt1HRForEF = fitnessCache?.decouplingLt1HR ?? (fitnessCache?.maxHR ? fitnessCache.maxHR * 0.76 : null);
+    const fpEfWeekMap = new Map<string, { efSum: number; n: number }>();
+    for (const act of recentForCurve as CurveActExt[]) {
+      if (!act.sportType || !/run/i.test(act.sportType)) continue;
+      if (!act.averageHeartrate || !act.averageSpeed) continue;
+      if (fpLt1HRForEF && act.averageHeartrate > fpLt1HRForEF) continue;
+      if (act.movingTime > 0 && (act.averageSpeed * act.movingTime) < 3000) continue;
+      const wk = format(startOfWeek(act.startDateLocal, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      const ef = (act.averageSpeed * 60) / act.averageHeartrate;
+      if (ef < 0.5 || ef > 5) continue;
+      if (!fpEfWeekMap.has(wk)) fpEfWeekMap.set(wk, { efSum: 0, n: 0 });
+      const entry = fpEfWeekMap.get(wk)!; entry.efSum += ef; entry.n++;
+    }
+    const fpEfByWeek = [...fpEfWeekMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-16)
+      .map(([week, d]) => ({ week, ef: +(d.efSum / d.n).toFixed(3) }));
+
+    // ── Training Monotony + Strain (2C) — fast path ─────────────────────────
+    const fpDailyTSSMap = new Map<string, number>();
+    for (const act of recentForCurve as CurveActExt[]) {
+      const dk = format(act.startDate, "yyyy-MM-dd");
+      fpDailyTSSMap.set(dk, (fpDailyTSSMap.get(dk) ?? 0) + (act.trainingLoad ?? 0));
+    }
+    const fpWeekStart = startOfWeek(now, { weekStartsOn: 1 });
+    const fpWeekDays = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(fpWeekStart); d.setDate(d.getDate() + i);
+      return fpDailyTSSMap.get(format(d, "yyyy-MM-dd")) ?? 0;
+    });
+    const fpWeekTSSTotal = fpWeekDays.reduce((a, b) => a + b, 0);
+    const fpWeekMean = fpWeekTSSTotal / 7;
+    const fpWeekStddev = Math.sqrt(fpWeekDays.reduce((s, v) => s + (v - fpWeekMean) ** 2, 0) / 7);
+    const fpMonotony = fpWeekStddev > 0 ? fpWeekMean / fpWeekStddev : null;
+    const fpStrain = fpMonotony !== null ? fpWeekTSSTotal * fpMonotony : null;
+
+    // ── Recovery speed (2F) — fast path ─────────────────────────────────────
+    const fpRecoveryDays: number[] = [];
+    let fpTroughDay = -1;
+    for (let i = 1; i < loadCurve.length; i++) {
+      if (fpTroughDay < 0 && loadCurve[i].tsb < -15) { fpTroughDay = i; }
+      if (fpTroughDay >= 0 && loadCurve[i].tsb >= 0) {
+        fpRecoveryDays.push(i - fpTroughDay);
+        fpTroughDay = -1;
+      }
+    }
+    const fpAvgRecoveryDays = fpRecoveryDays.length >= 2
+      ? Math.round(fpRecoveryDays.reduce((a, b) => a + b, 0) / fpRecoveryDays.length)
+      : null;
+
     // Always compute fresh heatmap/overlay/intensity from recentForCurve so timeSec and
     // bySport are always present regardless of cache vintage
     type FCurve = { sportType: string; distance: number; movingTime: number; startDate: Date; averageHeartrate: number | null };
@@ -328,7 +399,8 @@ export default async function StatsPage() {
       fastZoneSeconds, hrZones, vo2max, effectivePaceZones, predictions, fastPolarisation, acwr,
       overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraVizFresh,
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
-      fpEasyPaceTrend, fastStatZonesLaps);
+      fpEasyPaceTrend, fastStatZonesLaps,
+      fpCadenceByWeek, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────
@@ -337,10 +409,11 @@ export default async function StatsPage() {
     where: { userId, startDate: { gte: subDays(now, 10 * 365) } },
     orderBy: { startDate: "asc" },
     select: {
-      id: true, sportType: true, startDate: true, name: true,
+      id: true, sportType: true, startDate: true, startDateLocal: true, name: true,
       distance: true, movingTime: true, totalElevationGain: true,
       averageHeartrate: true, maxHeartrate: true,
-      averageSpeed: true, isRace: true, weatherTemp: true, laps: true,
+      averageSpeed: true, averageCadence: true, trainingLoad: true,
+      isRace: true, weatherTemp: true, laps: true,
       // bestEfforts + splitsMetric intentionally omitted — saves 2-5x query time
     },
   });
@@ -770,6 +843,75 @@ export default async function StatsPage() {
 
   const easyPaceTrend = computeEasyPaceTrend(activities as EasyPaceAct[], computedHrZones.z3[0]);
 
+  // ── Cadence trend (1A) — slow path ──────────────────────────────────────
+  const cadenceWeekMap = new Map<string, { spmSum: number; strideSum: number; n: number }>();
+  for (const act of activities as A[]) {
+    if (!/run/i.test(act.sportType)) continue;
+    if (!act.averageCadence || act.averageCadence < 50) continue;
+    if (!act.averageSpeed || act.averageSpeed < 1) continue;
+    const wk = format(startOfWeek(act.startDateLocal, { weekStartsOn: 1 }), "yyyy-MM-dd");
+    if (!cadenceWeekMap.has(wk)) cadenceWeekMap.set(wk, { spmSum: 0, strideSum: 0, n: 0 });
+    const entry = cadenceWeekMap.get(wk)!;
+    const spm = act.averageCadence * 2;
+    const strideM = act.averageSpeed / (act.averageCadence * 2 / 60);
+    entry.spmSum += spm; entry.strideSum += strideM; entry.n++;
+  }
+  const cadenceByWeek = [...cadenceWeekMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-26)
+    .map(([week, d]) => ({ week, spm: Math.round(d.spmSum / d.n), strideM: +(d.strideSum / d.n).toFixed(2) }));
+
+  // ── Efficiency Factor trend (2A) — slow path ────────────────────────────
+  const lt1HRForEF = fitnessCache?.decouplingLt1HR ?? (fitnessCache?.maxHR ? fitnessCache.maxHR * 0.76 : null);
+  const efWeekMap = new Map<string, { efSum: number; n: number }>();
+  for (const act of activities as A[]) {
+    if (!/run/i.test(act.sportType)) continue;
+    if (!act.averageHeartrate || !act.averageSpeed) continue;
+    if (lt1HRForEF && act.averageHeartrate > lt1HRForEF) continue;
+    if (act.distance < 3000) continue;
+    const wk = format(startOfWeek(act.startDateLocal, { weekStartsOn: 1 }), "yyyy-MM-dd");
+    const ef = (act.averageSpeed * 60) / act.averageHeartrate;
+    if (ef < 0.5 || ef > 5) continue;
+    if (!efWeekMap.has(wk)) efWeekMap.set(wk, { efSum: 0, n: 0 });
+    const entry = efWeekMap.get(wk)!; entry.efSum += ef; entry.n++;
+  }
+  const efByWeek = [...efWeekMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-16)
+    .map(([week, d]) => ({ week, ef: +(d.efSum / d.n).toFixed(3) }));
+
+  // ── Training Monotony + Strain (2C) — slow path ─────────────────────────
+  // dailyTSSMap is already computed above; use trainingLoad field if available, else TSS estimate
+  const slowDailyTSSMap = new Map<string, number>();
+  for (const act of activities as A[]) {
+    const dk = format(act.startDate, "yyyy-MM-dd");
+    slowDailyTSSMap.set(dk, (slowDailyTSSMap.get(dk) ?? 0) + (act.trainingLoad ?? 0));
+  }
+  const slowWeekStart = startOfWeek(now, { weekStartsOn: 1 });
+  const slowWeekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(slowWeekStart); d.setDate(d.getDate() + i);
+    return slowDailyTSSMap.get(format(d, "yyyy-MM-dd")) ?? 0;
+  });
+  const slowWeekTSSTotal = slowWeekDays.reduce((a, b) => a + b, 0);
+  const slowWeekMean = slowWeekTSSTotal / 7;
+  const slowWeekStddev = Math.sqrt(slowWeekDays.reduce((s, v) => s + (v - slowWeekMean) ** 2, 0) / 7);
+  const monotony = slowWeekStddev > 0 ? slowWeekMean / slowWeekStddev : null;
+  const strain = monotony !== null ? slowWeekTSSTotal * monotony : null;
+
+  // ── Recovery speed (2F) — slow path ─────────────────────────────────────
+  const recoveryDays: number[] = [];
+  let troughDay = -1;
+  for (let i = 1; i < loadCurve.length; i++) {
+    if (troughDay < 0 && loadCurve[i].tsb < -15) { troughDay = i; }
+    if (troughDay >= 0 && loadCurve[i].tsb >= 0) {
+      recoveryDays.push(i - troughDay);
+      troughDay = -1;
+    }
+  }
+  const avgRecoveryDays = recoveryDays.length >= 2
+    ? Math.round(recoveryDays.reduce((a, b) => a + b, 0) / recoveryDays.length)
+    : null;
+
   // Preserve stored ltPaceTrend — it's computed by updateVO2maxAndPaces, not the slow path
   const existingLtPaceTrend = (fitnessCache?.extraVizJson as { ltPaceTrend?: unknown } | null)?.ltPaceTrend ?? [];
 
@@ -789,7 +931,8 @@ export default async function StatsPage() {
     modelPredictions, modelVdots,
     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear, ltPaceTrend: existingLtPaceTrend as { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[] },
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
-    easyPaceTrend, statZonesLaps);
+    easyPaceTrend, statZonesLaps,
+    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDays.length);
 }
 
 // Shared render — used by both fast and slow paths
@@ -837,6 +980,12 @@ function renderStats(
   weatherStats?: WeatherStats,
   easyPaceTrend?: EasyPacePoint[],
   statZonesLaps?: import("@/lib/fitness/zones").StatisticalZoneResult | null,
+  cadenceByWeek?: { week: string; spm: number; strideM: number }[],
+  efByWeek?: { week: string; ef: number }[],
+  monotony?: number | null,
+  strain?: number | null,
+  avgRecoveryDays?: number | null,
+  recoveryDaysCount?: number,
 ) {
   return (
     <div className="space-y-2">
@@ -870,6 +1019,12 @@ function renderStats(
         weatherStats={weatherStats ?? null}
         easyPaceTrend={easyPaceTrend ?? []}
         statZonesLaps={statZonesLaps ?? null}
+        cadenceByWeek={cadenceByWeek ?? []}
+        efByWeek={efByWeek ?? []}
+        monotony={monotony ?? null}
+        strain={strain ?? null}
+        avgRecoveryDays={avgRecoveryDays ?? null}
+        recoveryDaysCount={recoveryDaysCount ?? 0}
       />
       </StatsErrorBoundary>
     </div>

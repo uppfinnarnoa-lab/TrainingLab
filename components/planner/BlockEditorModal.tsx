@@ -16,9 +16,16 @@ const BLOCK_TYPES = [
 ] as const;
 
 const PRESET_COLORS = [
-  "#3B82F6", "#F97316", "#EF4444", "#14B8A6",
-  "#8B5CF6", "#EC4899", "#F59E0B", "#10B981",
-  "#6366F1", "#84CC16",
+  // Blues & teals
+  "#3B82F6","#60A5FA","#0EA5E9","#38BDF8","#14B8A6","#2DD4BF","#6EE7B7",
+  // Greens
+  "#10B981","#34D399","#84CC16","#059669",
+  // Purples & pinks
+  "#8B5CF6","#6366F1","#A78BFA","#C4B5FD","#EC4899","#F472B6","#E879F9","#D946EF",
+  // Oranges, reds & yellows
+  "#F97316","#FB923C","#EF4444","#F87171","#F59E0B","#FBBF24","#FCD34D",
+  // Neutrals & special
+  "#94A3B8","#64748B","#1E293B","#22D3EE",
 ];
 
 interface Props {

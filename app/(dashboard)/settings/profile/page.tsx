@@ -8,9 +8,10 @@ export default async function ProfileSettingsPage() {
   const session = await auth();
   const userId  = session!.user!.id!;
 
-  const [user, athleteProfile] = await Promise.all([
+  const [user, athleteProfile, sports] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
     prisma.athleteProfile.findUnique({ where: { userId } }),
+    prisma.sportCategory.findMany({ where: { userId }, select: { name: true }, orderBy: { order: "asc" } }),
   ]);
 
   return (
@@ -34,7 +35,9 @@ export default async function ProfileSettingsPage() {
           maxHRArtifactCap: athleteProfile?.maxHRArtifactCap,
           primaryGoal: athleteProfile?.primaryGoal,
           yearsTraining: athleteProfile?.yearsTraining,
-        }} />
+          paceUnit: athleteProfile?.paceUnit ?? "min_per_km",
+          annualGoals: (athleteProfile?.annualGoals as Record<string, Record<string, number>> | null) ?? null,
+        }} sports={sports.map((s: { name: string }) => s.name)} />
       </section>
 
       {/* ── Appearance ── */}

@@ -53,11 +53,16 @@ export default async function DashboardPage() {
   // Day-of-year for on-pace projection (1-based)
   const dayOfYear = Math.max(1, Math.ceil((now.getTime() - yearStart.getTime()) / 86400000));
 
+  const todayStr = localDateStr(now);
+  const currentYear = now.getFullYear().toString();
+
   const [
     activityCount, stravaAccount, fitnessCache,
     weekData, monthData, ytdData,
     runWeek, runMonth, runYtd,
     prev4w, runLyYtd, allLyYtd, runLyFull, allLyFull,
+    todayPlanned, latestGarmin, garmin7d,
+    athleteProfile,
   ] = await Promise.all([
     prisma.activity.count({ where: { userId } }),
     prisma.stravaAccount.findUnique({ where: { userId }, select: { totalSynced: true, lastSyncAt: true } }),
@@ -73,6 +78,25 @@ export default async function DashboardPage() {
     aggSince(userId, lyYearStart, undefined, lyToday),
     aggSince(userId, lyYearStart, "run", lyYearEnd),
     aggSince(userId, lyYearStart, undefined, lyYearEnd),
+    prisma.plannedWorkout.findMany({
+      where: { userId, date: new Date(todayStr) },
+      select: { id: true, name: true, sportType: true, targetDuration: true, targetDistance: true, notes: true },
+    }),
+    prisma.garminDailySummary.findFirst({
+      where: { userId },
+      orderBy: { date: "desc" },
+      select: { date: true, hrvNightly: true, sleepScore: true, sleepDuration: true, restingHR: true, bodyBattery: true },
+    }),
+    prisma.garminDailySummary.findMany({
+      where: { userId },
+      orderBy: { date: "desc" },
+      take: 8,
+      select: { date: true, hrvNightly: true },
+    }),
+    prisma.athleteProfile.findUnique({
+      where: { userId },
+      select: { annualGoals: true },
+    }),
   ]);
 
   // Use FitnessCache for ATL/CTL/TSB — eliminates the 365-day activity fetch
@@ -100,6 +124,27 @@ export default async function DashboardPage() {
   // Keep legacy alias for backward compat in the component
   const onPaceKm = runOnPaceKm;
   const lyYtdKm  = runLyYtdKm;
+
+  // Readiness score
+  const hrv7dValues = (garmin7d as { date: Date; hrvNightly: number | null }[])
+    .map(g => g.hrvNightly)
+    .filter((v): v is number => v != null);
+  const showReadiness = fitnessCache != null || latestGarmin != null;
+  const readiness = showReadiness ? computeReadiness(todayLoad.tsb, latestGarmin, hrv7dValues) : null;
+
+  // Annual goals
+  const annualGoalsRaw = athleteProfile?.annualGoals as Record<string, Record<string, number>> | null;
+  const goalsThisYear = annualGoalsRaw?.[currentYear] ?? {};
+  const ytdBySport: Record<string, number> = {};
+  if (Object.keys(goalsThisYear).length > 0) {
+    const ytdActivities = await prisma.activity.findMany({
+      where: { userId, startDateLocal: { gte: yearStart } },
+      select: { sportType: true, distance: true },
+    });
+    for (const act of ytdActivities) {
+      ytdBySport[act.sportType] = (ytdBySport[act.sportType] ?? 0) + act.distance;
+    }
+  }
 
   const insights = generateInsights({
     weekKm:  weekData.km / 1000,   weekSec:  weekData.sec,   weekCount: weekData.count,
@@ -129,6 +174,65 @@ export default async function DashboardPage() {
           <SyncButton lastSyncAt={stravaAccount.lastSyncAt?.toISOString() ?? null} />
         )}
       </div>
+
+      {/* Today panel */}
+      {(todayPlanned.length > 0 || latestGarmin) && (
+        <div className="rounded-2xl bg-surface border border-border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-primary">
+              {format(now, "EEEE d MMMM")}
+            </p>
+            {readiness && (
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: readiness.color }} />
+                <span className="text-xs font-medium" style={{ color: readiness.color }}>
+                  Readiness {readiness.score}/100 — {readiness.label}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {todayPlanned.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted uppercase tracking-wide">Planerat idag</p>
+              {(todayPlanned as { id: string; name: string; sportType: string; targetDuration: number | null; targetDistance: number | null; notes: string | null }[]).map(pw => (
+                <div key={pw.id} className="flex items-center gap-3 rounded-xl bg-surface-2 border border-border px-3 py-2">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-primary">{pw.name}</p>
+                    <p className="text-xs text-muted">
+                      {pw.sportType}
+                      {pw.targetDuration ? ` · ${Math.round(pw.targetDuration / 60)} min` : ""}
+                      {pw.targetDistance ? ` · ${(pw.targetDistance / 1000).toFixed(1)} km` : ""}
+                    </p>
+                  </div>
+                  <a href="/planner" className="text-xs text-accent hover:underline shrink-0">Planner →</a>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {latestGarmin && (
+            <div className="flex flex-wrap gap-3 text-xs text-muted">
+              {latestGarmin.sleepScore != null && (
+                <span>😴 Sömn {latestGarmin.sleepScore}/100</span>
+              )}
+              {latestGarmin.sleepDuration != null && (
+                <span>{(latestGarmin.sleepDuration / 3600).toFixed(1)}h</span>
+              )}
+              {latestGarmin.hrvNightly != null && (
+                <span>💗 HRV {Math.round(latestGarmin.hrvNightly)}</span>
+              )}
+              {latestGarmin.bodyBattery != null && (
+                <span>⚡ Body Battery {latestGarmin.bodyBattery}</span>
+              )}
+            </div>
+          )}
+
+          {!latestGarmin && (
+            <p className="text-xs text-muted">Anslut Garmin i Inställningar för fullständig readiness-data.</p>
+          )}
+        </div>
+      )}
 
       {/* Stats grid with All sports / Running toggle */}
       <DashboardCards
@@ -209,8 +313,79 @@ export default async function DashboardPage() {
           </p>
         </div>
       )}
+
+      {/* Annual goal widget */}
+      {Object.keys(goalsThisYear).length > 0 && (
+        <div className="rounded-2xl bg-surface border border-border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-primary">{currentYear} — Årsgoal</p>
+            <a href="/settings/profile" className="text-xs text-muted hover:text-accent transition">Ändra →</a>
+          </div>
+          <div className="space-y-3">
+            {Object.entries(goalsThisYear).map(([sport, goalKm]) => {
+              const ytdKm = Math.round((ytdBySport[sport] ?? 0) / 1000);
+              const pct = Math.min(Math.round((ytdKm / goalKm) * 100), 100);
+              const projectedKm = Math.round((ytdKm / dayOfYear) * 365);
+              const onTrack = projectedKm >= goalKm * 0.95;
+              return (
+                <div key={sport} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted">{sport}</span>
+                    <span className={onTrack ? "text-accent" : "text-warning"}>
+                      {ytdKm} / {goalKm} km ({pct}%)
+                      {onTrack ? " ✓" : ` — prognos ${projectedKm} km`}
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${onTrack ? "bg-accent" : "bg-warning"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function computeReadiness(
+  tsb: number,
+  latestGarmin: { hrvNightly?: number | null; sleepScore?: number | null; restingHR?: number | null } | null,
+  hrv7d: number[]
+): { score: number; color: string; label: string } {
+  let score = 50;
+
+  // TSB (30% weight)
+  if (tsb > 10)       score += 15;
+  else if (tsb > 0)   score += 8;
+  else if (tsb < -25) score -= 20;
+  else if (tsb < -10) score -= 10;
+
+  // HRV trend (40% weight)
+  if (latestGarmin?.hrvNightly && hrv7d.length >= 3) {
+    const baseline = hrv7d.slice(1).reduce((a, b) => a + b, 0) / Math.max(hrv7d.slice(1).length, 1);
+    if (baseline > 0) {
+      const trendPct = (latestGarmin.hrvNightly - baseline) / baseline * 100;
+      if (trendPct > 5)        score += 20;
+      else if (trendPct > 0)   score += 8;
+      else if (trendPct < -15) score -= 25;
+      else if (trendPct < -7)  score -= 12;
+    }
+  }
+
+  // Sleep score (20% weight)
+  if (latestGarmin?.sleepScore != null) {
+    score += (latestGarmin.sleepScore - 60) / 5;
+  }
+
+  score = Math.min(100, Math.max(0, Math.round(score)));
+  const color = score >= 70 ? "#6EE7B7" : score >= 45 ? "#FBBF24" : "#F87171";
+  const label = score >= 70 ? "Redo" : score >= 45 ? "Moderat" : "Återhämta";
+  return { score, color, label };
 }
 
 function ACWRCard({ acwr }: { acwr: number }) {

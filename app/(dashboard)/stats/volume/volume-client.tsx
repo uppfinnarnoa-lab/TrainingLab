@@ -269,9 +269,30 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
   const periodSummaries = useMemo(() => {
     const aM = trimmed(periodA.start);
     const bM = trimmed(periodB.start);
+    const periodKm = (months: { year: number; month: number }[]) =>
+      months.reduce((s, { year, month }) =>
+        s + records.filter(r => r.year === year && r.month === month && sportList.includes(r.sport))
+          .reduce((ss, r) => ss + r.km, 0), 0);
+    const periodSessions = (months: { year: number; month: number }[]) =>
+      months.reduce((s, { year, month }) =>
+        s + records.filter(r => r.year === year && r.month === month && sportList.includes(r.sport)).length, 0);
     return [
-      { label: labelA, total: aM.reduce((s, { year, month }) => s + monthVal(year, month), 0), color: YEAR_COLORS[0] },
-      { label: labelB, total: bM.reduce((s, { year, month }) => s + monthVal(year, month), 0), color: YEAR_COLORS[1] },
+      {
+        label: labelA,
+        total: aM.reduce((s, { year, month }) => s + monthVal(year, month), 0),
+        color: YEAR_COLORS[0],
+        km: periodKm(aM),
+        sessions: periodSessions(aM),
+        tss: 0,
+      },
+      {
+        label: labelB,
+        total: bM.reduce((s, { year, month }) => s + monthVal(year, month), 0),
+        color: YEAR_COLORS[1],
+        km: periodKm(bM),
+        sessions: periodSessions(bM),
+        tss: 0,
+      },
     ];
   }, [records, periodA, periodB, metric, selectedSports, compareLen]);
 
@@ -844,6 +865,45 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
                 );
               })()}
             </div>
+
+            {/* Delta comparison table */}
+            {periodSummaries.length === 2 && (() => {
+              const [a, b] = periodSummaries;
+              if (a.km === 0 && b.km === 0) return null;
+              const delta = (val: number, ref: number) => {
+                if (ref === 0) return <span className="text-muted">—</span>;
+                const d = ((val - ref) / ref * 100);
+                return <span className={d >= 0 ? "text-accent" : "text-warning"}>{d >= 0 ? "+" : ""}{d.toFixed(1)}%</span>;
+              };
+              return (
+                <div className="mt-3 rounded-xl border border-border overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-surface-2">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-muted font-medium">Metric</th>
+                        <th className="text-right px-3 py-2 text-muted font-medium">Period A</th>
+                        <th className="text-right px-3 py-2 text-muted font-medium">Period B</th>
+                        <th className="text-right px-3 py-2 text-muted font-medium">Δ A vs B</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      <tr>
+                        <td className="px-3 py-2 text-muted">Distans</td>
+                        <td className="px-3 py-2 text-right font-mono text-primary">{a.km.toFixed(0)} km</td>
+                        <td className="px-3 py-2 text-right font-mono text-primary">{b.km.toFixed(0)} km</td>
+                        <td className="px-3 py-2 text-right">{delta(a.km, b.km)}</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 text-muted">Pass</td>
+                        <td className="px-3 py-2 text-right font-mono text-primary">{a.sessions}</td>
+                        <td className="px-3 py-2 text-right font-mono text-primary">{b.sessions}</td>
+                        <td className="px-3 py-2 text-right">{delta(a.sessions, b.sessions)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         )}
 

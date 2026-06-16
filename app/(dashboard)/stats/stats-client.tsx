@@ -2,6 +2,10 @@
 
 import { useState, useCallback } from "react";
 import { RefreshCw, Loader2 } from "lucide-react";
+import {
+  LineChart, Line, ComposedChart,
+  XAxis, YAxis, Tooltip, ResponsiveContainer,
+} from "recharts";
 import Link from "next/link";
 import { OverviewCard } from "@/components/stats/overview-card";
 import { FitnessMetrics } from "@/components/stats/fitness-metrics";
@@ -62,6 +66,12 @@ interface Props {
   weatherStats: WeatherStats | null;
   easyPaceTrend: EasyPacePoint[];
   statZonesLaps: StatisticalZoneResult | null;
+  cadenceByWeek: { week: string; spm: number; strideM: number }[];
+  efByWeek: { week: string; ef: number }[];
+  monotony: number | null;
+  strain: number | null;
+  avgRecoveryDays: number | null;
+  recoveryDaysCount: number;
   extraViz: {
     heatmapData: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
@@ -86,7 +96,8 @@ export function StatsClient(props: Props) {
   const o = sportMode === "run" ? props.overviewRun : props.overview;
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZonesLaps, analytics, paceZoneSeconds,
-    modelPredictions, modelVdots, extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend } = props;
+    modelPredictions, modelVdots, extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend,
+    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDaysCount } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -234,6 +245,41 @@ export function StatsClient(props: Props) {
           <SectionCard title="16-week training load" tips={[tooltips.atl, tooltips.ctl, tooltips.tsb]}>
             <TrainingLoadChart curve={loadCurve} />
           </SectionCard>
+
+          {monotony !== null && (
+            <div className="rounded-xl bg-surface border border-border p-4 space-y-3">
+              <p className="text-xs font-medium text-muted uppercase tracking-wide">Träningsmonotoni (vecka)</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className={`text-2xl font-semibold font-mono ${
+                    monotony > 2.0 ? 'text-error' : monotony > 1.5 ? 'text-warning' : 'text-accent'
+                  }`}>{monotony.toFixed(2)}</p>
+                  <p className="text-xs text-muted mt-0.5">
+                    {monotony > 2.0 ? 'Hög — variera mer' : monotony > 1.5 ? 'Lite hög' : 'Bra variation'}
+                  </p>
+                  <p className="text-[10px] text-muted mt-1">Monotoni = dagssnitt / stddev TSS</p>
+                </div>
+                {strain !== null && (
+                  <div>
+                    <p className="text-2xl font-semibold font-mono text-primary">{Math.round(strain)}</p>
+                    <p className="text-xs text-muted mt-0.5">Stress (Strain)</p>
+                    <p className="text-[10px] text-muted mt-1">Strain = veckaTSS × monotoni</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {avgRecoveryDays !== null && (
+            <div className="rounded-xl bg-surface border border-border p-4">
+              <p className="text-xs font-medium text-muted uppercase tracking-wide mb-2">Personlig återhämtningstid</p>
+              <p className="text-2xl font-semibold font-mono text-primary">{avgRecoveryDays} dagar</p>
+              <p className="text-xs text-muted mt-1">
+                Genomsnittlig tid från TSB −15 till neutral — baserat på {recoveryDaysCount} tillfällen.
+                {avgRecoveryDays < 5 ? ' Snabb återhämtning.' : avgRecoveryDays > 8 ? ' Tar tid — prioritera sömn och näring.' : ' Normal.'}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -396,6 +442,61 @@ export function StatsClient(props: Props) {
               : <p className="text-xs text-muted py-4 text-center">No data available yet.</p>
             }
           </SectionCard>
+
+          {/* Cadence + stride length trend (1A) */}
+          {cadenceByWeek.length > 0 && (
+            <SectionCard title="Kadens & steglängd">
+              <div className="text-sm text-muted mb-3">
+                Spm (vänster) · Steglängd m (höger) — senaste 26 veckor
+              </div>
+              <ResponsiveContainer width="100%" height={160}>
+                <ComposedChart data={cadenceByWeek}>
+                  <XAxis dataKey="week" hide />
+                  <YAxis yAxisId="spm" domain={['auto', 'auto']} width={35} tick={{ fontSize: 10 }} />
+                  <YAxis yAxisId="stride" orientation="right" domain={['auto', 'auto']} width={35} tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    formatter={(v: number, name: string) => name === 'spm' ? [`${v} spm`, 'Kadens'] : [`${v} m`, 'Steglängd']}
+                    labelFormatter={(w: string) => `Vecka ${w}`}
+                  />
+                  <Line yAxisId="spm" type="monotone" dataKey="spm" stroke="#6EE7B7" dot={false} strokeWidth={2} />
+                  <Line yAxisId="stride" type="monotone" dataKey="strideM" stroke="#60A5FA" dot={false} strokeWidth={2} />
+                </ComposedChart>
+              </ResponsiveContainer>
+              <div className="flex gap-4 mt-2 text-xs text-muted">
+                <span><span className="inline-block w-3 h-0.5 bg-accent mr-1 align-middle" />Kadens (spm)</span>
+                <span><span className="inline-block w-3 h-0.5 bg-blue-400 mr-1 align-middle" />Steglängd (m)</span>
+              </div>
+            </SectionCard>
+          )}
+
+          {/* Efficiency Factor trend (2A) */}
+          {efByWeek.length > 4 && (
+            <SectionCard title="Efficiency Factor (EF) — aerob effektivitet">
+              <div className="text-xs text-muted mb-3">
+                EF = fart (m/min) / HF — lätta löpningar sista 16 veckor.
+                Stigande EF = ökad aerob effektivitet. 1.35–1.55 = vältränad.
+              </div>
+              <ResponsiveContainer width="100%" height={120}>
+                <LineChart data={efByWeek}>
+                  <XAxis dataKey="week" hide />
+                  <YAxis domain={['auto', 'auto']} width={42} tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v: number) => [v.toFixed(3), 'EF']} labelFormatter={(w: string) => `Vecka ${w}`} />
+                  <Line type="monotone" dataKey="ef" stroke="#6EE7B7" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+              {efByWeek.length >= 4 && (() => {
+                const recent = efByWeek.slice(-4).reduce((s, v) => s + v.ef, 0) / 4;
+                const older = efByWeek.slice(0, 4).reduce((s, v) => s + v.ef, 0) / 4;
+                const delta = ((recent - older) / older * 100);
+                return (
+                  <p className="text-xs text-muted mt-2">
+                    Senaste 4 veckor: <span className="font-mono font-semibold text-primary">{recent.toFixed(3)}</span>
+                    {' '}{delta >= 0 ? '↑' : '↓'} <span className={delta >= 0 ? 'text-accent' : 'text-warning'}>{Math.abs(delta).toFixed(1)}%</span> vs period 4–8 veckor sen
+                  </p>
+                );
+              })()}
+            </SectionCard>
+          )}
 
           {/* LT/AT tempo development over time */}
           <div className="rounded-xl border border-border p-4 space-y-3">

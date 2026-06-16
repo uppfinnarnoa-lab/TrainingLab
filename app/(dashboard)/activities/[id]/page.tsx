@@ -2,10 +2,12 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Trophy, Thermometer, Mountain, Heart, Zap, Flame } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trophy, Thermometer, Mountain, Heart, Zap, Flame } from "lucide-react";
 import { format } from "date-fns";
 import { formatDuration, formatDistance, formatPace } from "@/lib/utils";
 import { workoutColor } from "@/lib/planner/colors";
+import { gradeAdjustedPace } from "@/lib/fitness/vo2max";
+import { computeDrift, SplitWithHR } from "@/lib/fitness/decoupling";
 import { ActivityMap } from "./activity-map";
 import { SplitsTable } from "./splits-table";
 import { SplitsChart } from "./splits-chart";
@@ -47,6 +49,20 @@ export default async function ActivityDetailPage({
 
   const color = activity.isRace ? "#FBBF24" : workoutColor(activity.sportType, null);
   const pace = activity.averageSpeed ? formatPace(activity.averageSpeed) : null;
+
+  function secPerKmToStr(s: number): string {
+    const m = Math.floor(s / 60);
+    const sec = Math.round(s % 60);
+    return `${m}:${String(sec).padStart(2, "0")}/km`;
+  }
+
+  function formatTime(sec: number): string {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
   interface LapRaw {
     lap_index: number;
     distance: number;
@@ -75,13 +91,77 @@ export default async function ActivityDetailPage({
       }))
     : splitsRaw;
 
+  // 3E — Grade Adjusted Pace
+  const rawPaceSecPerKm = activity.averageSpeed ? 1000 / activity.averageSpeed : null;
+  const elevGainPerKm = activity.distance > 0 ? (activity.totalElevationGain / activity.distance) * 1000 : 0;
+  const gapSecPerKm = rawPaceSecPerKm && elevGainPerKm >= 20 && /run/i.test(activity.sportType)
+    ? gradeAdjustedPace(rawPaceSecPerKm, activity.totalElevationGain, activity.distance)
+    : null;
+
+  // 3C — PB highlight banner
+  const raceRecords = await prisma.raceRecord.findMany({
+    where: { userId },
+    select: { distanceM: true, time: true },
+  });
+  const pbMap = new Map<number, number>(raceRecords.map((r: { distanceM: number; time: number }) => [Math.round(r.distanceM), r.time] as [number, number]));
+  const newPBs = bestEffortsRaw
+    .filter(e => {
+      const ex = pbMap.get(Math.round(e.distance));
+      return ex == null || e.elapsed_time < ex;
+    })
+    .map(e => ({ name: e.name, time: e.elapsed_time }));
+
+  // 3F — Prev/Next navigation
+  const [prevAct, nextAct] = await Promise.all([
+    prisma.activity.findFirst({
+      where: { userId, startDate: { lt: activity.startDate } },
+      orderBy: { startDate: "desc" },
+      select: { id: true, name: true },
+    }),
+    prisma.activity.findFirst({
+      where: { userId, startDate: { gt: activity.startDate } },
+      orderBy: { startDate: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  // 1B/3D — Aerobic decoupling (Pa:HR)
+  const decoupling = splits && splits.length >= 6 && activity.movingTime >= 40 * 60 && /run/i.test(activity.sportType)
+    ? computeDrift(splits as SplitWithHR[])
+    : null;
+
+  // 2B — PVI (Pace Variability Index)
+  const pvi = splits && splits.length >= 4 ? (() => {
+    const paces = splits.filter(s => s.average_speed > 0).map(s => 1000 / s.average_speed);
+    if (paces.length < 4) return null;
+    const mean = paces.reduce((a, b) => a + b, 0) / paces.length;
+    const stddev = Math.sqrt(paces.reduce((s, v) => s + (v - mean) ** 2, 0) / paces.length);
+    return (stddev / mean) * 100;
+  })() : null;
+
   return (
     <div className="space-y-6 max-w-3xl">
-      {/* Back */}
-      <Link href="/activities"
-        className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-primary transition">
-        <ChevronLeft size={16} />Back to activities
-      </Link>
+      {/* Back + Prev/Next navigation */}
+      <div className="flex items-center gap-3">
+        <Link href="/activities"
+          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-primary transition">
+          <ChevronLeft size={16} />Back to activities
+        </Link>
+        <div className="ml-auto flex gap-3">
+          {prevAct && (
+            <Link href={`/activities/${prevAct.id}`}
+              className="inline-flex items-center gap-1 text-xs text-muted hover:text-primary transition">
+              <ChevronLeft size={12} />{prevAct.name.slice(0, 28)}
+            </Link>
+          )}
+          {nextAct && (
+            <Link href={`/activities/${nextAct.id}`}
+              className="inline-flex items-center gap-1 text-xs text-muted hover:text-primary transition">
+              {nextAct.name.slice(0, 28)}<ChevronRight size={12} />
+            </Link>
+          )}
+        </div>
+      </div>
 
       {/* Header */}
       <div>
@@ -117,6 +197,18 @@ export default async function ActivityDetailPage({
         )}
       </div>
 
+      {/* 3C — PB highlight banner */}
+      {newPBs.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {newPBs.map(pb => (
+            <div key={pb.name} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-warning/10 border border-warning/30 text-xs font-semibold text-warning">
+              <Trophy size={12} />
+              Nytt PB! {pb.name} — {formatTime(pb.time)}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -124,6 +216,7 @@ export default async function ActivityDetailPage({
           { label: "Moving time", value: formatDuration(activity.movingTime) },
           { label: "Avg pace",    value: pace ?? "—" },
           { label: "Elevation",   value: `${Math.round(activity.totalElevationGain)} m` },
+          ...(gapSecPerKm ? [{ label: "GAP", value: secPerKmToStr(gapSecPerKm) }] : []),
         ].map(s => (
           <div key={s.label} className="rounded-xl bg-surface border border-border p-4">
             <p className="text-xs text-muted uppercase tracking-wide">{s.label}</p>
@@ -183,9 +276,31 @@ export default async function ActivityDetailPage({
         </div>
       )}
 
+      {/* 1B/3D — Aerobic decoupling (Pa:HR) */}
+      {decoupling && (
+        <div className="rounded-2xl bg-surface border border-border p-4 flex items-center gap-6">
+          <div>
+            <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Pa:HR Aerobic Coupling</p>
+            <p className={`text-2xl font-semibold font-mono ${
+              Math.abs(decoupling.drift) < 0.05 ? "text-accent" :
+              Math.abs(decoupling.drift) < 0.10 ? "text-warning" : "text-error"
+            }`}>
+              {decoupling.drift >= 0 ? "+" : ""}{(decoupling.drift * 100).toFixed(1)}%
+            </p>
+            <p className="text-xs text-muted mt-0.5">
+              {Math.abs(decoupling.drift) < 0.05 ? "Well coupled — aerobic" :
+               Math.abs(decoupling.drift) < 0.10 ? "Moderate drift" : "High drift — HR rising vs pace"}
+            </p>
+          </div>
+          <p className="text-xs text-muted flex-1">
+            Pa:HR drift measures aerobic efficiency. Under 5% = well coupled. Above 5% may indicate fatigue, heat, or working above LT1.
+          </p>
+        </div>
+      )}
+
       {/* Splits table */}
       {splits && splits.length > 0 && (
-        <SplitsTable splits={splits} isLaps={isLaps} />
+        <SplitsTable splits={splits} isLaps={isLaps} pvi={pvi} />
       )}
 
       {/* Best efforts */}

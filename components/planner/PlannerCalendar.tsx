@@ -7,6 +7,11 @@ import {
   eachDayOfInterval, format, isSameMonth, isToday,
   addMonths, subMonths, subWeeks, addWeeks,
 } from "date-fns";
+import {
+  DndContext, DragOverlay, PointerSensor, TouchSensor,
+  useSensor, useSensors, useDroppable, useDraggable,
+  type DragEndEvent, type DragStartEvent, type DragOverEvent,
+} from "@dnd-kit/core";
 import { WorkoutPill } from "./WorkoutPill";
 import { WeekSummaryStrip } from "./WeekSummaryStrip";
 import type { PlannedWorkout, TrainingBlock, SportCategory, WorkoutTemplate } from "@/lib/planner/types";
@@ -35,6 +40,35 @@ interface ContextMenuState {
   date?: string;
 }
 
+// ── dnd-kit droppable day cell wrapper ──────────────────────────────────────
+// Renders a zero-footprint wrapper that registers the drop zone with dnd-kit.
+function DroppableDay({ dateStr, children }: {
+  dateStr: string;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef } = useDroppable({ id: dateStr });
+  return (
+    <div ref={setNodeRef} style={{ display: "contents" }}>
+      {children}
+    </div>
+  );
+}
+
+// ── dnd-kit draggable workout pill wrapper ───────────────────────────────────
+function DraggableWorkout({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={cn("touch-none", isDragging && "opacity-40")}
+    >
+      {children}
+    </div>
+  );
+}
+
 interface Props {
   workouts: PlannedWorkout[];
   blocks: TrainingBlock[];
@@ -52,6 +86,7 @@ interface Props {
   placingTemplate?: WorkoutTemplate | null;
   onPlaceTemplate?: (date: string) => void;
   onCancelPlaceTemplate?: () => void;
+  onWeekClick?: (weekStart: Date, weekWorkouts: PlannedWorkout[]) => void;
 }
 
 function FloatingMenu({ items, x, y, onClose }: {
@@ -91,6 +126,7 @@ export function PlannerCalendar({
   weekRunActivities = [], onOpenTemplates,
   copiedWorkout, onPasteWorkout, onCopyWorkout, onClearCopy,
   placingTemplate, onPlaceTemplate, onCancelPlaceTemplate,
+  onWeekClick,
 }: Props) {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [summaryLayout, setSummaryLayout] = useState<SummaryLayout>("row");
@@ -98,6 +134,39 @@ export function PlannerCalendar({
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [moveWorkout, setMoveWorkout] = useState<PlannedWorkout | null>(null);
+
+  // dnd-kit: track which workout is being dragged (for DragOverlay)
+  const [dndActiveWorkout, setDndActiveWorkout] = useState<PlannedWorkout | null>(null);
+  // dnd-kit: track which day is being hovered during drag
+  const [dndOverDate, setDndOverDate] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 500, tolerance: 5 } }),
+  );
+
+  function handleDndDragStart(event: DragStartEvent) {
+    const id = event.active.id as string;
+    const w = workouts.find(x => x.id === id);
+    setDndActiveWorkout(w ?? null);
+  }
+
+  function handleDndDragOver(event: DragOverEvent) {
+    setDndOverDate(event.over ? (event.over.id as string) : null);
+  }
+
+  function handleDndDragEnd(event: DragEndEvent) {
+    setDndActiveWorkout(null);
+    setDndOverDate(null);
+    const { active, over } = event;
+    if (!over) return;
+    const workoutId = active.id as string;
+    const targetDate = over.id as string;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
+    const w = workouts.find(x => x.id === workoutId);
+    if (w && w.date === targetDate) return; // no-op if same day
+    onWorkoutMove?.(workoutId, targetDate);
+  }
 
   // Refs for keyboard shortcuts — avoid stale closures
   const lastContextWorkout = useRef<PlannedWorkout | null>(null);
@@ -199,6 +268,34 @@ export function PlannerCalendar({
 
   const today = format(new Date(), "yyyy-MM-dd");
 
+  // ── Feature 5D: taper start markers ──────────────────────────────────────
+  // Build a Set of dates where taper starts (N weeks before a future race).
+  function taperWeeks(raceName: string, targetDuration?: number | null): number {
+    const n = raceName.toLowerCase();
+    if (/marathon|42/.test(n)) return 3;
+    if (/half|21/.test(n)) return 2;
+    if (/10k|10\./.test(n)) return 1;
+    return targetDuration && targetDuration > 60 * 60 ? 2 : 1;
+  }
+
+  const taperDates = useMemo<Set<string>>(() => {
+    const set = new Set<string>();
+    for (const w of workouts) {
+      if (w.date <= today) continue; // only future races
+      const isRace =
+        w.type?.name === "Race" ||
+        /race|tävling/i.test(w.name);
+      if (!isRace) continue;
+      const raceDate = new Date(w.date + "T00:00:00");
+      const weeks = taperWeeks(w.name, w.targetDuration);
+      const taperDate = new Date(raceDate);
+      taperDate.setDate(taperDate.getDate() - weeks * 7);
+      set.add(format(taperDate, "yyyy-MM-dd"));
+    }
+    return set;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workouts, today]);
+
   const rollingLabel = useMemo(() => {
     if (calendarMode !== "rolling") return null;
     const first = days[0];
@@ -210,6 +307,12 @@ export function PlannerCalendar({
   }, [calendarMode, days]);
 
   return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDndDragStart}
+      onDragOver={handleDndDragOver}
+      onDragEnd={handleDndDragEnd}
+    >
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header / navigation */}
       <div className="flex items-center justify-between px-1 pb-3">
@@ -353,7 +456,14 @@ export function PlannerCalendar({
                 {isSidebar && (
                   <div className="hidden md:flex items-stretch overflow-hidden min-w-0">
                     {weekWorkouts.length > 0 ? (
-                      <WeekSummaryStrip weekStart={weekStart} workouts={weekWorkouts} block={weekBlock} sports={sports} compact />
+                      <WeekSummaryStrip
+                        weekStart={weekStart}
+                        workouts={weekWorkouts}
+                        block={weekBlock}
+                        sports={sports}
+                        compact
+                        onClick={onWeekClick ? () => onWeekClick(weekStart, weekWorkouts) : undefined}
+                      />
                     ) : <div className="w-full" />}
                   </div>
                 )}
@@ -365,15 +475,17 @@ export function PlannerCalendar({
                   const isCurrentMonth = calendarMode === "rolling" || isSameMonth(day, currentMonth);
                   const isPast       = key <= today;
                   const blockHere    = blockForDate(day);
-                  const isDragOver   = dragOverDate === key;
+                  const isDragOver   = dragOverDate === key || dndOverDate === key;
                   const isPasteMode  = !!copiedWorkout;
                   const isMoveMode   = !!moveWorkout;
                   const isPlaceMode  = !!placingTemplate;
+                  const isTaperStart = taperDates.has(key);
 
                   return (
+                    <DroppableDay key={key} dateStr={key}>
                     <div
-                      key={key}
                       onClick={() => {
+                        if (dndActiveWorkout) return; // dnd-kit drag in progress, ignore click
                         if (isPlaceMode && onPlaceTemplate) { onPlaceTemplate(key); }
                         else if (moveWorkout && onWorkoutMove) { onWorkoutMove(moveWorkout.id, key); setMoveWorkout(null); }
                         else if (isPasteMode && onPasteWorkout) { onPasteWorkout(key); }
@@ -433,33 +545,42 @@ export function PlannerCalendar({
                         )}
                       </div>
 
+                      {/* Feature 5D: taper start marker */}
+                      {isTaperStart && (
+                        <div className="text-[9px] font-semibold text-warning/70 leading-tight mb-0.5">
+                          ⚡ Taper start
+                        </div>
+                      )}
+
                       {/* Workouts — show up to 5, compact when >3 */}
                       <div className="space-y-0.5">
                         {dayWorkouts.slice(0, 5).map(w => (
-                          <WorkoutPill
-                            key={w.id}
-                            workout={w}
-                            isPast={isPast}
-                            onClick={onWorkoutClick}
-                            compact={dayWorkouts.length > 3}
-                            inMoveMode={!!moveWorkout}
-                            onContextMenu={(e, workout) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              lastContextWorkout.current = workout;
-                              setContextMenu({ type: "workout", x: e.clientX, y: e.clientY, workout });
-                            }}
-                            onLongPressMenu={(workout, x, y) => {
-                              lastContextWorkout.current = workout;
-                              setContextMenu({ type: "workout", x, y, workout });
-                            }}
-                          />
+                          <DraggableWorkout key={w.id} id={w.id}>
+                            <WorkoutPill
+                              workout={w}
+                              isPast={isPast}
+                              onClick={onWorkoutClick}
+                              compact={dayWorkouts.length > 3}
+                              inMoveMode={!!moveWorkout}
+                              onContextMenu={(e, workout) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                lastContextWorkout.current = workout;
+                                setContextMenu({ type: "workout", x: e.clientX, y: e.clientY, workout });
+                              }}
+                              onLongPressMenu={(workout, x, y) => {
+                                lastContextWorkout.current = workout;
+                                setContextMenu({ type: "workout", x, y, workout });
+                              }}
+                            />
+                          </DraggableWorkout>
                         ))}
                         {dayWorkouts.length > 5 && (
                           <p className="text-xs text-muted pl-1">+{dayWorkouts.length - 5}</p>
                         )}
                       </div>
                     </div>
+                    </DroppableDay>
                   );
                 })}
               </div>
@@ -472,12 +593,27 @@ export function PlannerCalendar({
                   block={weekBlock}
                   sports={sports}
                   weekRunActivities={weekRunActivities}
+                  onClick={onWeekClick ? () => onWeekClick(weekStart, weekWorkouts) : undefined}
                 />
               )}
             </div>
           );
         })}
       </div>
+
+      {/* DragOverlay — renders a ghost pill while dragging via dnd-kit (touch) */}
+      <DragOverlay>
+        {dndActiveWorkout ? (
+          <div className="opacity-80 pointer-events-none">
+            <WorkoutPill
+              workout={dndActiveWorkout}
+              isPast={dndActiveWorkout.date <= today}
+              onClick={() => {}}
+              inMoveMode={false}
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
 
       {/* Floating context menu */}
       {contextMenu && (
@@ -522,5 +658,6 @@ export function PlannerCalendar({
         />
       )}
     </div>
+    </DndContext>
   );
 }

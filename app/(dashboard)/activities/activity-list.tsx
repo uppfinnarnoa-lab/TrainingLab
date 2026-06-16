@@ -32,9 +32,11 @@ interface Props {
   perPage: number;
   sports: string[];
   selectedSport?: string;
+  sort: string;
+  racesOnly: boolean;
 }
 
-export function ActivityList({ activities, total, page, perPage, sports, selectedSport }: Props) {
+export function ActivityList({ activities, total, page, perPage, sports, selectedSport, sort, racesOnly }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [typeOverrides, setTypeOverrides] = useState<Record<string, string | null>>({});
@@ -59,6 +61,43 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
 
   return (
     <div className="space-y-4">
+      {/* Sort + races filter */}
+      <div className="flex flex-wrap gap-2 items-center justify-between">
+        {/* Left: sort */}
+        <select
+          value={sort}
+          onChange={e => {
+            const p = new URLSearchParams(searchParams.toString());
+            p.set("sort", e.target.value);
+            p.delete("page");
+            router.push(`/activities?${p}`);
+          }}
+          className="text-xs bg-surface border border-border rounded-lg px-2 py-1.5 text-primary focus:outline-none focus:ring-1 focus:ring-accent/50"
+        >
+          <option value="date_desc">Nyast first</option>
+          <option value="dist_desc">Längst distans</option>
+          <option value="dist_asc">Kortast distans</option>
+          <option value="pace_asc">Snabbast pace</option>
+          <option value="pace_desc">Långsammast pace</option>
+        </select>
+
+        {/* Right: races only toggle */}
+        <button
+          onClick={() => {
+            const p = new URLSearchParams(searchParams.toString());
+            if (racesOnly) p.delete("racesOnly"); else p.set("racesOnly", "1");
+            p.delete("page");
+            router.push(`/activities?${p}`);
+          }}
+          className={cn(
+            "text-xs px-3 py-1.5 rounded-lg border transition",
+            racesOnly ? "bg-warning/10 border-warning/30 text-warning" : "border-border text-muted hover:text-primary"
+          )}
+        >
+          {racesOnly ? "🏆 Tävlingar" : "Tävlingar"}
+        </button>
+      </div>
+
       {/* Sport filter chips */}
       <div className="flex flex-wrap gap-2">
         <button

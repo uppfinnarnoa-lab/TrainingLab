@@ -200,6 +200,13 @@ export function ChatInterface({
     textareaRef.current?.focus();
   }
 
+  function handleSummarize() {
+    if (streaming || !convId) return;
+    const summaryText = "Sammanfatta de viktigaste insikterna och besluten från den här konversationen i 5–8 punkter. Fokusera på: träningsrekommendationer som gavs, identifierade mönster, och beslut vi tog.";
+    setInput(summaryText);
+    textareaRef.current?.focus();
+  }
+
   async function deleteConversation(id: string, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -346,9 +353,16 @@ export function ChatInterface({
               <Bot size={36} className="opacity-40" />
               <p className="text-sm">Fråga din tränare om din träning.</p>
               <div className="flex flex-wrap gap-2 justify-center mt-2">
-                {["How is my fitness?", "Plan next 4 weeks", "What is my VO2max?", "Analyze my last week"].map(q => (
+                {["How is my fitness?", "Plan next 4 weeks", "What is my VO2max?", "Analyze my last week", "/summarize"].map(q => (
                   <button key={q}
-                    onClick={() => { setInput(q); textareaRef.current?.focus(); }}
+                    onClick={() => {
+                      if (q === "/summarize") {
+                        handleSummarize();
+                      } else {
+                        setInput(q);
+                        textareaRef.current?.focus();
+                      }
+                    }}
                     className="px-3 py-1.5 rounded-lg border border-border text-xs hover:border-accent/40 hover:text-primary transition">
                     {q}
                   </button>
@@ -431,6 +445,53 @@ export function ChatInterface({
                     <p className="text-[10px] text-accent/70 shrink-0 mt-0.5 hidden sm:block">{tool.hint}</p>
                   </button>
                 ))}
+                {/* Preset prompts section */}
+                <div className="px-3 py-1.5 bg-surface-2 border-t border-b border-border/50">
+                  <p className="text-[10px] font-semibold text-muted uppercase tracking-wide">Snabbkommandon</p>
+                </div>
+                {[
+                  {
+                    name: "preset_plan",
+                    label: "/plan — Skapa träningsplan",
+                    desc: "Planera veckorna fram till din nästa tävling",
+                    hint: "Planera de närmaste 8 veckorna inför [tävling]. Jag vill förbättra min [fart/uthållighet/volym].",
+                  },
+                  {
+                    name: "preset_taper",
+                    label: "/taper — Taper-schema",
+                    desc: "Optimalt nedtrappningsschema inför tävling",
+                    hint: "Skapa ett taper-schema inför [tävling] om [antal] dagar. Baserat på mina tidigare tävlingsresultat — vilket TSB är optimalt på tävlingsdagen?",
+                  },
+                  {
+                    name: "preset_analyze",
+                    label: "/analyze — Analysera ett pass",
+                    desc: "Djupanalys av ett specifikt träningspass",
+                    hint: "Analysera mitt senaste [intervall/tempolöpning/långpass]. Vad gick bra och vad kan förbättras?",
+                  },
+                  {
+                    name: "preset_week",
+                    label: "/week — Veckosummering",
+                    desc: "AI-summering av förra veckan + råd för nästa",
+                    hint: "Summera förra veckan och ge mig konkreta råd för den kommande veckan baserat på min form och plan.",
+                  },
+                  {
+                    name: "preset_compare",
+                    label: "/compare — Jämför perioder",
+                    desc: "Jämför din träning mellan två tidsperioder",
+                    hint: "Jämför min träning [period1, ex: jan-mar 2026] med [period2, ex: jan-mar 2025]. Vad skiljer sig och hur har jag utvecklats?",
+                  },
+                ].map(tool => (
+                  <button
+                    key={tool.name}
+                    onClick={() => selectTool(tool.hint)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-surface-2 transition flex items-start gap-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-primary">{tool.label}</p>
+                      <p className="text-[10px] text-muted truncate">{tool.desc}</p>
+                    </div>
+                  </button>
+                ))}
                 {/* Language toggle — special action, not a message */}
                 <div className="px-3 py-2.5 flex items-center justify-between border-t border-border/50">
                   <div>
@@ -452,6 +513,18 @@ export function ChatInterface({
                 </div>
               </div>
               <p className="px-3 py-1.5 text-[10px] text-muted border-t border-border">Skriv / för att öppna · Esc stänger · Klicka för att välja — skriv sedan din egna fråga</p>
+            </div>
+          )}
+          {messages.length >= 20 && !messages.some(m => m.content.includes("Sammanfattning:")) && (
+            <div className="mb-2 flex items-center gap-2 px-3 py-2 rounded-lg border border-border/50 bg-surface-2 text-xs text-muted">
+              <span>Lång konversation —</span>
+              <button
+                onClick={handleSummarize}
+                className="text-accent hover:underline"
+              >
+                sammanfatta den
+              </button>
+              <span>för att minska tokenanvändning.</span>
             </div>
           )}
           <div className="flex gap-2 items-end">

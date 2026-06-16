@@ -59,10 +59,21 @@ export async function runHistoricalBackfill(
   onProgress?: (event: BackfillEvent) => void,
   getSignal?:  () => Signal,
 ): Promise<BackfillResult> {
-  const pending = await prisma.activity.findMany({
+  const fetched = await prisma.activity.findMany({
     where:   { userId, splitDetailFetched: false },
     orderBy: { startDate: "desc" },
-    select:  { id: true, stravaId: true, name: true },
+    select:  { id: true, stravaId: true, name: true, startDate: true },
+  });
+
+  // Process activities from the last 90 days before older ones so recent data
+  // is available quickly even during a long initial backfill.
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const pending = [...fetched].sort((a, b) => {
+    const aRecent = new Date(a.startDate) >= ninetyDaysAgo;
+    const bRecent = new Date(b.startDate) >= ninetyDaysAgo;
+    if (aRecent && !bRecent) return -1;
+    if (!aRecent && bRecent) return 1;
+    return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
   });
 
   const total = pending.length;

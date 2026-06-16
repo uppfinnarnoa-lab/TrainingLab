@@ -2,7 +2,8 @@
 
 import { useState, useTransition, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardX } from "lucide-react";
+import { ClipboardX, X as XIcon } from "lucide-react";
+import { format, startOfWeek } from "date-fns";
 import { TemplateLibrary } from "@/components/planner/TemplateLibrary";
 import { PlannerCalendar, type CopiedWorkout } from "@/components/planner/PlannerCalendar";
 import { WorkoutBuilder, type BuilderData } from "@/components/planner/WorkoutBuilder";
@@ -433,6 +434,29 @@ export function PlannerClient(props: Props) {
     startTransition(() => router.refresh());
   }
 
+  // ── Feature 5B: week detail panel ─────────────────────────────────────────
+  const [selectedWeek, setSelectedWeek] = useState<{ weekStart: Date; workouts: typeof workouts } | null>(null);
+
+  function handleWeekClick(weekStart: Date, weekWorkouts: typeof workouts) {
+    setSelectedWeek(prev => {
+      // Toggle off if clicking the same week
+      const prevKey = prev ? format(startOfWeek(prev.weekStart, { weekStartsOn: 1 }), "yyyy-MM-dd") : null;
+      const newKey  = format(startOfWeek(weekStart, { weekStartsOn: 1 }), "yyyy-MM-dd");
+      return prevKey === newKey ? null : { weekStart, workouts: weekWorkouts };
+    });
+  }
+
+  const selectedWeekStats = useMemo(() => {
+    if (!selectedWeek) return null;
+    const ws = selectedWeek.workouts;
+    const planned   = ws.length;
+    const completed = ws.filter(w => w.status === "completed" || w.status === "partial").length;
+    const missed    = ws.filter(w => w.status === "missed").length;
+    const tssHours  = ws.reduce((s, w) => s + (w.targetDuration ?? 0) / 3600, 0);
+    const weekLabel = format(startOfWeek(selectedWeek.weekStart, { weekStartsOn: 1 }), "d MMM");
+    return { planned, completed, missed, tssHours, weekLabel };
+  }, [selectedWeek]);
+
   // Planned workouts of type "Race" — selectable in the block builder's race picker.
   const racePlannedWorkouts = useMemo(() =>
     workouts
@@ -512,7 +536,48 @@ export function PlannerClient(props: Props) {
             placingTemplate={placingTemplate}
             onPlaceTemplate={handlePlaceTemplate}
             onCancelPlaceTemplate={() => setPlacingTemplate(null)}
+            onWeekClick={handleWeekClick}
           />
+
+          {/* Feature 5B: week detail panel */}
+          {selectedWeekStats && (
+            <div className="fixed inset-x-0 bottom-0 z-40 md:static md:inset-auto bg-background border-t md:border md:rounded-xl md:mt-4 border-border p-4 shadow-xl md:shadow-none">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-primary">
+                  Week of {selectedWeekStats.weekLabel} — summary
+                </p>
+                <button
+                  onClick={() => setSelectedWeek(null)}
+                  className="text-muted hover:text-primary transition p-1 rounded"
+                  aria-label="Close week panel"
+                >
+                  <XIcon size={14} />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted">Planned</p>
+                  <p className="font-semibold text-primary">{selectedWeekStats.planned} sessions</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted">Completed</p>
+                  <p className="font-semibold text-primary">{selectedWeekStats.completed} sessions</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted">Planned hours</p>
+                  <p className="font-semibold text-primary">{selectedWeekStats.tssHours.toFixed(1)}h</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted">Completion</p>
+                  <p className="font-semibold text-primary">
+                    {selectedWeekStats.planned > 0
+                      ? `${Math.round(selectedWeekStats.completed / selectedWeekStats.planned * 100)}%`
+                      : "—"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

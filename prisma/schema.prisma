@@ -54,6 +54,8 @@ model AthleteProfile {
   maxHRArtifactCap Int?      // HR readings above this are treated as sensor artifacts (default 190)
   primaryGoal      String?
   yearsTraining    Int?
+  annualGoals      Json?     // { "2026": { "Run": 2000, "Ride": 3000 }, ... } km targets per year per sport
+  paceUnit         String    @default("min_per_km") // "min_per_km" | "min_per_mi" | "km_h"
   updatedAt        DateTime  @updatedAt
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -149,6 +151,7 @@ model Activity {
 
   trainingLoad    Float?
   intensityFactor Float?
+  hrrSeconds      Int?    // Heart Rate Recovery — HR drop 60s after peak effort
 
   weatherTemp   Float?
   weatherWind   Float?
@@ -161,11 +164,26 @@ model Activity {
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   matchedPlannedId String?
   matchedPlanned   PlannedWorkout? @relation(fields: [matchedPlannedId], references: [id])
+  stream           ActivityStream?
 
   @@index([userId, startDate])
   @@index([userId, sportType])
   @@index([userId, isRace])
   @@index([userId, startDate, sportType])  // composite for filtered stats queries
+}
+
+model ActivityStream {
+  id         String   @id @default(cuid())
+  activityId String   @unique
+  fetchedAt  DateTime @default(now())
+  time       Json?
+  distance   Json?
+  altitude   Json?
+  heartrate  Json?
+  velocity   Json?
+  cadence    Json?
+  watts      Json?
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
 }
 
 model SportCategory {

@@ -6,6 +6,10 @@ import { encrypt, safeDecrypt } from "@/lib/encrypt";
 const STRAVA_BASE = "https://www.strava.com/api/v3";
 const TOKEN_URL   = "https://www.strava.com/oauth/token";
 
+// Deduplicates concurrent refresh requests for the same userId so only one
+// network call goes to Strava when parallel requests all see an expired token.
+const refreshingTokens = new Map<string, Promise<string>>();
+
 export async function getStravaAuthUrl(userId: string, redirectUri: string): Promise<string> {
   const creds = await getCredentials(userId);
   if (!creds.stravaClientId) throw new Error("STRAVA_NOT_CONFIGURED");
@@ -36,38 +40,46 @@ export async function exchangeStravaCode(userId: string, code: string, redirectU
   return res.json();
 }
 
-export async function refreshStravaToken(userId: string) {
-  const [account, creds] = await Promise.all([
-    prisma.stravaAccount.findUnique({ where: { userId } }),
-    getCredentials(userId),
-  ]);
-  if (!account) throw new Error("No Strava account");
+export async function refreshStravaToken(userId: string): Promise<string> {
+  const existing = refreshingTokens.get(userId);
+  if (existing) return existing;
 
-  if (account.expiresAt > new Date(Date.now() + 60_000))
-    return safeDecrypt(account.accessToken) ?? account.accessToken;
+  const refreshPromise = (async () => {
+    const [account, creds] = await Promise.all([
+      prisma.stravaAccount.findUnique({ where: { userId } }),
+      getCredentials(userId),
+    ]);
+    if (!account) throw new Error("No Strava account");
 
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id:     creds.stravaClientId,
-      client_secret: creds.stravaClientSecret,
-      refresh_token: safeDecrypt(account.refreshToken) ?? account.refreshToken,
-      grant_type:    "refresh_token",
-    }),
-  });
-  if (!res.ok) throw new Error(`Strava token refresh failed: ${res.status}`);
-  const data = await res.json();
+    if (account.expiresAt > new Date(Date.now() + 60_000))
+      return safeDecrypt(account.accessToken) ?? account.accessToken;
 
-  await prisma.stravaAccount.update({
-    where: { userId },
-    data: {
-      accessToken:  encrypt(data.access_token),
-      refreshToken: encrypt(data.refresh_token),
-      expiresAt:    new Date(data.expires_at * 1000),
-    },
-  });
-  return data.access_token as string;
+    const res = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id:     creds.stravaClientId,
+        client_secret: creds.stravaClientSecret,
+        refresh_token: safeDecrypt(account.refreshToken) ?? account.refreshToken,
+        grant_type:    "refresh_token",
+      }),
+    });
+    if (!res.ok) throw new Error(`Strava token refresh failed: ${res.status}`);
+    const data = await res.json();
+
+    await prisma.stravaAccount.update({
+      where: { userId },
+      data: {
+        accessToken:  encrypt(data.access_token),
+        refreshToken: encrypt(data.refresh_token),
+        expiresAt:    new Date(data.expires_at * 1000),
+      },
+    });
+    return data.access_token as string;
+  })().finally(() => refreshingTokens.delete(userId));
+
+  refreshingTokens.set(userId, refreshPromise);
+  return refreshPromise;
 }
 
 export async function stravaFetch(userId: string, path: string, params?: Record<string, string>) {

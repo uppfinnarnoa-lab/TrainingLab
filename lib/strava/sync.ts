@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { stravaFetch } from "./client";
 import { fetchAndSaveWeather } from "@/lib/weather/open-meteo";
+import { matchActivityToPlanned } from "@/lib/fitness/activity-matching";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapActivity(raw: any, userId: string) {
@@ -233,6 +234,69 @@ export async function syncSingleActivity(userId: string, stravaActivityId: numbe
 
   if (saved.startLat != null && saved.startLng != null && saved.weatherTemp == null) {
     fetchAndSaveWeather(saved.id, saved.startLat, saved.startLng, saved.startDate).catch(() => {});
+  }
+
+  // Auto-match to planned workout
+  tryMatchActivity(userId, saved.id).catch(() => {});
+}
+
+async function tryMatchActivity(userId: string, activityId: string): Promise<void> {
+  const act = await prisma.activity.findUnique({
+    where: { id: activityId },
+    select: {
+      id: true, name: true, sportType: true, startDateLocal: true,
+      distance: true, movingTime: true, averageHeartrate: true,
+      maxHeartrate: true, sufferScore: true, isRace: true,
+      trainingLoad: true, matchedPlannedId: true,
+    },
+  });
+  if (!act || act.matchedPlannedId) return; // already matched
+
+  const fitnessCache = await prisma.fitnessCache.findUnique({
+    where: { userId },
+    select: { maxHR: true },
+  });
+  const maxHR = fitnessCache?.maxHR ?? 190;
+
+  const actDateStr = act.startDateLocal.toISOString().split("T")[0];
+  const dayBefore = new Date(new Date(actDateStr).getTime() - 86_400_000).toISOString().split("T")[0];
+  const dayAfter  = new Date(new Date(actDateStr).getTime() + 86_400_000).toISOString().split("T")[0];
+
+  const candidates = await prisma.plannedWorkout.findMany({
+    where: {
+      userId,
+      date: { gte: new Date(dayBefore), lte: new Date(dayAfter) },
+      matchedActivity: { none: {} }, // not already matched
+    },
+    select: {
+      id: true, name: true, sportType: true, date: true,
+      targetDuration: true, targetDistance: true, notes: true,
+      template: { select: { estimatedZoneDistribution: true } },
+    },
+  });
+
+  if (candidates.length === 0) return;
+
+  type CandidateRow = typeof candidates[number];
+  const mapped = candidates.map((pw: CandidateRow) => ({
+    ...pw,
+    date: pw.date.toISOString().split("T")[0],
+    template: pw.template
+      ? { estimatedZoneDistribution: pw.template.estimatedZoneDistribution as Record<string, number> | null }
+      : null,
+  }));
+
+  const match = matchActivityToPlanned(
+    { ...act, startDateLocal: act.startDateLocal },
+    mapped,
+    maxHR,
+  );
+
+  if (match && match.confidence >= 55) {
+    await prisma.activity.update({
+      where: { id: activityId },
+      data: { matchedPlannedId: match.plannedId },
+    });
   }
 }
 

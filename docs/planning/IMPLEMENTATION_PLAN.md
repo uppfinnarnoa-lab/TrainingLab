@@ -1633,8 +1633,13 @@ sudo systemctl reload nginx
 - [ ] Block editor modal (create/edit blocks with date picker)
 - [ ] Intensity analysis detail panel (Week/Block/Plan tabs)
 
+**Completed in 2026-06-16d:**
+- [x] Touch drag-and-drop for workout pills (pill → different day cell) — dnd-kit PointerSensor + TouchSensor alongside existing HTML5 DnD
+- [x] Inline week detail panel — click week summary strip to expand a bottom-sheet/inline stats panel
+- [x] Taper start marker in calendar — shows ⚡ on the day taper should begin (computed from future Race workouts)
+
 **Notes from implementation:**
-- Template library uses click-to-add with `prompt()` for date — DnD deferred as it requires significant extra work
+- Template library uses click-to-add for mobile (placement mode), native HTML5 DnD for desktop templates
 - Block calendar overlay uses 5% opacity background on day cells from block color
 - Outcome locking (no future status) enforced in PATCH route (`date > today` → 422)
 - Zone ranges passed from server using user's actual VDOT (default VDOT 45 if insufficient data)
@@ -2105,6 +2110,87 @@ User reported descriptions no longer importing correctly from Strava, the activi
 
 **Verification:** `pnpm build --no-lint` passes. No browser available in this session — the map fix has not been visually verified; check on `training.helgars.se` after deploy (CartoDB tiles + Leaflet zoom control should render as a proper grid with no dark gaps).
 
+**Session 2026-06-16c — Stats: cadence/stride trend, EF trend, training monotony/strain, recovery speed:**
+
+Four new fitness metric sections added to the Stats page:
+
+- `app/(dashboard)/stats/page.tsx`:
+  - `type A` gains `startDateLocal: Date`, `averageCadence: number | null`, `trainingLoad: number | null` to support the new computations.
+  - **Slow path query** (`activities findMany select`): added `startDateLocal`, `averageCadence`, `trainingLoad` to the select clause.
+  - **Fast path query** (`recentForCurve findMany select`): added `startDateLocal`, `averageCadence`, `trainingLoad` to the select clause. New `CurveActExt` type alias used for the extended cast.
+  - **Cadence & stride trend (1A)** — computed in both slow and fast paths. Loops running activities with `averageCadence >= 50` and `averageSpeed >= 1`; computes `spm = averageCadence * 2` (Strava stores one-foot cadence) and `strideM = averageSpeed / (spm / 60)`; aggregates by ISO week key (`startDateLocal`). Last 26 weeks returned as `cadenceByWeek: { week, spm, strideM }[]`.
+  - **Efficiency Factor trend (2A)** — easy runs only (avgHR < lt1HR derived from `fitnessCache.decouplingLt1HR` or `0.76 * maxHR`), minimum 3 km. EF = speed(m/min) / avgHR. Sanity filter 0.5–5. Last 16 weeks as `efByWeek: { week, ef }[]`.
+  - **Training Monotony + Strain (2C)** — uses `trainingLoad` field (Strava-provided TSS) to build a per-day map for the current week. `monotony = weekMean / weekStddev`; `strain = weekTSS * monotony`. Both `null` if stddev is zero (uniform week or no data).
+  - **Recovery speed (2F)** — scans the already-computed `loadCurve` (730-day ATL/CTL/TSB array) for TSB troughs (< −15) to recovery (≥ 0) sequences; records day-count for each. `avgRecoveryDays` = mean across all sequences, `null` if fewer than 2 sequences found.
+  - `renderStats()` signature gains 6 new optional params: `cadenceByWeek`, `efByWeek`, `monotony`, `strain`, `avgRecoveryDays`, `recoveryDaysCount`. Both call sites pass these values.
+  - `StatsClient` JSX gains the same 6 props with `?? []`/`?? null`/`?? 0` defaults.
+
+- `app/(dashboard)/stats/stats-client.tsx`:
+  - New recharts imports: `LineChart`, `Line`, `ComposedChart`, `XAxis`, `YAxis`, `Tooltip`, `ResponsiveContainer` (recharts ^2.13 already in package.json).
+  - `Props` interface gains: `cadenceByWeek`, `efByWeek`, `monotony`, `strain`, `avgRecoveryDays`, `recoveryDaysCount`.
+  - Destructured in `StatsClient` body.
+  - **Load tab**: two new cards added below the `TrainingLoadChart`:
+    - "Träningsmonotoni (vecka)" — shows `monotony` (2 decimals, color-coded: accent < 1.5, warning 1.5–2.0, error > 2.0) and `strain` (integer) in a 2-column grid. Rendered only when `monotony !== null`.
+    - "Personlig återhämtningstid" — shows `avgRecoveryDays` with contextual text (< 5 = fast, > 8 = slow, else normal) and count of recovery sequences. Rendered only when `avgRecoveryDays !== null`.
+  - **Fitness tab**: two new `SectionCard`s added after the "Aerobic pace trend" card:
+    - "Kadens & steglängd" — dual-axis `ComposedChart`: left Y = spm (green `#6EE7B7`), right Y = strideM (blue `#60A5FA`), 160px height, legend below. Rendered when `cadenceByWeek.length > 0`.
+    - "Efficiency Factor (EF) — aerob effektivitet" — single `LineChart` (120px), plus a 4-week recent vs. first-4-week comparison summary line. Rendered when `efByWeek.length > 4`.
+
+**Session 2026-06-16d — Planner features 5A (touch DnD), 5B (week detail panel), 5D (taper marker):**
+
+**5A — Touch drag-and-drop for workout pills:**
+- `components/planner/PlannerCalendar.tsx`: Added `@dnd-kit/core` integration alongside the existing native HTML5 drag-and-drop (which remains for desktop). Imported `DndContext`, `DragOverlay`, `PointerSensor`, `TouchSensor`, `useSensor`, `useSensors`, `useDroppable`, `useDraggable`, `DragEndEvent`, `DragStartEvent`, `DragOverEvent`. Added `dndActiveWorkout` and `dndOverDate` state; `handleDndDragStart` (captures the dragging workout for the overlay), `handleDndDragOver` (updates `dndOverDate`), `handleDndDragEnd` (validates target is a date string, calls `onWorkoutMove`, no-ops on same-day drop). New `DroppableDay` component wraps each day cell with `useDroppable({ id: dateStr })` using `display: contents` so no extra DOM box is introduced. New `DraggableWorkout` component wraps each WorkoutPill with `useDraggable({ id: workout.id })`, adds `touch-none` class so touch events are handed to dnd-kit. `DragOverlay` renders a ghost pill during drag. Sensors use `PointerSensor` (distance: 8px activation — preserves click behaviour) and `TouchSensor` (500ms delay, 5px tolerance). `isDragOver` for visual highlight now ORs both HTML5 `dragOverDate` and dnd-kit `dndOverDate`. The existing `onWorkoutMove` prop and `handleMoveWorkout` in planner-client are unchanged.
+
+**5B — Inline week detail panel:**
+- `app/(dashboard)/planner/planner-client.tsx`: Added `format`, `startOfWeek` imports from `date-fns` and `X as XIcon` from lucide-react. New `selectedWeek` state stores `{ weekStart, workouts }`. `handleWeekClick(weekStart, weekWorkouts)` toggles the selected week (re-clicking same week closes the panel). `selectedWeekStats` useMemo computes `planned`, `completed`, `missed`, `tssHours`, `weekLabel` from the selected week's workouts. Panel rendered as `fixed inset-x-0 bottom-0 z-40` on mobile (bottom sheet) and `static md:border md:rounded-xl md:mt-4` on desktop (inline below the calendar). Shows 4 stat cells: Planned sessions, Completed sessions, Planned hours, Completion %. Close button (×) clears `selectedWeek`. `onWeekClick` prop wired to `PlannerCalendar`.
+- `components/planner/PlannerCalendar.tsx`: Added `onWeekClick?: (weekStart: Date, weekWorkouts: PlannedWorkout[]) => void` to Props. Both `WeekSummaryStrip` instances (row mode and compact/sidebar mode) receive `onClick` → `() => onWeekClick(weekStart, weekWorkouts)`. WeekSummaryStrip's existing `onClick` prop (previously only used to navigate to `/planner/week`) is now used to call the inline panel instead.
+
+**5D — Taper start marker in calendar:**
+- `components/planner/PlannerCalendar.tsx`: `taperWeeks(raceName, targetDuration)` helper maps race name/duration to taper length (marathon→3w, half→2w, 10k→1w, long race >1h→2w, else 1w). `taperDates` useMemo iterates future workouts where `type.name === "Race"` or name matches `/race|tävling/i`; for each, computes taper-start date = `race date − N×7 days`; stores in a `Set<string>`. Day cells check `taperDates.has(key)` and render `⚡ Taper start` in `text-[9px] font-semibold text-warning/70` below the date number when matched.
+
+**Phase checklist updates:**
+- [x] `components/planner/PlannerCalendar.tsx` — touch DnD via dnd-kit (5A), taper marker (5D), onWeekClick prop (5B)
+- [x] `app/(dashboard)/planner/planner-client.tsx` — week detail bottom panel (5B)
+
+**Notes:**
+- Native HTML5 DnD kept for desktop (already worked); dnd-kit adds touch support on top
+- The `/planner/week` detail page (full-page week breakdown) still exists and is navigated to by default when `onWeekClick` is not provided — the inline panel replaces that navigation in the planner view
+- `taperWeeks` is defined as a plain function inside the component body (not a hook) so it's available to the `taperDates` useMemo without being a dependency
+
+**Session 2026-06-16b — Infrastructure: token-refresh dedup, backfill prioritization, stream caching, PWA manifest:**
+
+- `lib/strava/client.ts`: added module-level `refreshingTokens: Map<string, Promise<string>>` — deduplicates concurrent Strava token-refresh calls for the same userId. If two parallel requests both see an expired token, only one network call goes to Strava; the second awaits the same Promise. Map entry is removed in `.finally()` so next real expiry creates a fresh refresh. `refreshStravaToken` now has an explicit `Promise<string>` return type.
+- `lib/strava/backfill.ts` `runHistoricalBackfill()`: added 90-day prioritization sort after the `findMany` call. Activities from the last 90 days are sorted to the front of the queue (still newest-first within that window); older activities come after. Ensures recent data is backfilled first during long initial syncs. `startDate` added to the Prisma `select` to support the sort; the field was unused by the loop body so no downstream change.
+- `app/api/activities/[id]/streams/route.ts`: rewrote to add DB caching. Checks `activity.stream` (the `ActivityStream` relation) before calling Strava — returns the cached stream immediately when present, reconstructing the Strava-shaped response object (`velocity_smooth` ↔ `velocity` field rename). On a live Strava fetch, computes HRR60 (heart-rate drop over 60 s after peak HR) and fires `prisma.activityStream.create` + optional `prisma.activity.update({ hrrSeconds })` fire-and-forget after returning the response. Streams are now fetched from Strava at most once per activity. `activity-charts.tsx` already fetches from `/api/activities/${activityId}/streams` — no change needed there.
+- `package.json`: added `"next-pwa": "^5.6.0"` to dependencies (install will happen on next prod deploy via `pnpm install`).
+- `public/manifest.json`: created PWA web app manifest — name, display: standalone, theme color `#6EE7B7`, background `#0F1117`, two icon entries (192px, 512px).
+- `app/layout.tsx`: added `manifest: "/manifest.json"` to the `metadata` export so Next.js injects the `<link rel="manifest">` tag.
+
+**Session 2026-06-16 — AI Coach: extended slash-command presets (7D) + /summarize command (7E):**
+
+- `components/coach/ChatInterface.tsx`: added `handleSummarize()` function — pre-fills the textarea with a Swedish summarize prompt ("Sammanfatta de viktigaste insikterna…") and focuses the textarea. Does NOT auto-send; user reviews and hits Enter.
+- `components/coach/ChatInterface.tsx`: added 5 preset prompt entries in the slash-command menu (below existing tools, above Language toggle), separated by a "Snabbkommandon" section header. Each preset pre-fills a Swedish template the user completes: `/plan`, `/taper`, `/analyze`, `/week`, `/compare`. Rendered via the existing `selectTool()` flow.
+- `components/coach/ChatInterface.tsx`: added `/summarize` as a 5th quick-start button in the empty-state suggestion row. Clicking it calls `handleSummarize()` rather than `setInput`.
+- `components/coach/ChatInterface.tsx`: added long-conversation banner — shown above the input when `messages.length >= 20` AND no message contains `"Sammanfattning:"`. The banner has a clickable "sammanfatta den" link that calls `handleSummarize()`.
+- `app/api/coach/summarize/route.ts` (new): POST endpoint that verifies session ownership and returns `{ messages: count }` for a given `conversationId`. Actual summarization flows through the normal chat endpoint after the user sends the pre-filled prompt.
+
+**Verification:** TypeScript check required — run `pnpm exec tsc --noEmit` to confirm no type errors before deploy.
+
+**Session 2026-06-16c — Activity list sort + filter (9F), Settings pace unit + annual goals (9H + 1E):**
+
+**Activity list sort and filter (9F):**
+- `app/(dashboard)/activities/page.tsx`: `searchParams` now accepts `sort`, `minKm`, `maxKm`, `racesOnly`. `sort` defaults to `"date_desc"`; `minKm`/`maxKm` are parsed from km to meters before being used in the Prisma `where` clause. `racesOnly` maps `"1"` → `{ isRace: true }`. `orderBy` is derived from `sort`: `dist_desc`/`dist_asc` sort by `distance`, `pace_asc`/`pace_desc` sort by `averageSpeed` (inverted — faster pace = higher speed), `date_desc` is the default. All new values passed as props to `ActivityList`.
+- `app/(dashboard)/activities/activity-list.tsx`: `Props` interface gains `sort: string` and `racesOnly: boolean`. New sort/filter row rendered above the sport chips: a `<select>` dropdown with 5 sort options (date, distance long→short, distance short→long, pace fastest, pace slowest) on the left; a "Tävlingar / 🏆 Tävlingar" toggle button on the right using `bg-warning/10` highlight when active. Both controls push to `/activities?...` via `useSearchParams()` + `router.push()`, clearing `page` param on change. On mobile the row stacks naturally via `flex-wrap`.
+
+**Settings — pace unit (9H):**
+- `app/(dashboard)/settings/athlete-profile.tsx`: `Profile` interface gains `paceUnit?: string | null`. A radio group with three options (`min/km`, `min/mi`, `km/h`) is rendered inside a `Field` spanning `sm:col-span-2`. Selection updates `form.paceUnit` directly. Included in the `fetch("/api/settings/profile")` POST body.
+- `app/api/settings/profile/route.ts`: `paceUnit` added to Zod schema as `z.enum(["min_per_km", "min_per_mi", "km_h"]).optional()`. Persisted via the existing `profileData` spread in the `AthleteProfile` upsert.
+
+**Settings — annual goals (1E):**
+- `app/(dashboard)/settings/athlete-profile.tsx`: `Profile` interface gains `annualGoals?: Record<string, Record<string, number>> | null`. `setGoal(sport, value)` helper updates `form.annualGoals[currentYear][sport]` and removes the key when the field is cleared. Rendered below pace unit as one number input per sport (from `sports` prop). Stored as `{ "2026": { "Run": 2000, "Ride": 3000 } }`.
+- `app/(dashboard)/settings/profile/page.tsx`: added `prisma.sportCategory.findMany` to the parallel query. Passes `paceUnit`, `annualGoals`, and `sports` to `AthleteProfileForm`. `annualGoals` cast from Prisma `JsonValue` to `Record<string, Record<string, number>> | null`.
+- `app/api/settings/profile/route.ts`: `annualGoals` added to Zod schema as a nested `Record<year-string, Record<sport-name, km-number>>` shape. Persisted as-is via the `profileData` spread (`Json?` column).
+
 **Session 2026-06-13f — Smoothed-pace display option, light-mode map tiles:**
 
 User requested a "slightly smoothed" pace display option on the activity performance chart, and a light-mode tile theme for the activity map (previously always dark).
@@ -2337,6 +2423,78 @@ Every internal API endpoint and cross-module function that crosses a boundary (H
 - **Drag-and-drop planner** — template library → calendar day (using @dnd-kit, deferred)
 - **Activity → Planned workout auto-matching** — deferred
 
+**Session 2026-06-16 — Dashboard Today Panel, Readiness Score, Annual Goal Widget, Volume Period Delta Table:**
+
+**Feature 4A+4B — Dashboard Today Panel + Readiness Score:**
+- `app/(dashboard)/dashboard/page.tsx`: extended `Promise.all` with 4 new parallel queries: `todayPlanned` (planned workouts for today's date), `latestGarmin` (most recent `GarminDailySummary` with HRV/sleep/battery fields), `garmin7d` (last 8 Garmin summaries for 7-day HRV baseline), `athleteProfile` (for annual goals). `todayStr` and `currentYear` computed before the query. After the existing load derivations, added `hrv7dValues` filter (non-null `hrvNightly`), `showReadiness` flag (true when fitness cache or Garmin data is available), and `readiness` computed via `computeReadiness()`.
+- `computeReadiness(tsb, latestGarmin, hrv7d)` pure function added below `ACWRCard`: 50-point base + TSB contribution (+-8-20 pts) + HRV trend vs. 7-day baseline (+-8-25 pts) + sleep score contribution (`(score-60)/5` pts); clamped 0-100. Color: green >= 70, amber >= 45, red below. Label: "Redo" / "Moderat" / "Aterhämta".
+- Today panel JSX added above `DashboardCards`: shows only when `todayPlanned.length > 0 || latestGarmin`. Header row shows formatted date + readiness badge (colored dot + score/label). If planned workouts exist, shows "Planerat idag" list with sport, duration (min), distance (km), and Planner link per workout. Garmin row shows sleep score/duration, HRV, and Body Battery. When no Garmin data, shows connect-Garmin prompt.
+
+**Feature 1E — Annual Goal Widget:**
+- `app/(dashboard)/dashboard/page.tsx`: after the nav shortcuts section, added annual goal widget. `annualGoalsRaw` cast from `athleteProfile.annualGoals` JSON. `goalsThisYear` extracted for the current year. If goals exist, fetches all YTD activities to build `ytdBySport: Record<string, number>` (distance in meters per sport type). Widget shows per-sport progress bars: ytdKm / goalKm with %, on-track status (projected km >= 95% of goal based on `dayOfYear` pace), and "prognos Xkm" forecast when off-track. Links to `/settings/profile` for editing.
+
+**Feature 1F — Volume Period Comparison Delta Table:**
+- `app/(dashboard)/stats/volume/volume-client.tsx`: `periodSummaries` useMemo extended. Each summary object now carries `km` (raw km independent of metric toggle), `sessions` (record count for the period), and `tss: 0` fields alongside existing `total`/`color`/`label`. After the existing A/B summary cards, a new delta comparison table renders (when `a.km > 0 || b.km > 0`): columns Metric / Period A / Period B / Delta A vs B. Rows: Distans (km) and Pass (sessions). The `delta()` helper shows "--" when ref is 0, otherwise `+X.X%` in accent or warning color.
+
 ---
 
-*Last updated: 2026-05-31 (Config K: weighted P80, slope-based LT2, effective-weight buckets; Config D: data-driven pace bounds, OL bootstrap; bug audit written; LT/AT trend chart plan written)*
+**Session 2026-06-16 (part 2) — Mega feature session: activity matching, activity page enhancements, stats analytics, planner DnD + week panel, stream caching, coach commands, PWA, color palettes:**
+
+**1C — Activity→Plan auto-matching:**
+- `lib/fitness/activity-matching.ts` (new): intent classification into 8 categories (easy/aerobic/threshold/vo2max/long/race/strength/other) using HR fraction, sport, name keywords, zone distribution. Score = 40 (sport) + 35 (intent compat) + 15 (distance ±20%) + 10 (duration ±25%). Threshold: ≥55 confidence.
+- `lib/strava/sync.ts`: `tryMatchActivity(userId, activityId)` — called fire-and-forget at end of `syncSingleActivity()`. Queries PlannedWorkouts ±1 day, runs intent matcher, writes `Activity.matchedPlannedId` if confident.
+
+**3E/3C/3F/1B/2B — Activity page enhancements (all in `app/(dashboard)/activities/[id]/page.tsx`):**
+- **GAP**: Grade Adjusted Pace shown in stats grid for runs with ≥20m/km elevation gain using existing `gradeAdjustedPace()`.
+- **PB banner**: compares `bestEfforts` against `raceRecord` table by rounded distance; shows Trophy pills for any effort faster than known PB (or no existing PB).
+- **Prev/Next nav**: two parallel Prisma queries for adjacent activities by `startDate`; links shown in header row.
+- **Pa:HR decoupling**: `computeDrift` and `SplitWithHR` exported from `lib/fitness/decoupling.ts`; decoupling card shown for runs ≥6 splits and ≥40 min. Color-coded: <5% green, <10% amber, ≥10% red.
+- **PVI**: Pace Variability Index computed from splits (std/mean × 100); shown in `SplitsTable` footer with label (Utmärkt/OK/Variabelt). `pvi` prop added to `SplitsTable`.
+
+**Stats analytics (all in `app/(dashboard)/stats/page.tsx` + `stats-client.tsx`):**
+- **Cadence trend** (1A): 26-week running cadence series (spm + stride length in m). Filters: `averageCadence > 50`, runs only. Both fast (from `recentForCurve`) and slow paths implemented. Dual-axis `ComposedChart` in stats-client.
+- **EF trend** (2A): Efficiency Factor (speed m/min per bpm) for easy runs only (HR < LT1). 4-week rolling delta shown. Both fast and slow paths.
+- **Monotony/Strain** (2C): current week's daily TSS array → mean/stddev → monotony (mean/stddev) → strain (total×monotony). Color-coded card.
+- **Recovery days** (2F): scan load curve for TSB < -15 troughs to TSB ≥ 0 recovery, average length. Card shows avg recovery days.
+
+**Coach (7D/7E) — `components/coach/ChatInterface.tsx` + `app/api/coach/summarize/route.ts`:**
+- `/summarize` quick command: pre-fills textarea with Swedish summary prompt; does not auto-send.
+- Quick commands section in tool picker: /plan, /taper, /analyze, /week, /compare — each pre-fills a structured prompt.
+- Long-conversation banner at ≥20 messages (when no existing summary).
+- POST `/api/coach/summarize` stub returns `{ messages: count }`.
+
+**Activities page (9D/9F) — `app/(dashboard)/activities/page.tsx` + `activity-list.tsx`:**
+- Sort dropdown: date_desc, dist_asc/desc, pace_asc/desc. Prisma `orderBy` driven by query param.
+- Races-only toggle button (filters `isRace = true`). Distance range filter (`minKm`/`maxKm` params).
+
+**Settings paceUnit + annualGoals (`app/(dashboard)/settings/athlete-profile.tsx` + `settings/profile/page.tsx` + `api/settings/profile/route.ts`):**
+- `AthleteProfile.paceUnit` (`String @default("min_per_km")`): radio group (min/km, min/mi, km/h).
+- `AthleteProfile.annualGoals` (`Json?`): per-sport distance goal inputs for current year. Schema: `Record<year, Record<sportName, km>>`.
+
+**Planner DnD + week panel (`components/planner/PlannerCalendar.tsx` + `planner/planner-client.tsx`):**
+- DnD: `DndContext` with `PointerSensor` (8px dist) + `TouchSensor` (500ms delay). `DraggableWorkout`/`DroppableDay` wrappers. `DragOverlay` ghost preview. `handleDndDragEnd` calls `onWorkoutMove(workoutId, targetDateStr)` which PATCHes `/api/planner/workouts/[id]` with `{ date }`.
+- Week detail panel: `selectedWeek` state toggles bottom-sheet panel (mobile fixed, desktop static). Shows planned/completed counts, TSS, and completion%. `WeekSummaryStrip` receives `onClick` to toggle.
+- Taper markers: scans future Race-type workouts → computes taper start (marathon: 3w, half: 2w, 10k: 1w) → shows "⚡ Taper start" chip on that calendar day.
+
+**Stream caching + HRR (`app/api/activities/[id]/streams/route.ts`):**
+- Cache-first: checks `activity.stream` relation (new `ActivityStream` DB model). Returns cached data immediately with `Cache-Control: private, max-age=604800`.
+- On miss: fetches from Strava, computes HRR60 (HR drop from peak to 60 samples later), writes `ActivityStream` + `Activity.hrrSeconds` fire-and-forget.
+- New schema: `ActivityStream { id, activityId @unique, fetchedAt, time/distance/altitude/heartrate/velocity/cadence/watts as Json }`.
+
+**Infrastructure:**
+- Strava token refresh race condition (`lib/strava/client.ts`): module-level `Map<string, Promise<string>>` deduplicates concurrent refresh calls.
+- Backfill prioritization (`lib/strava/backfill.ts`): sorts activities recent-first within last 90 days, then older.
+- PWA: `next-pwa ^5.6.0` added to dependencies; `public/manifest.json` created (name, standalone, theme, icons); manifest link in `app/layout.tsx` metadata.
+
+**Color palettes expanded:**
+- `app/(dashboard)/settings/sports/sports-manager.tsx`: `PRESET_COLORS` → 35 colors; `TYPE_COLOR_PALETTE` → 25 colors (full hue spectrum).
+- `components/planner/WorkoutBuilder.tsx`: `COLOR_PALETTE` → ~32 colors by hue family.
+- `components/planner/BlockEditorModal.tsx`: `PRESET_COLORS` → 30 colors.
+
+**Prisma schema changes:** `ActivityStream` model, `Activity.hrrSeconds Int?`, `Activity.stream` relation, `AthleteProfile.annualGoals Json?`, `AthleteProfile.paceUnit String @default("min_per_km")`.
+
+**Build:** `pnpm build --no-lint` passes clean. TypeScript fixes: explicit `r: { distanceM: number; time: number }` in raceRecords.map; `ex == null` instead of `!ex` for number comparison; explicit casts for large Promise.all tuple inference losses; `type CandidateRow` for sync.ts candidate mapping; `.catch((e: unknown) =>)` for stream caching.
+
+---
+
+*Last updated: 2026-06-16 (mega feature session — activity matching, activity page stats, cadence/EF/monotony trends, planner DnD + taper + week panel, stream caching, coach commands, PWA, color palettes)*

@@ -4,6 +4,11 @@ import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import { updateHRZones } from "@/lib/fitness/cache";
 
+const annualGoalsSchema = z.record(
+  z.string().regex(/^\d{4}$/),
+  z.record(z.string(), z.number().nonnegative())
+);
+
 const schema = z.object({
   name:            z.string().max(100).optional().nullable(),
   weightKg:        z.coerce.number().min(30).max(300).optional().nullable(),
@@ -17,6 +22,8 @@ const schema = z.object({
   maxHRArtifactCap:   z.coerce.number().int().min(170).max(220).optional().nullable(),
   primaryGoal:        z.string().max(200).optional().nullable(),
   yearsTraining:   z.coerce.number().int().min(0).max(80).optional().nullable(),
+  paceUnit:        z.enum(["min_per_km", "min_per_mi", "km_h"]).optional(),
+  annualGoals:     annualGoalsSchema.optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {

@@ -9,13 +9,24 @@ interface WorkoutType { id: string; name: string; color: string | null; order: n
 interface Sport { id: string; name: string; color: string; icon: string; isDefault?: boolean; isRunningRelated: boolean; workoutTypes: WorkoutType[]; }
 
 const PRESET_COLORS = [
-  "#10B981","#059669","#6366F1","#38BDF8","#0EA5E9",
-  "#F87171","#FBBF24","#F97316","#A78BFA","#EC4899",
+  // Greens & teals
+  "#10B981","#059669","#34D399","#6EE7B7","#14B8A6","#0D9488","#2DD4BF",
+  // Blues
+  "#3B82F6","#0EA5E9","#38BDF8","#60A5FA","#BAE6FD","#1D4ED8","#6366F1",
+  // Purples & pinks
+  "#A78BFA","#8B5CF6","#7C3AED","#EC4899","#F472B6","#DB2777","#E879F9",
+  // Oranges & reds
+  "#F97316","#FB923C","#FBBF24","#F59E0B","#F87171","#EF4444","#DC2626",
+  // Neutrals & special
+  "#94A3B8","#64748B","#1E293B","#D946EF","#84CC16","#22D3EE","#FAFAFA",
 ];
 
 const TYPE_COLOR_PALETTE = [
   "#7DD3FC","#2DD4BF","#F472B6","#818CF8","#3B82F6",
   "#FBBF24","#6EE7B7","#FB923C","#F87171","#A78BFA",
+  "#34D399","#60A5FA","#E879F9","#FCD34D","#F9A8D4",
+  "#BAE6FD","#6EE7B7","#C4B5FD","#FCA5A5","#FDE68A",
+  "#14B8A6","#8B5CF6","#EC4899","#F97316","#84CC16",
 ];
 
 // Canonical running type colors

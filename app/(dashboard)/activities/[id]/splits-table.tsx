@@ -20,7 +20,7 @@ function fmtTime(sec: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function SplitsTable({ splits, isLaps }: { splits: Split[]; isLaps?: boolean }) {
+export function SplitsTable({ splits, isLaps, pvi }: { splits: Split[]; isLaps?: boolean; pvi?: number | null }) {
   if (!splits || splits.length === 0) return null;
 
   const paces = splits.map(s => s.moving_time / (s.distance / 1000));
@@ -86,6 +86,14 @@ export function SplitsTable({ splits, isLaps }: { splits: Split[]; isLaps?: bool
           })}
         </tbody>
       </table>
+      {pvi != null && (
+        <p className="text-xs text-muted px-1 pt-2">
+          Pace variabilitet: {pvi.toFixed(1)}%&nbsp;&nbsp;
+          <span className={pvi < 3 ? "text-accent" : pvi < 6 ? "text-warning" : "text-error"}>
+            {pvi < 3 ? "Utmärkt pacingkontroll" : pvi < 6 ? "OK" : "Variabelt"}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
