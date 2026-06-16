@@ -2110,6 +2110,69 @@ User reported descriptions no longer importing correctly from Strava, the activi
 
 **Verification:** `pnpm build --no-lint` passes. No browser available in this session — the map fix has not been visually verified; check on `training.helgars.se` after deploy (CartoDB tiles + Leaflet zoom control should render as a proper grid with no dark gaps).
 
+**Session 2026-06-16e — i18n: full site translation Swedish → English:**
+
+Translated every user-visible Swedish string across 16 files. Regex patterns in workout-type classification code (WorkoutBuilder, PlannerCalendar, sports-manager) intentionally kept bi-lingual — they match user-entered workout names which may be Swedish. AI chat language toggle also intentionally untouched.
+
+Files changed:
+- `app/(dashboard)/activities/[id]/page.tsx` — Pa:HR section labels + explanation text
+- `app/(dashboard)/activities/[id]/splits-chart.tsx` — "tid"/"distans" → "Time"/"Distance"; "Snittempo" → "Avg pace"
+- `app/(dashboard)/activities/[id]/splits-table.tsx` — "Pace variabilitet" → "Pace variability"
+- `app/(dashboard)/activities/activity-list.tsx` — sort labels; "Tävlingar" → "Races"
+- `app/(dashboard)/dashboard/page.tsx` — "Planerat idag", "Sömn", "Träningsdagbok", "Alla idrotter", "Mål", "Redigera" etc. → English
+- `app/(dashboard)/dashboard/sync-button.tsx` — "aktiviteter"→"activities", "Uppdaterat"→"Up to date", "Syncar…"→"Syncing…"
+- `app/(dashboard)/history/history-client.tsx` — weekday headers Mån–Sön → Mon–Sun; "sammanfattad"→"no laps"; title tooltip → English
+- `app/(dashboard)/races/page.tsx` — subtitle text
+- `app/(dashboard)/settings/athlete-profile.tsx` — field labels
+- `app/(dashboard)/settings/goals/goals-manager.tsx` — "Vecka/Månad/År"→"Week/Month/Year"; "Distans/Tid"→"Distance/Time"; "Alla idrotter"→"All sports"; all buttons/labels
+- `app/(dashboard)/stats/stats-client.tsx` — card titles ("Träningsmonotoni"→"Training Monotony", "Kadens & steglängd"→"Cadence & Stride", "Efficiency Factor — aerob effektivitet"→"Efficiency Factor", "Personlig återhämtningstid"→"Recovery time"); "tempopass"→"tempo runs"; recovery description text
+- `app/(dashboard)/stats/volume/volume-client.tsx` — km/time toggle capitalization standardized: "Km"→"km", "Time"→"time" (matches stats-client.tsx)
+- `app/api/coach/calibrate/route.ts` — `aiInsights` error strings from Swedish to English
+- `components/charts/LTPaceTrendChart.tsx` — "(prognos)"→"(projected)"; "3-månadersprognos"→"3-month projection"; "Rullande 90-dagarsfönster"→"Rolling 90-day window"; "För lite data"→"Not enough data"; "Ingen data"→"No data"
+- `components/coach/ChatInterface.tsx` — tool menu, presets, empty state, long-conversation banner; `"Sammanfattning:"` → `"Summary:"` for banner detection
+- `components/stats/fitness-metrics.tsx` — ACWR label + safe zone description
+
+**Session 2026-06-16f — Bug fixes + new features (prior session undocumented items):**
+
+Features and fixes from the session preceding the translation pass that were not yet in the plan:
+
+**`lib/utils.ts` — `formatPace` "3:60" fix:**
+- Round total seconds *before* computing minutes/seconds: `const totalSec = Math.round(1000 / metersPerSec)`. Previously, seconds were derived after flooring minutes, causing the remainder to display as "60" when rounding pushed it over 59.
+
+**`app/(dashboard)/activities/[id]/page.tsx` — Pa:HR sign-aware labels:**
+- `drift = r2/r1 - 1`: negative drift = HR dropped relative to pace (negative split / good aerobic coupling). Label now correctly says "negative drift" for well-coupled efforts instead of showing a misleading direction.
+
+**`app/(dashboard)/stats/page.tsx` — Monotony fast path fix:**
+- Monotony card was always null/hidden on the fast path because `trainingLoad ?? 0` used Strava-provided TSS which is frequently null → all 7 days = 0 → stddev = 0 → null. Fixed: fast path now builds per-day TSS from `curveTSSMap` (same HR-derived TSS used for ATL/CTL), consistent with the slow path.
+
+**`app/(dashboard)/stats/stats-client.tsx` — EF delta comparison fix:**
+- `slice(0, 4)` was comparing recent 4 weeks to the *oldest 4 weeks ever*, not to 4–8 weeks ago. Fixed to `slice(-8, -4)` with an `efByWeek.length >= 8` guard. Label updated from "vs 4-8 veckor sen" to "vs prior 4 weeks".
+
+**`app/(dashboard)/stats/stats-client.tsx` — Cadence & EF chart styling:**
+- Both charts now use `CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false}`, styled `XAxis`/`YAxis` with `var(--text-primary)` fill, and formatted tooltip values — matching the styling of all other recharts in the app.
+
+**`app/(dashboard)/stats/stats-client.tsx` — Recovery card description:**
+- Recovery time card now includes a brief explanation: "< 5 days = fast recovery; > 8 days = slow; check stress sources" — gives context without requiring the user to know TSB conventions.
+
+**`prisma/schema.prisma` + `/api/settings/goals` + `/settings/goals` — Training Goals CRUD:**
+- New `TrainingGoal` model: `id`, `userId`, `sport String @default("")` ("" = all sports), `metric` ("distance"|"time"), `period` ("week"|"month"|"year"), `target Float` (km or minutes). `@@unique([userId, sport, metric, period])`. `sport @default("")` (not nullable) so Prisma upsert on the unique constraint works (PostgreSQL `NULL != NULL` breaks upsert with nullable unique fields).
+- `app/api/settings/goals/route.ts`: GET (all goals for user), POST (upsert by unique key), DELETE (by `?id=`).
+- `app/(dashboard)/settings/goals/page.tsx`: server component, fetches goals + sports list.
+- `app/(dashboard)/settings/goals/goals-manager.tsx`: client component — add/edit/delete goals per sport per period per metric. All periods (Week/Month/Year) and metrics (Distance/Time) editable per sport or "All sports".
+- `components/settings/settings-nav.tsx`: "Goals" tab added between Training Types and Account.
+
+**`app/(dashboard)/dashboard/page.tsx` — Goals progress widget:**
+- Fetches active `TrainingGoal` rows in parallel with other dashboard data. Computes `goalProgress` per goal: sums matching activities by sport and period (current week/month/year), returns `{ target, actual, unit, label }`. Progress bars rendered in a "Training Goals" widget below the planning widget.
+
+**`prisma/schema.prisma` + `/api/settings/profile` — `paceUnitBySport` field:**
+- `AthleteProfile.paceUnitBySport Json?` — per-sport pace unit override `{ "Run": "min_per_km", "Ride": "km_h" }`, separate from the global `paceUnit`. Zod schema updated to accept `z.record(z.string(), z.enum([...]))`.
+
+**`components/coach/ChatInterface.tsx` — Tool picker inserts `/toolname` only:**
+- `selectTool(name)` now inserts only `/${name} ` (with trailing space) instead of the full preset template. User builds the prompt themselves after picking a tool. Slash-command preset section renamed to plain command names.
+
+**Planner — week detail panel reverted (5B):**
+- The inline week detail bottom sheet added in Session 2026-06-16d (5B) was removed after review: `selectedWeek` state, `handleWeekClick`, `selectedWeekStats` useMemo, `onWeekClick` prop, and the panel JSX were all removed from `planner-client.tsx` and `PlannerCalendar.tsx`. `WeekSummaryStrip` click now navigates to `/planner/week` (the dedicated week-detail page) as before. The `startOfWeek` import removed from planner-client.tsx (no longer used after this removal).
+
 **Session 2026-06-16c — Stats: cadence/stride trend, EF trend, training monotony/strain, recovery speed:**
 
 Four new fitness metric sections added to the Stats page:
