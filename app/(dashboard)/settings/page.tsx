@@ -6,6 +6,7 @@ import { getCredentials } from "@/lib/config";
 import { StravaConnectSection } from "./strava-connect";
 import { GarminConnectSection } from "./garmin-connect";
 import { AISettingsSection } from "./ai-settings";
+import { getGarminAuthUrl } from "@/lib/garmin/auth";
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -20,6 +21,9 @@ export default async function SettingsPage() {
   // Webhook must always point to the public domain (training.helgars.se), never localhost
   const webhookBaseUrl   = (process.env.NEXTAUTH_URL ?? origin).replace(/\/$/, "");
   const stravaWebhookUrl = `${webhookBaseUrl}/api/strava/webhook`;
+
+  const garminCallbackUrl = `${origin}/api/garmin/callback`;
+  const garminAuthUrl     = getGarminAuthUrl(garminCallbackUrl);
 
   const [stravaAccount, garminAccount, aiSettings, user, appConfig] =
     await Promise.all([
@@ -70,6 +74,7 @@ export default async function SettingsPage() {
         <GarminConnectSection
           connected={!!garminAccount}
           displayName={garminAccount?.displayName ?? null}
+          garminAuthUrl={garminAuthUrl}
         />
       </IntegrationCard>
 

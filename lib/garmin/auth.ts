@@ -299,6 +299,43 @@ export async function fetchDisplayName(accessToken: string): Promise<string | nu
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+export { CookieJar };
+export { ticketToOAuth1, oauth1ToOAuth2 };
+
+/** Generate the Garmin SSO URL that redirects the browser to our callback after login. */
+export function getGarminAuthUrl(callbackUrl: string): string {
+  const params = new URLSearchParams({
+    service:                         callbackUrl,
+    webhost:                         "https://connect.garmin.com/modern/",
+    source:                          "https://connect.garmin.com/signin/",
+    redirectAfterAccountLoginUrl:    callbackUrl,
+    redirectAfterAccountCreationUrl: callbackUrl,
+    gauthHost:                       SSO_BASE,
+    locale:                          "en_US",
+    id:                              "gauth-widget",
+    clientId:                        "GarminConnect",
+    consumeServiceTicket:            "false",
+    initialFocus:                    "true",
+    embedWidget:                     "false",
+    generateExtraServiceTicket:      "true",
+    generateTwoExtraServiceTickets:  "true",
+    generateNoServiceTicket:         "false",
+    connectLegalTerms:               "true",
+    mobile:                          "false",
+    rememberMeShown:                 "true",
+    rememberMeChecked:               "false",
+    showPassword:                    "true",
+    useCustomHeader:                 "false",
+    globalOptInShown:                "true",
+    globalOptInChecked:              "false",
+    showTermsOfUse:                  "false",
+    showPrivacyPolicy:               "false",
+    showConnectLegalAge:             "false",
+    locationPromptShown:             "true",
+  });
+  return `${SSO_BASE}/signin?${params}`;
+}
+
 export interface GarminTokens {
   accessToken:  string;
   refreshToken: string;
