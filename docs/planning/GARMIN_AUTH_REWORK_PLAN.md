@@ -187,3 +187,45 @@ Two real bugs found during testing, both now fixed:
    (correct, same-origin) `postMessage` never had a chance to fire. Fixed by flipping to
    `"true"`. Debug `postMessage` logging (added in a prior session) is left in
    `garmin-connect.tsx` until this is confirmed working live, then should be removed.
+
+5. **Two more bugs in the ticket→OAuth1→OAuth2 exchange itself (`lib/garmin/auth.ts`),
+   present since the very first Garmin auth commit, confirmed and fixed 2026-06-18 by
+   testing directly against the real Garmin API with a real ticket from this dev machine:**
+   - `ticketToOAuth1`'s `login-url` param was `${SSO_BASE}/sso/login`, which evaluates to
+     `https://sso.garmin.com/sso/sso/login` — a literal 404 (duplicated `/sso/` segment).
+     Confirmed via two independent, current (post-March-2026) community implementations
+     (a Playwright-based token gist and the `garmin-givemydata` project) that the correct
+     value is the SSO embed URL itself: `https://sso.garmin.com/sso/embed`.
+   - `oauth1ToOAuth2`'s POST to `/oauth-service/oauth/exchange/user/2.0` sent no
+     `Content-Type` header when there was no `mfa_token` to include, which Garmin rejects
+     with `415 Unsupported Media Type`. Garmin requires
+     `Content-Type: application/x-www-form-urlencoded` on this request even with an empty
+     body.
+   - Verified end-to-end: with both fixes, a real ticket exchanged for a real
+     `access_token`/`refresh_token` and successfully fetched the account's actual Garmin
+     profile (email, VO2max, etc.) — first confirmed successful Garmin connection across
+     this entire saga.
+
+## Alternatives considered and rejected (2026-06-18)
+
+Before finding the real bug above, explored whether to bypass the SSO ticket dance
+entirely:
+
+- **Official Garmin Health API** (`developer.garmin.com/gc-developer-program/health-api/`):
+  framed around Corporate Wellness / Population Health / Patient Monitoring, commercial
+  license fee, no clear individual-developer tier. Not worth pursuing for a personal
+  single-user project.
+- **exist.io**: does have a Garmin integration now, but it's webhook-push-only (no
+  on-demand pull — doesn't fit our cron-based daily sync) and explicitly does not plan to
+  include HRV. Rejected.
+- **Spike API / Open Wearables** (commercial wearable-data aggregators with real Garmin
+  access): B2B-priced, disproportionate for a single user. Rejected unless the direct
+  approach becomes fully unworkable.
+- **Server-side browser automation** (Playwright or SeleniumBase in "undetected Chrome"
+  mode) to fully automate the login step itself, bypassing Cloudflare bot-detection on
+  credential POSTs: this is what `garmin-givemydata` (a community project built after the
+  March 2026 breakage) uses, and it's a proven-current approach. Not implemented — the
+  ticket-paste flow plus the exchange fix above already gets a real login working without
+  the added complexity/maintenance of running a real Chromium instance on the production
+  server. **Keep as Plan B** if Garmin's SSO embed widget itself stops working from a real
+  user browser.

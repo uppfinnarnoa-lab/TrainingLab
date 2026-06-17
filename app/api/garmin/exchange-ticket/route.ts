@@ -19,10 +19,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const jar          = new CookieJar();
-    const { token, secret } = await ticketToOAuth1(ticket, jar);
-    const tokens            = await oauth1ToOAuth2(token, secret, jar);
-    const displayName       = await fetchDisplayName(tokens.accessToken);
+    const jar                         = new CookieJar();
+    const { token, secret, mfaToken } = await ticketToOAuth1(ticket, jar);
+    const tokens                      = await oauth1ToOAuth2(token, secret, jar, mfaToken);
+    const displayName                 = await fetchDisplayName(tokens.accessToken);
 
     await prisma.garminAccount.upsert({
       where:  { userId },

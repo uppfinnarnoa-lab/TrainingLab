@@ -2999,6 +2999,23 @@ Also tried the manual email+password fallback as a quicker alternative — faile
 
 ---
 
+### Session 2026-06-18a — Garmin SSO: found and fixed the real exchange bugs, first confirmed working connection
+
+User reported the ticket-paste flow still failed with "Token exchange failed" using a real, freshly-pasted ticket. Investigated `lib/garmin/auth.ts`'s `ticketToOAuth1`/`oauth1ToOAuth2` (the part of the chain shared by *every* Garmin auth strategy this project has tried — manual email/password, mobile JSON API, and the new ticket-paste flow all funnel through these two functions) and found two real bugs, both present since the very first Garmin auth commit:
+
+1. **`ticketToOAuth1`'s `login-url` param** was `` `${SSO_BASE}/sso/login` `` = `https://sso.garmin.com/sso/sso/login` — a literal 404 (duplicated `/sso/` segment; `SSO_BASE` already ends in `/sso`). Confirmed via web research against two independent, currently-working community implementations (a Playwright-based Garmin OAuth gist and the `garmin-givemydata` project) that the correct value is `https://sso.garmin.com/sso/embed` (the actual SSO embed URL the ticket was issued against).
+2. **`oauth1ToOAuth2`'s POST** to `/oauth-service/oauth/exchange/user/2.0` sent no `Content-Type` header at all when there was no `mfa_token` to forward (which is always, for this non-MFA account) — Garmin's server returns `415 Unsupported Media Type` for that. It requires `Content-Type: application/x-www-form-urlencoded` even with an empty body.
+
+**Verification:** rather than guessing and redeploying repeatedly, tested both fixes directly from the dev machine against the real Garmin API, using a fresh ticket the user pasted into chat (tickets are short-lived/low-sensitivity, unlike credentials). First attempt (only the `login-url` fix) got past step 1 but hit the `415` on step 2; added the `Content-Type` fix and retested using the same OAuth1 token (confirmed it isn't single-use within the test window) — got a real `access_token`/`refresh_token` and successfully called Garmin's `userprofile-service` with it, returning the account's actual profile (email, VO2max, etc.). This is the first confirmed successful Garmin token exchange across this entire multi-day debugging saga.
+
+**Fix:** `lib/garmin/auth.ts` — `login-url` now uses the existing `SSO_EMBED` constant; `oauth1ToOAuth2` always sets `Content-Type: application/x-www-form-urlencoded` (previously only when forwarding `mfa_token`). Also added: `ticketToOAuth1` now returns and forwards an optional `mfa_token` from the preauthorized response (matches the verified reference implementations; not exercised by this account since 2FA is disabled, but needed for protocol correctness) — propagated through `oauth1ToOAuth2`, `/api/garmin/exchange-ticket/route.ts`, `/api/garmin/callback/route.ts`, and `loginWithGarmin()`. Also added the `BROWSER_HEADERS` (Android UA) to both requests, matching what the verified-working reference implementations send.
+
+**Alternatives researched and rejected this session** (full detail in `GARMIN_AUTH_REWORK_PLAN.md`): official Garmin Health API (business/commercial-only, no individual tier), exist.io (webhook-only, no HRV), Spike API / Open Wearables (B2B-priced wearable data aggregators). Documented server-side browser automation (Playwright/SeleniumBase, as used by the community `garmin-givemydata` project) as a Plan B if the SSO embed widget itself ever stops working — not implemented since the direct fix above already works.
+
+**Not yet done:** the fix has only been verified via a standalone Node script hitting Garmin's real API directly from the dev machine, bypassing the app/DB entirely (proves the Garmin-side protocol is now correct). It has **not yet been verified through the actual deployed `/api/garmin/exchange-ticket` route and Prisma `GarminAccount` upsert** — needs a real deploy + one more live ticket-paste attempt to confirm end-to-end.
+
+---
+
 ### Session 2026-06-18 — Coach chat "stuck with no feedback" fix, large-screen layout, planner desktop drag-and-drop regression
 
 **Bug 1 — AI coach: long silent waits, no "thinking" indicator, occasional total hang.**

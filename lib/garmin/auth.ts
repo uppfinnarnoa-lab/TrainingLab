@@ -231,11 +231,13 @@ async function submitCredentials(
 async function ticketToOAuth1(
   ticket: string,
   jar: CookieJar,
-): Promise<{ token: string; secret: string }> {
+): Promise<{ token: string; secret: string; mfaToken?: string }> {
   const endpoint = `${CONNECT_API}/oauth-service/oauth/preauthorized`;
   const params   = new URLSearchParams({
     ticket,
-    "login-url":          `${SSO_BASE}/sso/login`,
+    // Must be the actual SSO embed URL the ticket was issued against, not an
+    // arbitrary login page - Garmin's server validates the ticket against this.
+    "login-url":          SSO_EMBED,
     "accepts-mfa-tokens": "true",
   });
   const fullUrl    = `${endpoint}?${params}`;
@@ -243,6 +245,7 @@ async function ticketToOAuth1(
 
   const res = await fetch(fullUrl, {
     headers: {
+      ...BROWSER_HEADERS,
       Authorization: authHeader,
       Cookie:        jar.header(),
     },
@@ -255,7 +258,7 @@ async function ticketToOAuth1(
   const tok    = parsed.get("oauth_token");
   const sec    = parsed.get("oauth_token_secret");
   if (!tok || !sec) throw new Error("Missing oauth_token in preauthorized response");
-  return { token: tok, secret: sec };
+  return { token: tok, secret: sec, mfaToken: parsed.get("mfa_token") ?? undefined };
 }
 
 // ── Step 4: OAuth1 token → OAuth2 Bearer tokens ─────────────────────────────
@@ -264,16 +267,22 @@ async function oauth1ToOAuth2(
   token: string,
   secret: string,
   jar: CookieJar,
+  mfaToken?: string,
 ): Promise<GarminTokens> {
   const url        = `${CONNECT_API}/oauth-service/oauth/exchange/user/2.0`;
   const authHeader = oauth1Header("POST", url, {}, token, secret);
+  // Garmin returns 415 Unsupported Media Type without this header, even for an empty body.
+  const body       = mfaToken ? new URLSearchParams({ mfa_token: mfaToken }).toString() : "";
 
   const res = await fetch(url, {
     method:  "POST",
     headers: {
-      Authorization: authHeader,
-      Cookie:        jar.header(),
+      ...BROWSER_HEADERS,
+      Authorization:  authHeader,
+      Cookie:         jar.header(),
+      "Content-Type": "application/x-www-form-urlencoded",
     },
+    body,
   });
   jar.absorb(res.headers);
 
@@ -465,10 +474,10 @@ export async function loginWithGarmin(
     ticket = await submitCredentials(email, password, csrfMatch[1], jar, ssoPageUrl);
   }
 
-  const jar2              = new CookieJar();
-  const { token, secret } = await ticketToOAuth1(ticket, jar2);
-  const tokens            = await oauth1ToOAuth2(token, secret, jar2);
-  const displayName       = await fetchDisplayName(tokens.accessToken);
+  const jar2                         = new CookieJar();
+  const { token, secret, mfaToken }  = await ticketToOAuth1(ticket, jar2);
+  const tokens                       = await oauth1ToOAuth2(token, secret, jar2, mfaToken);
+  const displayName                  = await fetchDisplayName(tokens.accessToken);
 
   return { ...tokens, displayName };
 }
