@@ -14,7 +14,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromStatisticalAnalysis, ensureValidZones, MAXHR_ARTIFACT_CAP } from "./zones";
+import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromStatisticalAnalysis, ensureValidZones, computeZoneTime, type ZoneTimeActivity, MAXHR_ARTIFACT_CAP } from "./zones";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, personalizedFatigueExponent, type RacePB } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
 import { estimateCriticalSpeed } from "./critical-speed";
@@ -102,15 +102,21 @@ function smoothLTTrend(points: LTPacePointSmooth[]): LTPacePointSmooth[] {
     };
   });
 
-  // Pass 2: cap improvement at 20s/month (physiological rate limit)
+  // Pass 2: cap month-over-month change at 20s in EITHER direction (physiological rate
+  // limit). Originally only capped improvement — degradation had no limit at all, so a
+  // single bad current-month estimate (the trailing point, which pass 1 can never smooth
+  // since it has no "next" neighbor to compare against) could show an implausible jump
+  // slower with nothing to catch it.
+  const clamp = (curr: number, prev: number) =>
+    curr < prev - 20 ? prev - 20 : curr > prev + 20 ? prev + 20 : curr;
   const pass2: LTPacePointSmooth[] = [pass1[0]];
   for (let i = 1; i < pass1.length; i++) {
     const prev = pass2[i - 1], curr = pass1[i];
     if (monthDiff(prev.month, curr.month) !== 1) { pass2.push(curr); continue; }
     pass2.push({
       ...curr,
-      lt2PaceSecPerKm: curr.lt2PaceSecPerKm < prev.lt2PaceSecPerKm - 20 ? prev.lt2PaceSecPerKm - 20 : curr.lt2PaceSecPerKm,
-      lt1PaceSecPerKm: curr.lt1PaceSecPerKm < prev.lt1PaceSecPerKm - 20 ? prev.lt1PaceSecPerKm - 20 : curr.lt1PaceSecPerKm,
+      lt2PaceSecPerKm: clamp(curr.lt2PaceSecPerKm, prev.lt2PaceSecPerKm),
+      lt1PaceSecPerKm: clamp(curr.lt1PaceSecPerKm, prev.lt1PaceSecPerKm),
     });
   }
   return pass2;
@@ -193,26 +199,13 @@ export async function updateVO2maxAndPaces(userId: string) {
   for (const wk of Object.values(weeklyVolumeJson))
     for (const s of Object.values(wk)) s.km = Math.round(s.km * 10) / 10;
 
-  // ── Zone seconds & polarisation (last 12 weeks) ────────────────────────
+  // ── Zone seconds & polarisation (last 12 weeks) ─────────────────────────
+  // Lap-aware: a mixed-effort session (warmup/hard/cooldown) gets its time split across
+  // the zones actually experienced, instead of bucketed wholesale by the blended average.
   type ZoneMap = { z1: [number,number]; z2: [number,number]; z3: [number,number]; z4: [number,number]; z5: [number,number] };
   const hz = existingZones as ZoneMap;
   const twelveWeeksAgo = subDays(now, 84);
-  const zoneSecondsJson = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 } as Record<string, number>;
-  let polZ1 = 0, polZ2 = 0, polZ3 = 0;
-  const lt1hr = hz?.z2?.[1] ?? Math.round(maxHR * 0.78);
-  const lt2hr = hz?.z4?.[0] ?? Math.round(maxHR * 0.88);
-
-  for (const a of activities as Act[]) {
-    if (a.startDate < twelveWeeksAgo || !a.averageHeartrate) continue;
-    const hr = a.averageHeartrate;
-    const z = hz
-      ? (hr < hz.z1[1] ? 1 : hr < hz.z2[1] ? 2 : hr < hz.z3[1] ? 3 : hr < hz.z4[1] ? 4 : 5)
-      : (hr < lt1hr ? 1 : hr < lt2hr ? 3 : 5); // simplified fallback
-    zoneSecondsJson[`z${z}`] = (zoneSecondsJson[`z${z}`] ?? 0) + a.movingTime;
-    if (hr < lt1hr) polZ1 += a.movingTime;
-    else if (hr < lt2hr) polZ2 += a.movingTime;
-    else polZ3 += a.movingTime;
-  }
+  const { zoneSeconds: zoneSecondsJson, polZ1, polZ2, polZ3 } = computeZoneTime(activities as ZoneTimeActivity[], hz, twelveWeeksAgo);
   const polTotal = polZ1 + polZ2 + polZ3;
   const polarisationJson = polTotal > 0
     ? { z1Pct: Math.round(polZ1/polTotal*100), z2Pct: Math.round(polZ2/polTotal*100), z3Pct: Math.round(polZ3/polTotal*100) }
@@ -727,22 +720,12 @@ export async function updateHRZones(userId: string) {
     return { label, meters, peak, today: tsbAdjustedRaceTime(peak, cachedTsb), riegel, rangeLo: range.lo, rangeHi: range.hi };
   });
 
-  // Recompute zone distribution with the newly calibrated zones so charts update immediately
+  // Recompute zone distribution with the newly calibrated zones so charts update immediately.
+  // Lap-aware: see computeZoneTime() doc comment.
   const twelveWeeksAgo = subDays(new Date(), 84);
   type ZoneMap2 = { z1:[number,number]; z2:[number,number]; z3:[number,number]; z4:[number,number]; z5:[number,number] };
   const hz2 = zonesJson as ZoneMap2;
-  const zoneSecondsJson = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 } as Record<string, number>;
-  let polZ1 = 0, polZ2 = 0, polZ3 = 0;
-  const lt1hr2 = hz2.z2[1], lt2hr2 = hz2.z4[0];
-  for (const a of acts) {
-    if (a.startDate < twelveWeeksAgo || !a.averageHeartrate) continue;
-    const hr = a.averageHeartrate;
-    const z = hr < hz2.z1[1] ? 1 : hr < hz2.z2[1] ? 2 : hr < hz2.z3[1] ? 3 : hr < hz2.z4[1] ? 4 : 5;
-    zoneSecondsJson[`z${z}`] = (zoneSecondsJson[`z${z}`] ?? 0) + a.movingTime;
-    if (hr < lt1hr2) polZ1 += a.movingTime;
-    else if (hr < lt2hr2) polZ2 += a.movingTime;
-    else polZ3 += a.movingTime;
-  }
+  const { zoneSeconds: zoneSecondsJson, polZ1, polZ2, polZ3 } = computeZoneTime(acts as ZoneTimeActivity[], hz2, twelveWeeksAgo);
   const polTotal2 = polZ1 + polZ2 + polZ3;
   const polarisationJson = polTotal2 > 0
     ? { z1Pct: Math.round(polZ1/polTotal2*100), z2Pct: Math.round(polZ2/polTotal2*100), z3Pct: Math.round(polZ3/polTotal2*100) }

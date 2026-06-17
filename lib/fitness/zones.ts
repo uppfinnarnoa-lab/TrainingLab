@@ -327,12 +327,17 @@ export function estimateZonesFromStatisticalAnalysis(
   const refTime = (asOf ?? new Date()).getTime();
 
   // Prefer 90-day recency half-life to track current fitness; fall back to 180 days when
-  // fewer than 40 runs exist in the last 90 days (injury/off-season gaps).
+  // few runs exist in the last 90 days (injury/off-season gaps). Smoothed linearly across
+  // a 30-50 run band instead of a hard cutoff at 40 — a single activity crossing the 90-day
+  // window boundary (which happens every day, with zero new data needed) could otherwise
+  // flip this boolean and reweight every bucket in the regression at once, producing a
+  // large, discontinuous jump in the estimate from nothing more than the date advancing.
   const recentCount = runs.filter(r => {
     if (!r.startDate) return false;
     return (refTime - r.startDate.getTime()) / 86_400_000 < 90;
   }).length;
-  const halfLife = recentCount >= 40 ? 90 : 180;
+  const halfLifeT = Math.max(0, Math.min(1, (recentCount - 30) / 20)); // 0 at <=30 runs, 1 at >=50
+  const halfLife = 180 - halfLifeT * 90;
 
   // ── First pass: all valid raw points (no gap upper bound) ─────────────────
   // HR bounds are universal physiology; lower gap bound (200 s/km = 3:20/km) is a
@@ -549,6 +554,62 @@ export function classifyHRZone(avgHR: number | null, zones: HRZones): number {
   if (avgHR < zones.z3[1]) return 3;
   if (avgHR < zones.z4[1]) return 4;
   return 5;
+}
+
+export interface ZoneTimeActivity {
+  startDate: Date;
+  movingTime: number;
+  averageHeartrate: number | null;
+  laps?: unknown;
+}
+
+export interface ZoneTimeResult {
+  zoneSeconds: Record<string, number>; // z1..z5
+  polZ1: number; polZ2: number; polZ3: number; // Seiler low/moderate/high seconds
+}
+
+type ZoneBoundaries = Pick<HRZones, "z1" | "z2" | "z3" | "z4" | "z5">;
+
+/**
+ * Time-in-zone from activities since `windowStart`, using lap-level HR when an activity
+ * has laps (so a session that mixes warmup/hard intervals/cooldown gets its time split
+ * across the zones actually experienced) and falling back to the whole-activity average
+ * HR only when no laps exist. Classifying by whole-activity average alone systematically
+ * hides time in the extreme zones (Z1 and Z4/Z5) for any mixed-effort session, since the
+ * blended average gets pulled toward the middle zones.
+ */
+export function computeZoneTime(
+  activities: ZoneTimeActivity[],
+  zones: ZoneBoundaries,
+  windowStart: Date,
+): ZoneTimeResult {
+  const zoneSeconds: Record<string, number> = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
+  let polZ1 = 0, polZ2 = 0, polZ3 = 0;
+  const lt1hr = zones.z2[1];
+  const lt2hr = zones.z4[0];
+
+  const accumulate = (hr: number, sec: number) => {
+    const z = hr < zones.z1[1] ? 1 : hr < zones.z2[1] ? 2 : hr < zones.z3[1] ? 3 : hr < zones.z4[1] ? 4 : 5;
+    zoneSeconds[`z${z}`] += sec;
+    if (hr < lt1hr) polZ1 += sec;
+    else if (hr < lt2hr) polZ2 += sec;
+    else polZ3 += sec;
+  };
+
+  for (const a of activities) {
+    if (a.startDate < windowStart) continue;
+    const laps = Array.isArray(a.laps)
+      ? (a.laps as { average_heartrate?: number; moving_time: number }[])
+          .filter(l => l.average_heartrate && l.moving_time > 0)
+      : [];
+    if (laps.length > 0) {
+      for (const l of laps) accumulate(l.average_heartrate!, l.moving_time);
+    } else if (a.averageHeartrate) {
+      accumulate(a.averageHeartrate, a.movingTime);
+    }
+  }
+
+  return { zoneSeconds, polZ1, polZ2, polZ3 };
 }
 
 // Daniels VDOT pace tables. Returns pace zones in seconds per km.

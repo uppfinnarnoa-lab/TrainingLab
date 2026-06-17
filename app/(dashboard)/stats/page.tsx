@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
 import { StatsClient } from "./stats-client";
 import { StatsErrorBoundary } from "./stats-error-boundary";
-import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, ltBoundaries, type HRZones } from "@/lib/fitness/zones";
+import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, ltBoundaries, computeZoneTime, type ZoneTimeActivity, type HRZones } from "@/lib/fitness/zones";
 import { computeTSS, buildLoadCurve, computeACWR } from "@/lib/fitness/training-load";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace } from "@/lib/fitness/vo2max";
 import { RACE_DISTANCES } from "@/lib/fitness/paces";
@@ -504,12 +504,8 @@ export default async function StatsPage() {
   for (const wk of Object.values(weeklyVolumes))
     for (const s of Object.values(wk)) s.km = Math.round(s.km * 10) / 10;
 
-  const zoneSeconds: Record<string, number> = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
-  for (const a of activities.filter((x: A) => x.startDate >= twelveWeeksAgo && x.averageHeartrate)) {
-    const hr = a.averageHeartrate!;
-    const z = hr < computedHrZones.z1[1] ? 1 : hr < computedHrZones.z2[1] ? 2 : hr < computedHrZones.z3[1] ? 3 : hr < computedHrZones.z4[1] ? 4 : 5;
-    zoneSeconds[`z${z}`] += a.movingTime;
-  }
+  // Lap-aware: see computeZoneTime() doc comment in lib/fitness/zones.ts.
+  const { zoneSeconds, polZ1, polZ2, polZ3 } = computeZoneTime(activities as ZoneTimeActivity[], computedHrZones, twelveWeeksAgo);
 
   // Pace zone seconds (last 12 weeks, running only)
   // Zones are [slow_boundary, fast_boundary] (higher sec/km = slower pace).
@@ -607,14 +603,6 @@ export default async function StatsPage() {
     }));
   }
 
-  const lt = ltBoundaries(computedHrZones);
-  let polZ1 = 0, polZ2 = 0, polZ3 = 0;
-  for (const a of activities.filter((x: A) => x.startDate >= twelveWeeksAgo && x.averageHeartrate)) {
-    const hr = a.averageHeartrate!;
-    if (hr < lt.lt1) polZ1 += a.movingTime;
-    else if (hr < lt.lt2) polZ2 += a.movingTime;
-    else polZ3 += a.movingTime;
-  }
   const polTotal = polZ1 + polZ2 + polZ3;
   const polarisation = polTotal > 0 ? {
     z1Pct: Math.round(polZ1/polTotal*100), z2Pct: Math.round(polZ2/polTotal*100), z3Pct: Math.round(polZ3/polTotal*100),
