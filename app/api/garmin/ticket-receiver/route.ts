@@ -17,12 +17,9 @@ try {
 } catch(e) {}
 </script></body></html>`;
 
+  // No X-Frame-Options/CSP override needed: this page is always framed by our own
+  // /settings page (same origin), already permitted by the global SAMEORIGIN policy.
   return new NextResponse(html, {
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      // Allow postMessage back to parent regardless of origin
-      "X-Frame-Options": "ALLOWALL",
-      "Content-Security-Policy": "frame-ancestors *",
-    },
+    headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }

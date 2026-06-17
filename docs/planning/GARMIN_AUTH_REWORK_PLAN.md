@@ -148,3 +148,31 @@ This fallback is provided for users who:
 
 Move current broken approach notes to `docs/planning/archive/`.
 The IMPLEMENTATION_PLAN.md session entries stay (they're history, not plans).
+
+---
+
+## Post-Implementation Findings (2026-06-17g)
+
+Two real bugs found during testing, both now fixed:
+
+1. **Our own CSP blocked the iframe.** `next.config.ts` set `default-src 'self'`
+   with no `frame-src` directive — CSP `frame-src` falls back to `default-src` when
+   unset, so OUR page could never embed `sso.garmin.com` in an iframe. This is what
+   caused the broken-page icon, not Garmin's `X-Frame-Options`. Fixed by adding
+   `frame-src 'self' https://sso.garmin.com;` to the CSP.
+
+2. **Popup vs iframe: `window.parent` is not `window.opener`.** Garmin's embed widget
+   calls `window.parent.postMessage(...)` — correct for iframe embedding, but a no-op
+   in a popup (a popup's `window.parent === window`, it has no parent). We initially
+   switched from iframe → popup to dodge what we thought was Garmin's X-Frame-Options,
+   which broke the actual communication channel. Since the iframe blocker was our own
+   CSP (see #1), reverted back to iframe — now both the embedding AND the postMessage
+   channel work correctly.
+
+3. **Header collision risk.** `app/api/garmin/ticket-receiver/route.ts` originally set
+   its own `X-Frame-Options: ALLOWALL` to "help" the ticket page get framed. But
+   `next.config.ts` already applies `X-Frame-Options: SAMEORIGIN` globally via
+   `headers()`, and Next.js does not deduplicate — both values would have been sent,
+   which most browsers interpret as DENY (most restrictive wins on conflicting values).
+   Removed the redundant route-level header; `SAMEORIGIN` already permits this since
+   the ticket-receiver is always framed by our own `/settings` page.

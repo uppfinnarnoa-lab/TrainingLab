@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Eye, EyeOff, Loader2, RefreshCw, Unplug, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Eye, EyeOff, Loader2, RefreshCw, Unplug, ChevronDown, ChevronUp } from "lucide-react";
 
 interface Props {
   connected:     boolean;
@@ -10,9 +10,9 @@ interface Props {
   origin:        string;  // e.g. "https://training.helgars.se"
 }
 
-// Garmin /sso/embed with our ticket-receiver as the service URL.
-// After login, Garmin redirects the popup to /api/garmin/ticket-receiver?ticket=ST-...
-// which postMessages the ticket back and closes the popup.
+// Garmin /sso/embed widget. Its JS calls window.parent.postMessage(...) on success —
+// that only works when truly embedded in an iframe (a popup's window.parent === itself,
+// so the message never leaves a popup window). Must be an iframe, not window.open().
 function buildEmbedUrl(origin: string) {
   const params = new URLSearchParams({
     id:                              "gauth-widget",
@@ -51,7 +51,9 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   const [syncResult,  setSyncResult]  = useState<"ok" | "error" | null>(null);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
-  const [waitingPopup, setWaitingPopup] = useState(false);
+
+  const [showIframe,   setShowIframe]   = useState(false);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
 
   // Manual fallback
   const [showManual, setShowManual] = useState(false);
@@ -59,10 +61,9 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   const [password,   setPassword]   = useState("");
   const [showPass,   setShowPass]   = useState(false);
 
-  const popupRef = useRef<Window | null>(null);
   const embedUrl = buildEmbedUrl(origin);
 
-  // Listen for postMessage from our ticket-receiver page (loaded in the popup)
+  // Listen for postMessage from the Garmin embed widget (or our ticket-receiver) inside the iframe
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       const data = event.data as Record<string, unknown>;
@@ -74,12 +75,10 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
                    : null;
 
       if (ticket) {
-        setWaitingPopup(false);
-        popupRef.current?.close();
+        setShowIframe(false);
         exchangeTicket(ticket);
       } else if (typeof data.garminError === "string") {
-        setWaitingPopup(false);
-        popupRef.current?.close();
+        setShowIframe(false);
         setError(`Garmin login failed (${data.garminError}). Try the manual form below.`);
         setShowManual(true);
       }
@@ -89,33 +88,6 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
     return () => window.removeEventListener("message", handleMessage);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function openPopup() {
-    setError(null);
-    const w = 520, h = 640;
-    const left = Math.round(window.screenX + (window.outerWidth - w) / 2);
-    const top  = Math.round(window.screenY + (window.outerHeight - h) / 2);
-    const popup = window.open(
-      embedUrl,
-      "garmin-auth",
-      `width=${w},height=${h},left=${left},top=${top},scrollbars=yes,resizable=yes`,
-    );
-    if (!popup) {
-      setError("Popup blocked. Allow popups for this site, or use the manual form below.");
-      setShowManual(true);
-      return;
-    }
-    popupRef.current = popup;
-    setWaitingPopup(true);
-
-    // Detect if popup is closed without completing login
-    const timer = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(timer);
-        setWaitingPopup(false);
-      }
-    }, 500);
-  }
 
   async function exchangeTicket(ticket: string) {
     setLoading(true);
@@ -174,7 +146,7 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
         invalid_credentials: "Wrong email or password.",
         mfa_required:        "Garmin 2-factor authentication must be disabled for this integration.",
         too_many_attempts:   "Too many attempts — wait a few minutes.",
-        server_blocked:      "Garmin is blocking the server. Try the popup login above.",
+        server_blocked:      "Garmin is blocking the server. Try the iframe login above.",
         auth_failed:         "Server-side authentication failed. Check PM2 logs for details.",
         invalid_input:       "Invalid email address.",
       };
@@ -232,30 +204,46 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
         only receives the resulting access token, never your password.
       </p>
 
-      {/* Primary: popup SSO — login happens in a popup in your browser, bypasses server bot-detection */}
-      {loading ? (
+      {loading && (
         <div className="flex items-center gap-2 text-sm text-muted">
           <Loader2 size={14} className="animate-spin" /> Connecting…
         </div>
-      ) : waitingPopup ? (
-        <div className="flex items-center gap-2 text-sm text-muted">
-          <Loader2 size={14} className="animate-spin" />
-          Waiting for Garmin login…
-          <button
-            onClick={() => { popupRef.current?.focus(); }}
-            className="text-accent underline text-xs"
-          >
-            Open popup
-          </button>
-        </div>
-      ) : (
+      )}
+
+      {!loading && !showIframe && (
         <button
-          onClick={openPopup}
+          onClick={() => { setShowIframe(true); setIframeLoaded(false); setError(null); }}
           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition"
         >
-          <ExternalLink size={14} />
           Connect with Garmin
         </button>
+      )}
+
+      {showIframe && (
+        <div className="rounded-xl border border-border overflow-hidden bg-white">
+          {!iframeLoaded && (
+            <div className="flex items-center justify-center h-12 gap-2 text-xs text-muted">
+              <Loader2 size={12} className="animate-spin" /> Loading Garmin login…
+            </div>
+          )}
+          <iframe
+            src={embedUrl}
+            width="100%"
+            height="500"
+            title="Garmin Connect login"
+            onLoad={() => setIframeLoaded(true)}
+            className={iframeLoaded ? "block" : "hidden"}
+            style={{ border: "none" }}
+          />
+          <div className="flex justify-end px-3 pb-2">
+            <button
+              onClick={() => setShowIframe(false)}
+              className="text-xs text-muted hover:text-primary transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {error && <p className="text-xs text-red-400">{error}</p>}
