@@ -31,7 +31,7 @@ async function loadRacePBsForContext(userId: string): Promise<RacePB[]> {
 export async function buildCoachContext(userId: string): Promise<CoachContext> {
   const now = new Date();
 
-  const [profile, fitnessCache, activities, garminRecent, plannedWorkouts, missedWorkouts, upcomingRaceWorkouts, racePBs] =
+  const [profile, fitnessCache, activities, garminRecent, plannedWorkouts, missedWorkouts, upcomingRaceWorkouts, racePBs, recentFive] =
     await Promise.all([
       prisma.athleteProfile.findUnique({ where: { userId } }),
       prisma.fitnessCache.findUnique({ where: { userId } }),
@@ -79,6 +79,12 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
         take: 5,
       }),
       loadRacePBsForContext(userId),
+      prisma.activity.findMany({
+        where: { userId },
+        orderBy: { startDate: "desc" },
+        take: 5,
+        select: { name: true, sportType: true, startDate: true, distance: true, movingTime: true, averageHeartrate: true, averageSpeed: true, isRace: true, description: true },
+      }),
     ]);
 
   // ── HR / zones — use calibrated zones from FitnessCache if available ──
@@ -210,6 +216,30 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
       priority: w.targetIntensity === "Race" ? "A" : "B",
     })),
     upcomingPlan,
+    recentSessions: recentFive.length > 0
+      ? (recentFive as { name: string; sportType: string; startDate: Date; distance: number; movingTime: number; averageHeartrate: number | null; averageSpeed: number | null; isRace: boolean; description: string | null }[]).map(a => {
+          const dist = `${(a.distance / 1000).toFixed(1)}km`;
+          const mins = `${Math.floor(a.movingTime / 60)}min`;
+          const hr   = a.averageHeartrate ? ` · ${Math.round(a.averageHeartrate)}bpm` : "";
+          const pace = a.averageSpeed && /run|trail/i.test(a.sportType)
+            ? ` · ${secPerKmToPaceStr(1000 / a.averageSpeed)}`
+            : "";
+          const race = a.isRace ? " [RACE]" : "";
+          const desc = a.description ? ` — ${a.description.slice(0, 60)}` : "";
+          return `${format(a.startDate, "EEE d MMM")}: ${a.name}${race} (${a.sportType}) ${dist} ${mins}${hr}${pace}${desc}`;
+        }).join("\n")
+      : undefined,
+    weeklyVolume: (() => {
+      type WeekVol = Record<string, Record<string, { km: number; timeSec: number }>>;
+      const wvol = fitnessCache?.weeklyVolumeJson as WeekVol | null;
+      if (!wvol) return undefined;
+      const lines = Object.entries(wvol).sort(([a], [b]) => a.localeCompare(b)).slice(-8).map(([wk, sports]) => {
+        const totalKm = Object.values(sports).reduce((s, v) => s + (v.km ?? 0), 0);
+        const totalH  = Object.values(sports).reduce((s, v) => s + (v.timeSec ?? 0), 0) / 3600;
+        return `${wk}: ${Math.round(totalKm)}km · ${totalH.toFixed(1)}h`;
+      });
+      return lines.join("\n") || undefined;
+    })(),
   };
 }
 

@@ -2738,4 +2738,87 @@ Design: Users enter their Garmin Connect email/password once in Settings → we 
 
 ---
 
+### Session 2026-06-17d — AI Coach full overhaul
+
+Deep architectural overhaul of the AI coaching system. Full plan in `docs/planning/COACH_OVERHAUL_PLAN.md`.
+
+**`prisma/schema.prisma`:**
+- `AISettings.coachLanguage String @default("sv")` — persists the coach's language preference to DB (no more reset-on-refresh).
+- New `CoachEdit` model with `previousStateJson`, `newStateJson`, `entityId`, `entityType`, `status`, `undoneAt` — enables undo of all write tool operations within the same message turn.
+- `User.coachEdits CoachEdit[]` relation added.
+
+**`app/api/settings/ai/route.ts`:**
+- Added `PATCH` handler (same logic as `POST`) so the frontend can persist `coachLanguage` without overwriting all other settings.
+- `coachLanguage: z.enum(["sv", "en"]).optional()` added to schema.
+- All fields are now optional and only non-undefined fields are written to DB (safe partial update).
+
+**`lib/ai/tools.ts`** — Full rewrite:
+- **30 tools total** (was 12): 22 read + 8 write.
+- New read tools: `get_activity_stream` (second-by-second analysis with HR drift, pace volatility), `get_wellness_history` (Garmin day-by-day for any date range), `get_volume_stats` (weekly km/h from cache, falls back to live query), `get_zone_distribution` (Z1–Z5 from cache + Seiler 3-zone), `get_workout_templates` (all templates with sections), `get_workout_types` (user-defined sports + types), `get_training_goals` (with real-time progress %), `get_athlete_profile`, `get_segment_history` (via Strava API with live token refresh), `web_search` (Tavily API, 1000 free/month), `weather_forecast` (Open-Meteo, free, no key), `search_training_research` (PubMed Entrez, free).
+- New write tools: `update_workout`, `delete_workout`, `create_training_block`, `update_training_block`, `log_race_result`, `delete_race_result`, `update_activity_notes`, `update_profile`.
+- All write tools: (1) guard by `userId` check before writing, (2) save a `CoachEdit` record with `previousStateJson` for undo.
+- All tool result strings are English (model-facing).
+- `WRITE_TOOLS` set updated with all 8 write tools.
+- `ToolResult` interface gains `editId?: string`.
+- `executeCoachTool` signature: `(toolName, input, userId, conversationId)`.
+- `get_activities_in_range`: two-phase — first call with `confirmed=false` returns activity count + estimated cost; only fetches full data with `confirmed=true`. Hard cap at 500 activities.
+- `get_fitness_summary`: now includes recent weekly volume (last 8 weeks) and polarization data.
+- External tool executors: Tavily (web_search), Open-Meteo (weather_forecast), PubMed Entrez (search_training_research).
+
+**`lib/ai/prompts.ts`:**
+- `CoachContext` interface gains `recentSessions?: string` and `weeklyVolume?: string`.
+- System prompt: new "Recent training sessions" and "Weekly volume" blocks populated from context.
+- Tool use section completely rewritten: descriptive list of all 30 tools split into read/write, no prescriptive "NEVER use X" language, note about parallel multi-step tool calls.
+- Language instruction strengthened: "regardless of the language of this prompt."
+- Removed prescriptive coach instructions about JSON plan-action blocks (no longer used).
+
+**`lib/ai/context-builder.ts`:**
+- `buildCoachContext` now fetches 5 most recent activities and builds `recentSessions` text (date, name, sport, distance, time, HR, pace, description excerpt).
+- `weeklyVolume` populated from `fitnessCache.weeklyVolumeJson` — last 8 weeks of km+hours.
+- Both fields added to the returned `CoachContext` object.
+
+**`app/api/coach/chat/route.ts`** — Agentic loop:
+- Request schema: `approvedTool`/`approvedInput` instead of `approvedAction` (tool name + input for user-approved write); `approvedEditId` accepted but unused server-side.
+- Language now read from `aiSettings.coachLanguage` (DB) as default, `language` param in request is still accepted as an override.
+- **Claude provider: full agentic loop** — up to 6 iterations. Each iteration: call Claude with all 30 tools; extract all `tool_use` blocks; if any write tool appears → pause loop and emit `pending` event; otherwise execute all read tools in parallel via `Promise.all`; append `tool_result` blocks in one user message; continue. After loop: stream final answer with full conversation context.
+- **Gemini/NVIDIA/Groq**: single tool call (unchanged architecture, improved payload handling).
+- Multiple `toolCall` SSE events emitted (one per tool call in the agentic loop), not just one per message.
+- Helper functions extracted: `saveAssistantMessage`, `updateSpend`, `describeAction`.
+- `recentActivities` parameter removed from `aiClient.stream()` call for non-Claude providers (context now in system prompt via context-builder).
+
+**`app/api/coach/undo/[editId]/route.ts`** — NEW:
+- `POST /api/coach/undo/[editId]`: looks up `CoachEdit`, verifies `userId`, calls `applyRestore()`, marks as `undoneAt`.
+- `applyRestore()` switches on `toolName`: create → delete restored entity; update/delete → upsert previous state; `update_activity_notes` → restore description; `update_profile` → upsert previous profile.
+- Returns 409 if already undone.
+
+**`app/(dashboard)/coach/page.tsx`:**
+- Reads `aiSettings.coachLanguage` and passes as `initialLanguage` prop to `ChatInterface`.
+
+**`components/coach/ChatInterface.tsx`:**
+- `Message.toolAction` → `Message.toolActions?: ToolAction[]` (accumulates multiple tool calls per message from the agentic loop).
+- `useState("en")` → `useState(initialLanguage)` — no longer resets to English on page load.
+- Language toggle now calls `PATCH /api/settings/ai` with `coachLanguage` to persist to DB.
+- `sendWithPayload` uses `approvedTool`/`approvedInput` fields matching new API schema.
+- `ToolActionCard` updated: shows `TOOL_LABELS` Swedish label per tool name; write tool completed cards show "Ångra" button; undo calls `POST /api/coach/undo/[editId]`; undo locked when next user message is sent.
+- `lockedEditIds: Set<string>` — populated on `sendWithPayload`; prevents undo after next turn.
+- `undoneEditIds: Set<string>` — marks undone edits with visual strike-through + "ångrad" indicator.
+- `TOOL_LABELS` map: 29 Swedish labels covering all tools.
+- Tool picker: all 22 read + 8 write tools listed with Swedish labels and descriptions; language toggle row now says "Svarsspråk" and "Sparas i dina inställningar".
+- Quick-prompts: language-aware — Swedish when `language === "sv"`, English otherwise.
+- Comparison prompt added: "Jämför nu mot ett år sedan" / "Compare now vs a year ago".
+
+**External APIs added:**
+- `TAVILY_API_KEY` env var required for `web_search` (free tier: 1,000 searches/month at tavily.com).
+- Open-Meteo: free, no key needed. Location derived from most recent activity with GPS coords.
+- PubMed Entrez: free, no key needed. Rate limit: ~3 req/s.
+- Strava segment history: uses existing OAuth tokens from `StravaAccount`, refreshes if expired.
+
+**Security constraints maintained:**
+- `userId` always from server session, never from AI input or tool input.
+- All DB write guards check `existing.userId !== userId` before writing.
+- No AI-facing tools expose `AppConfig`, `User.passwordHash`, `AISettings` API keys, or `Session`.
+- Garmin email/password never stored; only encrypted OAuth2 tokens in `GarminAccount`.
+
+---
+
 *Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix)*

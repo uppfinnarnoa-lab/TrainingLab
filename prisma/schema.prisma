@@ -39,6 +39,7 @@ model User {
   fitnessCache       FitnessCache?
   sessions           Session[]
   trainingGoals      TrainingGoal[]
+  coachEdits         CoachEdit[]
 }
 
 model AthleteProfile {
@@ -370,6 +371,7 @@ model AISettings {
   groqApiKey   String?
   groqModel    String? // default: "llama-3.3-70b-versatile"
   systemPrompt String?
+  coachLanguage String @default("sv") // "sv" | "en"
   // Claude budget
   monthlyBudgetUsd     Float @default(5.0)
   currentMonthSpendUsd Float @default(0.0)
@@ -378,6 +380,25 @@ model AISettings {
   geminiCurrentMonthSpendUsd Float @default(0.0)
   spendResetAt DateTime @default(now())
   user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CoachEdit {
+  id                String   @id @default(cuid())
+  userId            String
+  conversationId    String
+  toolName          String
+  description       String
+  previousStateJson Json?
+  newStateJson      Json?
+  entityId          String?
+  entityType        String?
+  status            String   @default("applied")
+  appliedAt         DateTime @default(now())
+  undoneAt          DateTime?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, conversationId])
+  @@index([userId, appliedAt])
 }
 
 // Cached fitness metrics — recomputed after each sync, read by stats + coach

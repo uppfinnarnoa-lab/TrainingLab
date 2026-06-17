@@ -60,6 +60,8 @@ export default async function CoachPage({
     modelUsed: m.modelUsed ?? undefined,
   }));
 
+  const initialLanguage = (aiSettings?.coachLanguage ?? "sv") as "en" | "sv";
+
   return (
     // On mobile: keep pt-14 gap (clears the fixed hamburger button), remove side+bottom padding only.
     // On desktop: remove all padding with -m-6 for full bleed.
@@ -72,6 +74,7 @@ export default async function CoachPage({
         initialConversationId={targetId}
         initialMessages={msgs}
         conversations={convList}
+        initialLanguage={initialLanguage}
       />
     </div>
   );
