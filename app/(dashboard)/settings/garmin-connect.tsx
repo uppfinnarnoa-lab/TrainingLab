@@ -54,6 +54,7 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
 
   const [showIframe,   setShowIframe]   = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [debugMsg,      setDebugMsg]    = useState<string | null>(null);
 
   // Manual fallback
   const [showManual, setShowManual] = useState(false);
@@ -66,6 +67,10 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   // Listen for postMessage from the Garmin embed widget (or our ticket-receiver) inside the iframe
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
+      // DEBUG: surface every message event so we can see exactly what arrives
+      // (origin + payload) without needing devtools. Remove once flow is confirmed working.
+      setDebugMsg(`origin=${event.origin} data=${JSON.stringify(event.data)}`);
+
       const data = event.data as Record<string, unknown>;
       if (typeof data !== "object" || data === null) return;
 
@@ -244,6 +249,12 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
             </button>
           </div>
         </div>
+      )}
+
+      {debugMsg && (
+        <p className="text-[10px] font-mono text-muted break-all bg-surface-2 rounded p-2">
+          DEBUG message event: {debugMsg}
+        </p>
       )}
 
       {error && <p className="text-xs text-red-400">{error}</p>}
