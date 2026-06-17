@@ -39,6 +39,10 @@ export async function POST(req: NextRequest) {
     if (msg === "GARMIN_INVALID_CREDENTIALS") {
       return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
     }
+    if (msg === "GARMIN_BLOCKED") {
+      console.error(`[garmin/connect] Server blocked by Garmin (403) for ${userId} — check /api/garmin/diagnose`);
+      return NextResponse.json({ error: "server_blocked" }, { status: 502 });
+    }
     console.error(`[garmin/connect] Auth error for ${userId}:`, msg);
     return NextResponse.json({ error: "auth_failed" }, { status: 502 });
   }

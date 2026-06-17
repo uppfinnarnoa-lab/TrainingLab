@@ -197,8 +197,12 @@ async function submitCredentials(
   // No redirect — login did not complete. Read body to diagnose why.
   const text = await res.text();
 
-  // Log a safe excerpt for server-side debugging (no credentials in response body)
-  console.error(`[garmin/auth] SSO login returned no redirect. Status: ${res.status}. Body[0:400]: ${text.slice(0, 400).replace(/\s+/g, " ")}`);
+  // Always log status + body excerpt so PM2 logs show what Garmin returned.
+  // Run: pm2 logs traininglab | grep garmin/auth
+  console.error(`[garmin/auth] SSO login returned no redirect. Status: ${res.status}. Body[0:500]: ${text.slice(0, 500).replace(/\s+/g, " ")}`);
+
+  // 403 = Garmin blocked the server (IP ban, bot detection) — not bad credentials.
+  if (res.status === 403) throw new Error("GARMIN_BLOCKED");
 
   // Specific MFA check: look for an OTP input field, NOT just "MFA" anywhere in the page.
   // Garmin's login page mentions "Two-Factor Authentication" as an account option even when
@@ -211,7 +215,6 @@ async function submitCredentials(
   if (/InvalidUsernamePassword|badCredentials|username-or-password|incorrect password|invalid.*credentials/i.test(text)) {
     throw new Error("GARMIN_INVALID_CREDENTIALS");
   }
-  if (res.status === 403) throw new Error("GARMIN_INVALID_CREDENTIALS");
 
   throw new Error(`Garmin SSO login failed: HTTP ${res.status}`);
 }
@@ -331,6 +334,55 @@ export async function loginWithGarmin(
   const displayName       = await fetchDisplayName(tokens.accessToken);
 
   return { ...tokens, displayName };
+}
+
+/** Fetch the Garmin SSO page and report what we find — used by /api/garmin/diagnose. */
+export async function diagnoseSsoPage(): Promise<{
+  ssoReachable: boolean;
+  ssoStatus:    number;
+  csrfFound:    boolean;
+  loginFormFound:    boolean;
+  mfaChallengeFound: boolean;
+  pageTitle:   string;
+  bodyExcerpt: string;
+}> {
+  const jar = new CookieJar();
+  let ssoStatus = 0;
+  let html = "";
+  try {
+    const params = new URLSearchParams({
+      service:    "https://connect.garmin.com/modern/",
+      gauthHost:  SSO_BASE,
+      clientId:   "GarminConnect",
+      locale:     "en_US",
+      id:         "gauth-widget",
+      embedWidget: "false",
+    });
+    const res = await fetch(`${SSO_BASE}/signin?${params}`, {
+      headers: { ...BROWSER_HEADERS, Cookie: jar.header() },
+    });
+    jar.absorb(res.headers);
+    ssoStatus = res.status;
+    html = await res.text();
+  } catch (e) {
+    return { ssoReachable: false, ssoStatus: 0, csrfFound: false, loginFormFound: false, mfaChallengeFound: false, pageTitle: "", bodyExcerpt: String(e) };
+  }
+
+  const csrfMatch =
+    html.match(/name="_csrf"\s+value="([^"]+)"/i) ??
+    html.match(/value="([^"]+)"\s+name="_csrf"/i) ??
+    html.match(/<input[^>]+name="_csrf"[^>]*value="([^"]+)"/i) ??
+    html.match(/<input[^>]+value="([^"]+)"[^>]*name="_csrf"/i);
+
+  return {
+    ssoReachable:      ssoStatus >= 200 && ssoStatus < 400,
+    ssoStatus,
+    csrfFound:         !!csrfMatch,
+    loginFormFound:    /<input[^>]+type=["']?password["']?/i.test(html),
+    mfaChallengeFound: /<input[^>]+name=["']?(?:mfaCode|otpCode|totpCode|mfa_code)["']?/i.test(html),
+    pageTitle:         (html.match(/<title>([^<]+)<\/title>/i)?.[1] ?? "").trim().slice(0, 120),
+    bodyExcerpt:       html.slice(0, 500).replace(/\s+/g, " "),
+  };
 }
 
 /** Refresh an expired OAuth2 access token using the refresh token. */

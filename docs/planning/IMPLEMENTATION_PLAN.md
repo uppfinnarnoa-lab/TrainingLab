@@ -2421,6 +2421,59 @@ User requested a "slightly smoothed" pace display option on the activity perform
 **Plan archived:**
 - `docs/planning/multi-user-plan.md` — remains in planning folder (partially implemented: no email notifications, no GDPR tooling, no password reset UI — per plan scope).
 
+**Session 2026-06-17 — AI Coach deep overhaul: agentic loop, 30 tools, write approval + undo, language persistence, Tavily web search:**
+
+**Motivation:** Coach only made one tool call then answered. Tool descriptions were prescriptive (triggered unconditionally). Language reset to English on every session. No write operations. Only 12 tools covering partial data.
+
+**Core architecture — agentic loop (`app/api/coach/chat/route.ts`):**
+- Claude runs in a loop (up to 6 iterations) where each iteration: emits tool_use blocks → all executed in parallel via `Promise.all` → results fed back as `tool_result` blocks → continues until `stop_reason !== "tool_use"` or max iterations.
+- Write tools pause the loop before execution and emit a `pending` SSE event; no write runs without user approval. Approval is sent via a separate request; the loop resumes with the approved tool result.
+- `WRITE_TOOLS` set: `create_workout`, `update_workout`, `delete_workout`, `create_training_block`, `update_training_block`, `log_race_result`, `delete_race_result`, `update_activity_notes`, `update_profile`.
+- Anthropic SDK type incompatibility worked around with `(anthropic.messages.create as any)` and `(response.content as Block[])` casts.
+
+**Tools (`lib/ai/tools.ts` — full rewrite, was 12 tools → now 30):**
+- All DB tables covered: activities, planned workouts, training blocks, race records, training goals, Garmin wellness, fitness metrics, athlete profile, sport categories, workout types.
+- All tool descriptions are purely descriptive (what they return), never prescriptive — prevents spurious triggering on unrelated questions.
+- Three external tools: `web_search` (Tavily), `get_weather_forecast` (Open-Meteo, free), `search_pubmed` (PubMed Entrez API, free).
+- All write operations capture `previousStateJson` before mutating and create a `CoachEdit` record; the undo endpoint can restore from it.
+- `executeCoachTool(toolName, input, userId, conversationId)` executes any tool by name; returns `ToolResult { success, message, data, editId? }`.
+
+**Undo (`app/api/coach/undo/[editId]/route.ts` — new):**
+- POST endpoint: auth-checks ownership, 409 if already undone, calls `applyRestore()` to revert the entity to `previousStateJson`, marks `CoachEdit.undoneAt`.
+- Chat UI locks undo buttons when the next message is sent (undo only until next turn).
+
+**Language persistence:**
+- `AISettings.coachLanguage String @default("sv")` — stored in DB.
+- `app/(dashboard)/coach/page.tsx` reads it server-side and passes as `initialLanguage` prop.
+- `ChatInterface.tsx` initializes `useState(initialLanguage)` (was hardcoded `"en"`).
+- Language toggle PATCHes `/api/settings/ai` immediately so it persists across sessions.
+
+**Tool UI (`components/coach/ChatInterface.tsx`):**
+- `Message.toolActions?: ToolAction[]` (plural, was single) — each message accumulates all tool calls from the agentic loop as separate cards.
+- `TOOL_LABELS` map: 29 Swedish labels for tool names (consistent UI labels regardless of internal tool names).
+- `ToolActionCard` with "Ångra" undo button (calls `POST /api/coach/undo/[editId]`); locked after next message sent.
+- `lockedEditIds` and `undoneEditIds` Sets track per-message undo state.
+
+**Prompts (`lib/ai/prompts.ts`):**
+- Tool-use section rewritten — describes the agentic loop, instructs to make multiple parallel tool calls when needed, never use tools on irrelevant questions.
+- Language instruction strengthened — always respond in `coachLanguage`, no exceptions.
+- `CoachContext` gains `recentSessions?: string` and `weeklyVolume?: string`.
+
+**Context builder (`lib/ai/context-builder.ts`):**
+- Added `recentFive` query: 5 most recent activities with key metrics.
+- Builds `recentSessions` (last 5 sessions summary) and `weeklyVolume` (current week's sport totals) fields on returned `CoachContext`.
+
+**Tavily web search — key stored in DB (not .env):**
+- `prisma/schema.prisma`: `AISettings.tavilyApiKey String?` — AES-256-GCM encrypted.
+- `app/api/settings/ai/route.ts`: `tavilyApiKey` in zod schema; `encryptIfNeeded()` on write.
+- `app/(dashboard)/settings/page.tsx`: `hasTavilyKey={!!aiSettings?.tavilyApiKey}` prop.
+- `app/(dashboard)/settings/ai-settings.tsx`: Tavily section with password input + show/hide, link to tavily.com.
+- `lib/ai/tools.ts` `web_search` case: reads from `prisma.aISettings.findUnique` → `safeDecrypt`, falls back to `process.env.TAVILY_API_KEY`.
+
+**Schema changes (require `prisma db push` on prod):**
+- `AISettings`: added `tavilyApiKey String?`, `coachLanguage String @default("sv")`.
+- `CoachEdit`: new model (from prior session) — `id, userId, conversationId, toolName, description, previousStateJson, newStateJson, entityId, entityType, status, appliedAt, undoneAt`.
+
 ### Documentation Written
 - `docs/api/auth.md` — auth + settings endpoints
 - `docs/api/strava.md` — sync + webhook endpoints
