@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Returns an HTML page that postMessages the service ticket back to the parent Settings page.
-// The Garmin /sso/embed iframe redirects here after successful login with ?ticket=ST-...
-// This page immediately passes the ticket to the parent and closes itself.
+// Intended target of Garmin's /sso/embed redirect after login, but currently unreachable:
+// Garmin's service-URL whitelist rejects our domain, so it never redirects here in practice
+// (see docs/planning/GARMIN_AUTH_REWORK_PLAN.md). Kept in case that changes; the live flow
+// in garmin-connect.tsx has the user paste the ticket manually instead.
 export async function GET(req: NextRequest) {
   const ticket = req.nextUrl.searchParams.get("ticket");
   const error  = req.nextUrl.searchParams.get("error");

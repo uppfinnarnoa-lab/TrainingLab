@@ -124,7 +124,7 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
         invalid_credentials: "Wrong email or password.",
         mfa_required:        "Garmin 2-factor authentication must be disabled for this integration.",
         too_many_attempts:   "Too many attempts — wait a few minutes.",
-        server_blocked:      "Garmin is blocking the server. Try the iframe login above.",
+        server_blocked:      "Garmin is blocking the server. Try the \"Connect with Garmin\" login above.",
         auth_failed:         "Server-side authentication failed. Check PM2 logs for details.",
         invalid_input:       "Invalid email address.",
       };
