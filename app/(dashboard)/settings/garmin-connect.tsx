@@ -68,10 +68,15 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
       const data = event.data as Record<string, unknown>;
       if (typeof data !== "object" || data === null) return;
 
-      if (typeof data.garminTicket === "string") {
+      // Garmin's native embed widget format: {serviceUrl: '...', serviceTicket: 'ST-...'}
+      const ticket = typeof data.serviceTicket === "string" ? data.serviceTicket
+                   : typeof data.garminTicket  === "string" ? data.garminTicket
+                   : null;
+
+      if (ticket) {
         setWaitingPopup(false);
         popupRef.current?.close();
-        exchangeTicket(data.garminTicket);
+        exchangeTicket(ticket);
       } else if (typeof data.garminError === "string") {
         setWaitingPopup(false);
         popupRef.current?.close();
