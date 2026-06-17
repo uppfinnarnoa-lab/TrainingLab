@@ -2874,4 +2874,47 @@ Deep architectural overhaul of the AI coaching system. Full plan in `docs/planni
 
 ---
 
-*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix)*
+### Session 2026-06-17e — Garmin auth: bot-detection fix + embed endpoint
+
+**Context:** Server-side Garmin SSO POST was returning 403 despite correct credentials. Root cause confirmed via `/api/garmin/diagnose`: SSO page loads fine (200, CSRF found), but the credential POST is blocked by Garmin's bot-detection on datacenter IPs.
+
+**Attempts and outcome:**
+
+1. **Browser-redirect OAuth (tried, failed):** Built full OAuth redirect architecture — `getGarminAuthUrl(callbackUrl)` in `lib/garmin/auth.ts`, `app/api/garmin/callback/route.ts` rewritten to exchange service ticket → OAuth1 → OAuth2, `GarminConnectSection` rewritten with primary "Connect with Garmin" `<a>` link + collapsible manual fallback. Failed because Garmin's CAS SSO whitelist only allows `connect.garmin.com` as service URL — custom callback URLs are silently rejected (user stays on Garmin's login page with no error).
+
+2. **`/sso/embed` + mobile UA (current approach):** The `garth` Python library (used by garminconnect 0.2.x) authenticates successfully from server IPs by using `/sso/embed` instead of `/sso/signin`, and `com.garmin.android.apps.connectmobile` as the User-Agent. Applied the same approach to TypeScript.
+
+**`lib/garmin/auth.ts`:**
+- `SSO_EMBED` constant: `${SSO_BASE}/embed`.
+- `BROWSER_HEADERS["User-Agent"]` changed to `com.garmin.android.apps.connectmobile` (Garmin's Android app UA).
+- Removed `Sec-Fetch-*` headers (not sent by mobile apps, would look suspicious with a mobile UA).
+- `fetchSsoPage` GETs `SSO_EMBED` instead of `/sso/signin`; returns `{html, url}` (URL needed as Referer on POST).
+- `submitCredentials(html, ssoPageUrl, email, password)` POSTs to `SSO_EMBED` with `ssoPageUrl` as Referer.
+- `loginWithGarmin` passes the returned URL from `fetchSsoPage` into `submitCredentials`.
+- 403 response from Garmin SSO credential POST now throws `GARMIN_BLOCKED` (not `GARMIN_INVALID_CREDENTIALS`).
+
+**`app/api/garmin/connect/route.ts`:**
+- `GARMIN_BLOCKED` → `server_blocked` error code in response.
+- Settings UI maps `server_blocked` to: "Garmin blocked the server request (bot-detection). Try the OAuth button above instead."
+
+**`app/api/garmin/diagnose/route.ts`** (new):
+- `GET` → calls `diagnoseSsoPage()` (exported from `lib/garmin/auth.ts`) → returns JSON with `ssoReachable`, `ssoStatus`, `csrfFound`, `loginFormFound`, `mfaChallengeFound`. Diagnostic tool for SSO connectivity issues.
+
+**`app/(dashboard)/settings/garmin-connect.tsx`:**
+- Props now include `garminAuthUrl: string` (primary "Connect with Garmin" `<a>` link prepared for OAuth redirect; collapsible "Connect manually instead" form is the actual working path).
+- Handles `?garmin=connected`, `?garmin=error`, `?garmin=no_ticket` URL params from callback redirect.
+- Sync time updated to 20:00 in connected state description. All text in English.
+
+**`app/(dashboard)/settings/page.tsx`:**
+- Imports `getGarminAuthUrl` from `lib/garmin/auth`, constructs `garminAuthUrl`, passes as prop.
+
+**`app/api/garmin/callback/route.ts`:**
+- Full service-ticket exchange implementation: reads `?ticket=ST-...`, calls `ticketToOAuth1` → `oauth1ToOAuth2`, stores encrypted tokens, redirects to `/settings?garmin=connected`. Ready for if/when Garmin whitelist allows our callback URL.
+
+**`app/(dashboard)/settings/ai-settings.tsx`:**
+- `hasTavilyKeyLocal` state: badge "✓ Registered" shows immediately after save (no page refresh needed).
+- Tavily section text changed from Swedish to English.
+
+---
+
+*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, bot-detection + embed endpoint fix)*
