@@ -2724,6 +2724,18 @@ Design: Users enter their Garmin Connect email/password once in Settings → we 
 - `garmin7d` query now bounded to a 14-day date window (`date >= now - 14d`) with `take: 10`, preventing HRV trend from using month-old values when the user skips wearing the watch for several days.
 - `garminDateLabel(garminDate, now)` helper added — returns "Today" / "Yesterday" / "N days ago". Shown as a dim prefix on the Garmin metrics row so the user can see data age when nights are skipped.
 
+### Session 2026-06-17c — Garmin SSO MFA false-positive fix
+
+**`lib/garmin/auth.ts`:**
+- MFA detection rewritten: now looks for actual OTP `<input>` fields (`name="mfaCode"`, `name="otpCode"`, `name="totpCode"`, or matching `id` attributes) rather than scanning page text for "MFA"/"two-factor". Garmin's normal login page contains "Two-Factor Authentication" as a UI menu option even when 2FA is disabled, causing false positives with the old regex.
+- Added `BROWSER_HEADERS` constant with a realistic Chrome 131 `User-Agent`. Garmin's SSO bot-detection can return a non-standard page (e.g. a CAPTCHA or stripped login) when it sees a minimal UA — the browser headers prevent this.
+- CSRF extraction now tries four attribute-order patterns (`name="_csrf" value=...`, `value=... name="_csrf"`, `<input ... name="_csrf" ... value=...>`, `<input ... value=... name="_csrf">`), because Garmin's HTML attribute ordering is not guaranteed to stay stable.
+- `fetchSsoPage` updated to send `BROWSER_HEADERS` on the initial GET.
+- `submitCredentials` updated to send `BROWSER_HEADERS` plus `Origin` and `Referer` on the credential POST, matching what a real browser submits.
+- Server-side logging added for both failed-login (first 400 chars of SSO response body) and CSRF-not-found (first 500 chars of SSO page). No credentials appear in these logs.
+
+**Bug note:** The "Garmin 2-factor authentication must be disabled" error was a false positive. The user's account had 2FA disabled. The old regex `/mfaCode|MFA|verificationCode|two-factor/i` matched the string "Two-Factor Authentication" that appears as a settings link on Garmin's standard login page HTML.
+
 ---
 
-*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync)*
+*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix)*
