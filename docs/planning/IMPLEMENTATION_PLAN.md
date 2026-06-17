@@ -2999,4 +2999,32 @@ Also tried the manual email+password fallback as a quicker alternative — faile
 
 ---
 
-*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, iframe SSO + mobile API rework, consumeServiceTicket fix, manual ticket-paste flow)*
+### Session 2026-06-18 — Coach chat "stuck with no feedback" fix, large-screen layout, planner desktop drag-and-drop regression
+
+**Bug 1 — AI coach: long silent waits, no "thinking" indicator, occasional total hang.**
+
+Root cause (`app/api/coach/chat/route.ts`): the entire agentic tool loop (up to 6 non-streaming Claude round-trips) and the non-Claude single tool-check call ran to completion *before* the `ReadableStream`/`Response` was even constructed. The client's `fetch` couldn't resolve, and zero bytes reached the browser, until all of that finished — for several seconds to over a minute depending on tool count, with nothing for the user to see but a bare spinner.
+
+**Fix:**
+- Moved all of it — pre-approved write-tool execution, the Claude agentic loop, the non-Claude tool check, and final text generation — inside the stream's `start(controller)`. The HTTP response now opens immediately after the (fast, DB-only) setup work; everything slow happens with the connection already live.
+- Added a `status` SSE event (`{"status":"thinking"}` before/between model calls, `{"status":"tool","tool":"<name>"}` right before a tool executes) so the client can show what's actually happening, not just a static spinner. Existing `toolCall` completion events are now delivered live as each tool finishes instead of batched after the whole loop.
+- `components/coach/ChatInterface.tsx`: new `Message.statusLabel` field, set to "Tänker…"/"Thinking…" the instant a message is sent (before any server event arrives) and updated from the `status` events; rendered next to the loading spinner; cleared once text or a tool-call card arrives.
+- `docs/api/coach.md` updated with the new event shape.
+
+**Bug 2 — same coach bug, secondary cause:** `lib/ai/tools.ts` — 6 outbound `fetch` calls (Strava token refresh + segment fetch, Tavily web search, Open-Meteo, PubMed esearch/efetch) had no timeout. A slow/hung third-party API could block the whole chat turn indefinitely with no way to ever recover (this ran *before* the streaming fix too, so it was a second independent cause of "no response at all"). Added a `fetchWithTimeout()` wrapper (12s, `AbortSignal.timeout`) used by all 6 call sites; failures are already caught by `executeCoachTool`'s top-level `try/catch` and surfaced as a normal failed-tool result.
+
+**Bug 3 — large screens: every dashboard page boxed into a centered 1280px column.**
+
+Root cause: `app/(dashboard)/layout.tsx` wrapped all page content in `max-w-7xl mx-auto`, applied globally regardless of page content. The Coach page's own full-bleed trick (`-mx-4 -m-6` to cancel padding) only canceled padding, not this parent max-width, so it was still boxed too.
+
+**Fix:** Removed `max-w-7xl mx-auto` from the layout — pages now use the full width next to the sidebar. Audited all dashboard pages first (dashboard home, stats, races, planner, history): their grids use fixed/sensible column counts or flexible `1fr` panels, none rely on the parent cap to avoid stretching badly, so no per-page column changes were needed. Settings and activity-detail pages keep their own narrower `max-w-2xl`/`max-w-3xl` (not centered within the parent, so they're unaffected — just flush-left under the sidebar with more right-margin than before, which is correct). The Coach chat itself needed one more fix: with the cap gone, its `max-w-[80%]` message bubbles would stretch unreadably wide, so the message list and input bar are now each wrapped in `max-w-3xl mx-auto` while the header/sidebar/background stay full width.
+
+**Bug 4 — planner: drag-and-drop of workouts between days stopped working with a mouse on desktop (touch/mobile still worked).**
+
+Root cause: `components/planner/PlannerCalendar.tsx`'s dnd-kit `sensors` only registered `TouchSensor`. `PointerSensor` (desktop mouse input) was present when DnD was first built (commit `b780714`) but silently dropped in a later, unrelated commit (`bcae130` — "bug fixes, chart styling, goals settings page, coach tool insert", which doesn't mention planner DnD at all). Confirmed via `git show` on both commits. **Fix:** restored `useSensor(PointerSensor, { activationConstraint: { distance: 8 } })` alongside `TouchSensor`, exactly matching the original working configuration.
+
+**Verification:** `pnpm build --no-lint` passes. Manually verified in a real browser (local dev DB, throwaway test user, cleaned up afterward) that dashboard/planner/coach pages correctly use full window width at 1920px. Did not get a clean automated confirmation of the drag gesture itself — Playwright's synthetic mouse events hung interacting with dnd-kit's `PointerSensor` in headless Chromium (likely a CDP/headless-shell quirk, not a sign of an app bug); the fix is a one-line revert to a previously-shipped, known-working configuration, and the user opted to verify the actual drag manually instead.
+
+---
+
+*Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop regression fix)*

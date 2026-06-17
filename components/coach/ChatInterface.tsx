@@ -24,6 +24,7 @@ interface Message {
   tokens?: number;
   modelUsed?: string;
   toolActions?: ToolAction[];
+  statusLabel?: string;
 }
 
 interface ConvSummary {
@@ -161,7 +162,8 @@ export function ChatInterface({
     setMessages(prev => [...prev, userMsg]);
     setStreaming(true);
     const assistantId = crypto.randomUUID();
-    setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "" }]);
+    const initialStatus = language === "sv" ? "Tänker…" : "Thinking…";
+    setMessages(prev => [...prev, { id: assistantId, role: "assistant", content: "", statusLabel: initialStatus }]);
     try {
       const res = await fetch("/api/coach/chat", {
         method: "POST",
@@ -209,13 +211,22 @@ export function ChatInterface({
         if (data.toolCall) {
           const tc = data.toolCall as ToolAction;
           setMessages(prev => prev.map(m => m.id === assistantId
-            ? { ...m, toolActions: [...(m.toolActions ?? []), tc] }
+            ? { ...m, toolActions: [...(m.toolActions ?? []), tc], statusLabel: undefined }
             : m
           ));
         }
+        if (data.status === "thinking") {
+          const label = language === "sv" ? "Tänker…" : "Thinking…";
+          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, statusLabel: label } : m));
+        }
+        if (data.status === "tool" && data.tool) {
+          const toolLabel = TOOL_LABELS[data.tool as string] ?? (data.tool as string);
+          const label = language === "sv" ? `Använder ${toolLabel}…` : `Using ${toolLabel}…`;
+          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, statusLabel: label } : m));
+        }
         if (data.text) {
           fullContent += data.text as string;
-          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent, statusLabel: undefined } : m));
         }
         if (data.done) {
           gotDone = true;
@@ -386,7 +397,8 @@ export function ChatInterface({
         </div>
 
         {/* Messages */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="max-w-3xl mx-auto space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center gap-3 text-muted">
               <Bot size={36} className="opacity-40" />
@@ -431,7 +443,12 @@ export function ChatInterface({
                     : "bg-surface border border-border rounded-tl-none"
                 )}>
                   {msg.content || (streaming && msg.role === "assistant"
-                    ? <Loader2 size={14} className="animate-spin text-muted" />
+                    ? (
+                      <span className="flex items-center gap-2 text-muted">
+                        <Loader2 size={14} className="animate-spin shrink-0" />
+                        {msg.statusLabel && <span className="text-xs">{msg.statusLabel}</span>}
+                      </span>
+                    )
                     : "")}
                 </div>
                 {msg.cost !== undefined && (
@@ -442,9 +459,11 @@ export function ChatInterface({
           ))}
           <div ref={bottomRef} />
         </div>
+        </div>
 
         {/* Input */}
         <div className="shrink-0 px-4 py-3 border-t border-border bg-surface">
+        <div className="max-w-3xl mx-auto">
           {/* Tool picker */}
           {showToolMenu && (
             <div className="mb-2 rounded-xl border border-border bg-surface shadow-lg overflow-hidden">
@@ -549,6 +568,7 @@ export function ChatInterface({
               {streaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>

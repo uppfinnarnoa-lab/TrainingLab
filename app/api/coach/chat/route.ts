@@ -114,105 +114,114 @@ export async function POST(req: NextRequest) {
   // ── Save user message ────────────────────────────────────────────────
   await prisma.message.create({ data: { conversationId: convId, role: "user", content: message } });
 
-  // ── Tool events to emit in SSE stream ───────────────────────────────
-  const toolEvents: ToolEvent[] = [];
+  // ── Everything below this point can be slow (LLM round trips, tool calls
+  //    against external APIs) — it all runs inside the stream so the client
+  //    gets the connection + live status/tool events immediately instead of
+  //    waiting in silence for the whole thing to resolve. ───────────────────
+  const encoder = new TextEncoder();
 
-  // ── Execute pre-approved write tool ─────────────────────────────────
-  if (approvedTool && approvedInput) {
-    const result = await executeCoachTool(approvedTool, approvedInput, userId, convId);
-    toolEvents.push({ name: approvedTool, message: result.message, success: result.success, editId: result.editId });
-    textMessages.push({ role: "assistant", content: `[Tool executed: ${approvedTool}] ${result.message}` });
-    void approvedEditId; // already used by the UI to mark approved — no DB action needed here
-  }
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: Record<string, unknown>) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
-  // ── Agentic loop (Claude only — full multi-step with parallel tool calls) ──
-  if (provider === "claude") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    type Block = Record<string, any>;
-    type AnthropicMsg = { role: "user" | "assistant"; content: string | Block[] };
-
-    const anthropicMsgs: AnthropicMsg[] = [
-      ...textMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
-      { role: "user", content: message },
-    ];
-
-    let hasPending = false;
-    const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const anthropic  = new Anthropic({ apiKey });
-
-    for (let iter = 0; iter < 6; iter++) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let response: any;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        response = await (anthropic.messages.create as any)({
-          model: "claude-sonnet-4-6",
-          max_tokens: 2048,
-          tools: COACH_TOOLS,
-          tool_choice: { type: "auto" },
-          system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-          messages: anthropicMsgs,
-        });
-      } catch {
-        break; // tool check failed — fall through to stream without fresh data
-      }
+        send({ convId });
 
-      if (response.stop_reason !== "tool_use") break;
+        // ── Execute pre-approved write tool ─────────────────────────────
+        if (approvedTool && approvedInput) {
+          send({ status: "tool", tool: approvedTool });
+          const result = await executeCoachTool(approvedTool, approvedInput, userId, convId!);
+          const ev: ToolEvent = { name: approvedTool, message: result.message, success: result.success, editId: result.editId };
+          send({ toolCall: ev });
+          textMessages.push({ role: "assistant", content: `[Tool executed: ${approvedTool}] ${result.message}` });
+          void approvedEditId; // already used by the UI to mark approved — no DB action needed here
+        }
 
-      // Append full assistant message (required by Anthropic — must include tool_use blocks)
-      anthropicMsgs.push({ role: "assistant", content: response.content as Block[] });
+        send({ status: "thinking" });
 
-      const toolUseBlocks = (response.content as Block[]).filter((b: Block) => b.type === "tool_use") as Block[];
+        let fullResponse = "";
+        let inputTokens = 0, outputTokens = 0, cacheReadTokens = 0;
+        let hasPending = false;
+        let toolsUsed = !!(approvedTool && approvedInput);
 
-      // If any write tool is requested, pause and ask for approval
-      const writeBlock = toolUseBlocks.find(b => WRITE_TOOLS.has(b.name as string));
-      if (writeBlock) {
-        toolEvents.push({ name: writeBlock.name as string, message: describeAction(writeBlock.name as string, writeBlock.input as Record<string, unknown>), success: true, pending: true, pendingInput: writeBlock.input as Record<string, unknown>, pendingTool: writeBlock.name as string });
-        hasPending = true;
-        break;
-      }
+        // ── Agentic loop (Claude only — full multi-step with parallel tool calls) ──
+        if (provider === "claude") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          type Block = Record<string, any>;
+          type AnthropicMsg = { role: "user" | "assistant"; content: string | Block[] };
 
-      // Execute all read tools in parallel
-      const results = await Promise.all(
-        toolUseBlocks.map(b => executeCoachTool(b.name as string, b.input as Record<string, unknown>, userId, convId!))
-      );
+          const anthropicMsgs: AnthropicMsg[] = [
+            ...textMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+            { role: "user", content: message },
+          ];
 
-      // Emit a toolCall event per tool
-      for (let i = 0; i < toolUseBlocks.length; i++) {
-        toolEvents.push({ name: toolUseBlocks[i].name as string, message: results[i].message, success: results[i].success });
-      }
+          const Anthropic = (await import("@anthropic-ai/sdk")).default;
+          const anthropic  = new Anthropic({ apiKey });
 
-      // Append tool results as user message
-      anthropicMsgs.push({
-        role: "user",
-        content: toolUseBlocks.map((b, i) => ({
-          type: "tool_result",
-          tool_use_id: b.id as string,
-          content: String(results[i].data ?? results[i].message),
-        })) as Block[],
-      });
-    }
+          for (let iter = 0; iter < 6; iter++) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let response: any;
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              response = await (anthropic.messages.create as any)({
+                model: "claude-sonnet-4-6",
+                max_tokens: 2048,
+                tools: COACH_TOOLS,
+                tool_choice: { type: "auto" },
+                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+                messages: anthropicMsgs,
+              });
+            } catch (err) {
+              console.error("[coach/chat] claude tool-check failed:", err instanceof Error ? err.message : err);
+              break; // tool check failed — fall through to stream without fresh data
+            }
 
-    // ── Stream final Claude response ────────────────────────────────────
-    const encoder    = new TextEncoder();
-    let fullResponse = "";
-    let inputTokens  = 0, outputTokens = 0, cacheReadTokens = 0;
+            if (response.stop_reason !== "tool_use") break;
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ convId })}\n\n`));
-          for (const ev of toolEvents) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ toolCall: ev })}\n\n`));
+            // Append full assistant message (required by Anthropic — must include tool_use blocks)
+            anthropicMsgs.push({ role: "assistant", content: response.content as Block[] });
+
+            const toolUseBlocks = (response.content as Block[]).filter((b: Block) => b.type === "tool_use") as Block[];
+
+            // If any write tool is requested, pause and ask for approval
+            const writeBlock = toolUseBlocks.find(b => WRITE_TOOLS.has(b.name as string));
+            if (writeBlock) {
+              const ev: ToolEvent = { name: writeBlock.name as string, message: describeAction(writeBlock.name as string, writeBlock.input as Record<string, unknown>), success: true, pending: true, pendingInput: writeBlock.input as Record<string, unknown>, pendingTool: writeBlock.name as string };
+              send({ toolCall: ev });
+              hasPending = true;
+              break;
+            }
+
+            // Execute read tools — emit a "tool" status as each one starts, and its result as it finishes
+            for (const b of toolUseBlocks) send({ status: "tool", tool: b.name });
+            const results = await Promise.all(
+              toolUseBlocks.map(b => executeCoachTool(b.name as string, b.input as Record<string, unknown>, userId, convId!))
+            );
+            for (let i = 0; i < toolUseBlocks.length; i++) {
+              send({ toolCall: { name: toolUseBlocks[i].name as string, message: results[i].message, success: results[i].success } });
+            }
+            toolsUsed = true;
+            send({ status: "thinking" });
+
+            // Append tool results as user message
+            anthropicMsgs.push({
+              role: "user",
+              content: toolUseBlocks.map((b, i) => ({
+                type: "tool_result",
+                tool_use_id: b.id as string,
+                content: String(results[i].data ?? results[i].message),
+              })) as Block[],
+            });
           }
+
           if (hasPending) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 })}\n\n`));
+            send({ done: true, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 });
             controller.close();
             return;
           }
 
           // Re-add the user's original message and request a final response
-          anthropicMsgs.push({ role: "user", content: toolEvents.length > 0
+          anthropicMsgs.push({ role: "user", content: toolsUsed
             ? "Using the tool data above, answer my original question fully."
             : message
           });
@@ -222,7 +231,7 @@ export async function POST(req: NextRequest) {
             model: "claude-sonnet-4-6",
             max_tokens: 4096,
             system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-            messages: toolEvents.length > 0 ? anthropicMsgs : [
+            messages: toolsUsed ? anthropicMsgs : [
               ...textMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
               { role: "user", content: message },
             ],
@@ -231,7 +240,7 @@ export async function POST(req: NextRequest) {
           for await (const event of finalStream as AsyncIterable<Block>) {
             if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
               fullResponse += event.delta.text as string;
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
+              send({ text: event.delta.text });
             }
             if (event.type === "message_delta" && event.usage) {
               outputTokens = (event.usage.output_tokens as number) ?? 0;
@@ -247,107 +256,91 @@ export async function POST(req: NextRequest) {
           const cost = estimateCost("claude", inputTokens, outputTokens, cacheReadTokens);
           await updateSpend(userId, provider, cost);
 
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, cost, inputTokens, outputTokens, cacheReadTokens })}\n\n`));
-          controller.close();
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          console.error("[coach/chat] claude stream error:", msg);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" } });
-  }
-
-  // ── Non-Claude providers (single tool call + stream) ─────────────────
-  const messages: AIMessage[] = [
-    ...textMessages,
-    { role: "user", content: message },
-  ];
-
-  if (provider === "nvidia" || provider === "groq") {
-    try {
-      const OpenAI  = (await import("openai")).default;
-      const baseURL = provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.groq.com/openai/v1";
-      const model   = provider === "nvidia" ? (aiSettings?.nvidiaModel ?? NVIDIA_DEFAULT_MODEL) : (aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL);
-      const oai     = new OpenAI({ apiKey, baseURL });
-      const tc      = await oai.chat.completions.create({
-        model, max_tokens: 400, tools: toOpenAITools(), tool_choice: "auto",
-        messages: [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role as "user"|"assistant", content: m.content }))],
-      });
-      const choice = tc.choices[0];
-      if (choice?.finish_reason === "tool_calls" && choice.message.tool_calls?.[0]) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const call = choice.message.tool_calls[0] as any;
-        const toolName  = call.function.name as string;
-        const toolInput = JSON.parse(call.function.arguments as string) as Record<string, unknown>;
-        if (WRITE_TOOLS.has(toolName)) {
-          toolEvents.push({ name: toolName, message: describeAction(toolName, toolInput), success: true, pending: true, pendingInput: toolInput, pendingTool: toolName });
-        } else {
-          const result = await executeCoachTool(toolName, toolInput, userId, convId!);
-          if (result.success) toolEvents.push({ name: toolName, message: result.message, success: true });
-          messages.push({ role: "assistant", content: `[Tool: ${toolName}]\n${String(result.data ?? result.message)}` });
-          messages.push({ role: "user", content: "Answer my question using the tool data above." });
-        }
-      }
-    } catch { /* tool check failed */ }
-  } else {
-    // Gemini function calling
-    try {
-      const { GoogleGenerativeAI } = await import("@google/generative-ai");
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({
-        model: "gemini-2.5-flash",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        tools: [{ functionDeclarations: toGeminiTools() }] as any,
-        systemInstruction: systemPrompt,
-      });
-      const gHistory = messages.slice(0, -1).map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
-      const chat = model.startChat({ history: gHistory });
-      const res  = await chat.sendMessage(messages.at(-1)!.content);
-      const fc   = res.response.candidates?.[0]?.content.parts.find(p => "functionCall" in p);
-      if (fc && "functionCall" in fc && fc.functionCall) {
-        const { name, args } = fc.functionCall;
-        const toolInput = args as Record<string, unknown>;
-        if (WRITE_TOOLS.has(name)) {
-          toolEvents.push({ name, message: describeAction(name, toolInput), success: true, pending: true, pendingInput: toolInput, pendingTool: name });
-        } else {
-          const result = await executeCoachTool(name, toolInput, userId, convId!);
-          if (result.success) toolEvents.push({ name, message: result.message, success: true });
-          messages.push({ role: "assistant", content: `[Tool: ${name}]\n${String(result.data ?? result.message)}` });
-          messages.push({ role: "user", content: "Answer my question using the tool data above." });
-        }
-      }
-    } catch { /* tool check failed */ }
-  }
-
-  // ── Stream response for non-Claude providers ─────────────────────────
-  const aiClient = provider === "nvidia"
-    ? new NvidiaClient(apiKey, aiSettings?.nvidiaModel ?? NVIDIA_DEFAULT_MODEL)
-    : provider === "groq"
-    ? new GroqClient(apiKey, aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL)
-    : new GeminiClient(apiKey);
-
-  const hasPending = toolEvents.some(e => e.pending);
-  const encoder    = new TextEncoder();
-  let fullResponse = "";
-  let inputTokens  = 0, outputTokens = 0, cacheReadTokens = 0;
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ convId })}\n\n`));
-        for (const ev of toolEvents) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ toolCall: ev })}\n\n`));
-        }
-
-        if (hasPending) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 })}\n\n`));
+          send({ done: true, cost, inputTokens, outputTokens, cacheReadTokens });
           controller.close();
           return;
         }
+
+        // ── Non-Claude providers (single tool call + stream) ─────────────────
+        const messages: AIMessage[] = [
+          ...textMessages,
+          { role: "user", content: message },
+        ];
+
+        if (provider === "nvidia" || provider === "groq") {
+          try {
+            const OpenAI  = (await import("openai")).default;
+            const baseURL = provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.groq.com/openai/v1";
+            const model   = provider === "nvidia" ? (aiSettings?.nvidiaModel ?? NVIDIA_DEFAULT_MODEL) : (aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL);
+            const oai     = new OpenAI({ apiKey, baseURL });
+            const tc      = await oai.chat.completions.create({
+              model, max_tokens: 400, tools: toOpenAITools(), tool_choice: "auto",
+              messages: [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role as "user"|"assistant", content: m.content }))],
+            });
+            const choice = tc.choices[0];
+            if (choice?.finish_reason === "tool_calls" && choice.message.tool_calls?.[0]) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const call = choice.message.tool_calls[0] as any;
+              const toolName  = call.function.name as string;
+              const toolInput = JSON.parse(call.function.arguments as string) as Record<string, unknown>;
+              if (WRITE_TOOLS.has(toolName)) {
+                send({ toolCall: { name: toolName, message: describeAction(toolName, toolInput), success: true, pending: true, pendingInput: toolInput, pendingTool: toolName } });
+                hasPending = true;
+              } else {
+                send({ status: "tool", tool: toolName });
+                const result = await executeCoachTool(toolName, toolInput, userId, convId!);
+                if (result.success) send({ toolCall: { name: toolName, message: result.message, success: true } });
+                messages.push({ role: "assistant", content: `[Tool: ${toolName}]\n${String(result.data ?? result.message)}` });
+                messages.push({ role: "user", content: "Answer my question using the tool data above." });
+                send({ status: "thinking" });
+              }
+            }
+          } catch (err) { console.error("[coach/chat] tool check failed:", err instanceof Error ? err.message : err); }
+        } else {
+          // Gemini function calling
+          try {
+            const { GoogleGenerativeAI } = await import("@google/generative-ai");
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({
+              model: "gemini-2.5-flash",
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              tools: [{ functionDeclarations: toGeminiTools() }] as any,
+              systemInstruction: systemPrompt,
+            });
+            const gHistory = messages.slice(0, -1).map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+            const chat = model.startChat({ history: gHistory });
+            const res  = await chat.sendMessage(messages.at(-1)!.content);
+            const fc   = res.response.candidates?.[0]?.content.parts.find(p => "functionCall" in p);
+            if (fc && "functionCall" in fc && fc.functionCall) {
+              const { name, args } = fc.functionCall;
+              const toolInput = args as Record<string, unknown>;
+              if (WRITE_TOOLS.has(name)) {
+                send({ toolCall: { name, message: describeAction(name, toolInput), success: true, pending: true, pendingInput: toolInput, pendingTool: name } });
+                hasPending = true;
+              } else {
+                send({ status: "tool", tool: name });
+                const result = await executeCoachTool(name, toolInput, userId, convId!);
+                if (result.success) send({ toolCall: { name, message: result.message, success: true } });
+                messages.push({ role: "assistant", content: `[Tool: ${name}]\n${String(result.data ?? result.message)}` });
+                messages.push({ role: "user", content: "Answer my question using the tool data above." });
+                send({ status: "thinking" });
+              }
+            }
+          } catch (err) { console.error("[coach/chat] tool check failed:", err instanceof Error ? err.message : err); }
+        }
+
+        if (hasPending) {
+          send({ done: true, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 });
+          controller.close();
+          return;
+        }
+
+        // ── Stream response for non-Claude providers ─────────────────────────
+        const aiClient = provider === "nvidia"
+          ? new NvidiaClient(apiKey, aiSettings?.nvidiaModel ?? NVIDIA_DEFAULT_MODEL)
+          : provider === "groq"
+          ? new GroqClient(apiKey, aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL)
+          : new GeminiClient(apiKey);
 
         for await (const chunk of aiClient.stream(systemPrompt, messages, "")) {
           if (chunk.done) {
@@ -356,7 +349,7 @@ export async function POST(req: NextRequest) {
             cacheReadTokens = chunk.cacheReadTokens ?? 0;
           } else {
             fullResponse += chunk.text;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk.text })}\n\n`));
+            send({ text: chunk.text });
           }
         }
 
@@ -364,12 +357,12 @@ export async function POST(req: NextRequest) {
         const cost = estimateCost(provider as "claude" | "gemini", inputTokens, outputTokens, cacheReadTokens);
         await updateSpend(userId, provider, cost);
 
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, cost, inputTokens, outputTokens, cacheReadTokens })}\n\n`));
+        send({ done: true, cost, inputTokens, outputTokens, cacheReadTokens });
         controller.close();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         console.error("[coach/chat] stream error:", msg);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
+        send({ error: msg });
         controller.close();
       }
     },

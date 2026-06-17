@@ -2,6 +2,12 @@ import { prisma } from "@/lib/db/prisma";
 import { safeDecrypt } from "@/lib/encrypt";
 import { addDays, subDays, format, startOfWeek } from "date-fns";
 
+// Tool calls run inline in the chat request — an unresponsive external API (Tavily, Open-Meteo,
+// PubMed, Strava) would otherwise hang the whole conversation with no feedback to the user.
+function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = 12000): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+}
+
 // ── Tool definitions ───────────────────────────────────────────────────────────
 // Descriptions say WHAT each tool returns, not WHEN to call it.
 // The model decides autonomously which tools to call and in what order.
@@ -643,7 +649,7 @@ export async function executeCoachTool(
         // Refresh token if needed
         let accessToken = stravaAccount.accessToken;
         if (stravaAccount.expiresAt < new Date()) {
-          const refreshRes = await fetch("https://www.strava.com/oauth/token", {
+          const refreshRes = await fetchWithTimeout("https://www.strava.com/oauth/token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ client_id: process.env.STRAVA_CLIENT_ID, client_secret: process.env.STRAVA_CLIENT_SECRET, grant_type: "refresh_token", refresh_token: stravaAccount.refreshToken }),
@@ -655,7 +661,7 @@ export async function executeCoachTool(
         }
 
         const limit = Math.min(20, (input.limit as number) ?? 10);
-        const res = await fetch(`https://www.strava.com/api/v3/segments/${input.segment_id}/all_efforts?per_page=${limit}`, {
+        const res = await fetchWithTimeout(`https://www.strava.com/api/v3/segments/${input.segment_id}/all_efforts?per_page=${limit}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (!res.ok) return { success: false, message: "Segment not found or not accessible.", data: `Strava API error ${res.status}` };
@@ -1036,7 +1042,7 @@ export async function executeCoachTool(
         const TAVILY_KEY = safeDecrypt(settings?.tavilyApiKey) ?? process.env.TAVILY_API_KEY;
         if (!TAVILY_KEY) return { success: false, message: "Web search not configured", data: "No Tavily API key set. Add one in Settings → AI Coach." };
         const query = input.query as string;
-        const res = await fetch("https://api.tavily.com/search", {
+        const res = await fetchWithTimeout("https://api.tavily.com/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ api_key: TAVILY_KEY, query, search_depth: "basic", max_results: 5, include_answer: true }),
@@ -1068,7 +1074,7 @@ export async function executeCoachTool(
         const startDate = targetDate ? targetDate : new Date();
 
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max,weathercode&timezone=auto&start_date=${format(startDate, "yyyy-MM-dd")}&end_date=${format(endDate, "yyyy-MM-dd")}`;
-        const res = await fetch(url);
+        const res = await fetchWithTimeout(url);
         if (!res.ok) return { success: false, message: "Weather fetch failed.", data: `Open-Meteo error ${res.status}` };
 
         type WData = { daily: { time: string[]; temperature_2m_max: number[]; temperature_2m_min: number[]; precipitation_probability_max: number[]; windspeed_10m_max: number[]; weathercode: number[] } };
@@ -1096,7 +1102,7 @@ export async function executeCoachTool(
         const maxRes  = Math.min(5, Math.max(1, (input.max_results as number) ?? 3));
 
         const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${query}&retmax=${maxRes}&retmode=json&sort=relevance`;
-        const searchRes = await fetch(searchUrl);
+        const searchRes = await fetchWithTimeout(searchUrl);
         if (!searchRes.ok) return { success: false, message: "Research search failed.", data: `PubMed error ${searchRes.status}` };
         type ESearch = { esearchresult: { idlist: string[] } };
         const searchData = await searchRes.json() as ESearch;
@@ -1104,7 +1110,7 @@ export async function executeCoachTool(
         if (!ids.length) return { success: true, message: "No research found.", data: "No PubMed papers found for this query." };
 
         const fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${ids.join(",")}&rettype=abstract&retmode=text`;
-        const fetchRes = await fetch(fetchUrl);
+        const fetchRes = await fetchWithTimeout(fetchUrl);
         if (!fetchRes.ok) return { success: false, message: "Research fetch failed.", data: `PubMed fetch error ${fetchRes.status}` };
         const text = await fetchRes.text();
 

@@ -14,14 +14,19 @@ Stream an AI coach response. Uses Server-Sent Events (SSE).
 }
 ```
 
-**Response:** `text/event-stream`. Events are newline-delimited JSON:
+**Response:** `text/event-stream`. The whole request (tool calls + generation) runs inside the stream's `start()`, so the connection opens and the first event arrives immediately — none of it is buffered behind the LLM round-trips. Events are newline-delimited JSON:
 
 ```
 data: {"convId": "clxxx..."}               ← First event: conversation ID (new conversations only)
-data: {"text": "Hello, "}                  ← Streaming text chunks
+data: {"status": "thinking"}               ← Model is deciding what to do / generating — show a "thinking" indicator
+data: {"status": "tool", "tool": "get_fitness_summary"}  ← About to run this tool — show "Using <tool>…"
+data: {"toolCall": {"name": "...", "message": "...", "success": true}}  ← Tool finished — render its result card
+data: {"text": "Hello, "}                  ← Streaming text chunks (also implicitly clears the thinking/tool status)
 data: {"text": "how can I help?"}
 data: {"done": true, "cost": 0.0032, "inputTokens": 1240, "outputTokens": 380, "cacheReadTokens": 900}
 ```
+
+A pending write-tool approval (`toolCall.pending: true`) ends the turn early with `done: true, cost: 0` — no `status`/`text` events follow until the user approves/rejects.
 
 **Error event:**
 ```
