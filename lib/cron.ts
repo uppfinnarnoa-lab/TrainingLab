@@ -26,16 +26,38 @@ export function startCronJobs() {
     }
   });
 
-  // Daily Garmin sync at 08:00 (after overnight data is processed)
+  // Garmin sync at 08:00 — syncs YESTERDAY so overnight sleep/HRV data is ready
   cron.schedule("0 8 * * *", async () => {
-    console.log("[cron] Starting daily Garmin sync");
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    console.log("[cron] Starting Garmin morning sync (yesterday's sleep/HRV)");
     const accounts = await prisma.garminAccount.findMany({ select: { userId: true } });
     for (const account of accounts) {
       try {
-        await syncGarminDaily(account.userId);
-        console.log(`[cron] Garmin sync ${account.userId}: done`);
+        await syncGarminDaily(account.userId, yesterday);
+        console.log(`[cron] Garmin morning sync ${account.userId}: done`);
       } catch (e) {
-        console.error(`[cron] Garmin sync failed for ${account.userId}:`, e);
+        console.error(`[cron] Garmin morning sync failed for ${account.userId}:`, e);
+      }
+    }
+  });
+
+  // Garmin sync at 20:00 — syncs TODAY so daily steps/stress/body-battery/readiness
+  // accumulated during the day are captured. Also re-syncs yesterday in case any
+  // fields arrived late (e.g. training readiness sometimes lags a few hours).
+  cron.schedule("0 20 * * *", async () => {
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    console.log("[cron] Starting Garmin evening sync (today + yesterday catch-up)");
+    const accounts = await prisma.garminAccount.findMany({ select: { userId: true } });
+    for (const account of accounts) {
+      try {
+        await syncGarminDaily(account.userId, today);
+        await syncGarminDaily(account.userId, yesterday);
+        console.log(`[cron] Garmin evening sync ${account.userId}: done`);
+      } catch (e) {
+        console.error(`[cron] Garmin evening sync failed for ${account.userId}:`, e);
       }
     }
   });

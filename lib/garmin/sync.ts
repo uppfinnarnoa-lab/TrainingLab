@@ -80,10 +80,18 @@ export async function syncGarminDaily(userId: string, date: Date = new Date()): 
     spo2Avg:           toFloat(allDay.averageSPO2 ?? spo2.averageSPO2),
   };
 
+  // Only update fields that actually have data this sync — never overwrite a
+  // previously stored non-null value with null (handles partial data days where
+  // e.g. sleep was captured but readiness wasn't available yet, or the user
+  // synced twice and one run returned fewer fields).
+  const updateRecord = Object.fromEntries(
+    Object.entries(record).filter(([, v]) => v !== null)
+  );
+
   await prisma.garminDailySummary.upsert({
     where:  { userId_date: { userId, date } },
     create: { userId, date, ...record },
-    update: record,
+    update: updateRecord,
   });
 }
 

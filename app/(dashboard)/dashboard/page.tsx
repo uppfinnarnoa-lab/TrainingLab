@@ -88,9 +88,9 @@ export default async function DashboardPage() {
       select: { date: true, hrvNightly: true, sleepScore: true, sleepDuration: true, restingHR: true, bodyBattery: true, stressAvg: true, trainingReadiness: true, spo2Avg: true },
     }),
     prisma.garminDailySummary.findMany({
-      where: { userId },
+      where: { userId, date: { gte: subDays(now, 14) } },
       orderBy: { date: "desc" },
-      take: 8,
+      take: 10,
       select: { date: true, hrvNightly: true },
     }),
     prisma.athleteProfile.findUnique({
@@ -248,6 +248,7 @@ export default async function DashboardPage() {
 
           {latestGarmin && (
             <div className="flex flex-wrap gap-3 text-xs text-muted">
+              <span className="text-muted/50">{garminDateLabel(latestGarmin.date, now)}</span>
               {latestGarmin.sleepScore != null && (
                 <span>😴 Sleep {latestGarmin.sleepScore}/100</span>
               )}
@@ -504,6 +505,13 @@ function ACWRCard({ acwr }: { acwr: number }) {
       </div>
     </div>
   );
+}
+
+function garminDateLabel(garminDate: Date, now: Date): string {
+  const daysDiff = Math.round((now.getTime() - new Date(garminDate).getTime()) / 86_400_000);
+  if (daysDiff <= 0) return "Today";
+  if (daysDiff === 1) return "Yesterday";
+  return `${daysDiff} days ago`;
 }
 
 function StatCard({ label, primary, sub, detail, accent }: {
