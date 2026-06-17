@@ -11,18 +11,17 @@ const CONSUMER_KEY    = "fc3e99d2-118c-44b8-8ae3-03370dde24c0";
 const CONSUMER_SECRET = "E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF";
 
 const SSO_BASE    = "https://sso.garmin.com/sso";
+const SSO_EMBED   = `${SSO_BASE}/embed`;   // garth uses /embed — different bot-detection rules than /signin
 const CONNECT_API = "https://connectapi.garmin.com";
 
-// Browser-like headers — Garmin's SSO bot-detection rejects minimal UAs.
+// Mobile app headers — matches garth library (garminconnect 0.2.x) which works from server IPs.
+// Desktop browser UA triggers aggressive bot-detection on the credential POST; mobile app UA does not.
 const BROWSER_HEADERS = {
-  "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "User-Agent":      "com.garmin.android.apps.connectmobile",
+  "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
   "Accept-Encoding": "gzip, deflate, br",
   "Connection":      "keep-alive",
-  "Sec-Fetch-Dest":  "document",
-  "Sec-Fetch-Mode":  "navigate",
-  "Sec-Fetch-Site":  "same-origin",
 };
 
 // ── Cookie jar ──────────────────────────────────────────────────────────────
@@ -96,7 +95,7 @@ function oauth1Header(
 
 // ── Step 1: SSO page → CSRF token ──────────────────────────────────────────
 
-async function fetchSsoPage(jar: CookieJar): Promise<string> {
+async function fetchSsoPage(jar: CookieJar): Promise<{ html: string; url: string }> {
   const params = new URLSearchParams({
     service:                         "https://connect.garmin.com/modern/",
     webhost:                         "https://connect.garmin.com/modern/",
@@ -127,12 +126,13 @@ async function fetchSsoPage(jar: CookieJar): Promise<string> {
     rememberMeChecked:               "false",
   });
 
-  const res = await fetch(`${SSO_BASE}/signin?${params}`, {
+  const url = `${SSO_EMBED}?${params}`;
+  const res = await fetch(url, {
     headers: { ...BROWSER_HEADERS, Cookie: jar.header() },
   });
   jar.absorb(res.headers);
   if (!res.ok) throw new Error(`Failed to load Garmin SSO page: ${res.status}`);
-  return res.text();
+  return { html: await res.text(), url };
 }
 
 // ── Step 2: POST credentials → service ticket ───────────────────────────────
@@ -142,6 +142,7 @@ async function submitCredentials(
   password: string,
   csrf: string,
   jar: CookieJar,
+  ssoPageUrl: string,
 ): Promise<string> {
   const queryParams = new URLSearchParams({
     service:                         "https://connect.garmin.com/modern/",
@@ -169,16 +170,15 @@ async function submitCredentials(
     displayNameRequired: "false",
   });
 
-  const res = await fetch(`${SSO_BASE}/signin?${queryParams}`, {
+  const res = await fetch(`${SSO_EMBED}?${queryParams}`, {
     method:   "POST",
     redirect: "manual",
     headers: {
       ...BROWSER_HEADERS,
       "Content-Type": "application/x-www-form-urlencoded",
-      "Sec-Fetch-Site": "same-origin",
-      Cookie:           jar.header(),
-      Referer:          `${SSO_BASE}/signin`,
-      Origin:           "https://sso.garmin.com",
+      Cookie:          jar.header(),
+      Referer:         ssoPageUrl,
+      Origin:          "https://sso.garmin.com",
     },
     body: body.toString(),
   });
@@ -350,7 +350,7 @@ export async function loginWithGarmin(
   password: string,
 ): Promise<GarminTokens & { displayName: string | null }> {
   const jar  = new CookieJar();
-  const html = await fetchSsoPage(jar);
+  const { html, url: ssoPageUrl } = await fetchSsoPage(jar);
 
   // Garmin HTML attribute order varies — try all combinations
   const csrfMatch =
@@ -365,7 +365,7 @@ export async function loginWithGarmin(
   }
   const csrf = csrfMatch[1];
 
-  const ticket            = await submitCredentials(email, password, csrf, jar);
+  const ticket            = await submitCredentials(email, password, csrf, jar, ssoPageUrl);
   const { token, secret } = await ticketToOAuth1(ticket, jar);
   const tokens            = await oauth1ToOAuth2(token, secret, jar);
   const displayName       = await fetchDisplayName(tokens.accessToken);
