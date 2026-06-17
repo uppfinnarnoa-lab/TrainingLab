@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
 import { StatsClient } from "./stats-client";
 import { StatsErrorBoundary } from "./stats-error-boundary";
-import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, ltBoundaries, estimateZonesFromStatisticalAnalysis, type HRZones } from "@/lib/fitness/zones";
+import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, ltBoundaries, type HRZones } from "@/lib/fitness/zones";
 import { computeTSS, buildLoadCurve, computeACWR } from "@/lib/fitness/training-load";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace } from "@/lib/fitness/vo2max";
 import { RACE_DISTANCES } from "@/lib/fitness/paces";
@@ -141,6 +141,13 @@ export default async function StatsPage() {
     ? { ...(fitnessCache.zones as HRZones), maxHR, restHR }  // use calibrated zones
     : buildHRZones(maxHR, restHR);  // fallback: default formula
 
+  // "Statistical threshold estimation" card — calibration-only snapshot.
+  // Written exclusively by updateHRZones() (the calibration button); never recomputed
+  // live here. A rolling 90-day recency window drifts on its own as time passes even
+  // with zero new activities, so a live recompute on every stale-cache page load would
+  // make this card silently diverge from the applied zones below it between calibrations.
+  const statZonesLapsCached = (fitnessCache?.statZonesLapsJson ?? null) as import("@/lib/fitness/zones").StatisticalZoneResult | null;
+
   const weatherStats = computeWeatherStats(weatherActs as WeatherAct[], maxHR);
 
   // ── tempSensitivity — computed from weatherActs (always fresh) so fast path gets it too ──
@@ -195,8 +202,6 @@ export default async function StatsPage() {
       ltPaceTrend: { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[];
       easyPaceTrend?: EasyPacePoint[];
     } | null;
-    const fastStatZonesLaps = (fitnessCache.statZonesLapsJson ?? null) as import("@/lib/fitness/zones").StatisticalZoneResult | null;
-
     // Build sparklines from cached weekly volumes
     const sparklines = Array.from({ length: 8 }, (_, i) => {
       const wkStart = startOfWeek(subDays(now, (7 - i) * 7), { weekStartsOn: 1 });
@@ -413,7 +418,7 @@ export default async function StatsPage() {
       fastZoneSeconds, hrZones, vo2max, effectivePaceZones, predictions, fastPolarisation, acwr,
       overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraVizFresh,
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
-      fpEasyPaceTrend, fastStatZonesLaps,
+      fpEasyPaceTrend, statZonesLapsCached,
       fpCadenceByWeek, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length,
       garminWellness);
   }
@@ -822,40 +827,6 @@ export default async function StatsPage() {
   }
   perfByDistYear.sort((a, b) => a.period.localeCompare(b.period));
 
-  // Statistical zone estimation from all running data (activity-level + lap-level)
-  type SlowLapRow = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
-  type SlowAct = A & { laps?: unknown };
-  const olRaceFilterSlow = (a: A) =>
-    !/virtualrun/i.test(a.sportType) &&
-    !/indoor|inomhus/i.test(a.name ?? "") &&
-    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "") &&
-    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < 330));
-  const statActRuns = (activities as SlowAct[])
-    .filter(a => /run|trail/i.test(a.sportType) && a.averageHeartrate && olRaceFilterSlow(a))
-    .map(a => ({ avgHR: a.averageHeartrate!, distanceM: a.distance, movingTimeSec: a.movingTime, totalElevationGain: a.totalElevationGain, startDate: a.startDate, isRace: a.isRace }));
-  const statLapRuns = (activities as SlowAct[])
-    .filter(a => /run|trail/i.test(a.sportType) && olRaceFilterSlow(a) && Array.isArray(a.laps))
-    .flatMap(a => {
-      return (a.laps as SlowLapRow[]).filter(l =>
-        l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
-      ).map(l => ({
-        avgHR: l.average_heartrate!,
-        distanceM: l.distance,
-        movingTimeSec: l.moving_time,
-        totalElevationGain: l.total_elevation_gain ?? 0,
-        startDate: (a as A).startDate,
-        isRace: (a as A).isRace,
-      }));
-    });
-  const statZones = estimateZonesFromStatisticalAnalysis(
-    [...statActRuns, ...statLapRuns],
-    computedMaxHR, restHR,
-  );
-  const statZonesLaps = estimateZonesFromStatisticalAnalysis(
-    statLapRuns,
-    computedMaxHR, restHR,
-  );
-
   const easyPaceTrend = computeEasyPaceTrend(activities as EasyPaceAct[], computedHrZones.z3[0]);
 
   // ── Cadence trend (1A) — slow path ──────────────────────────────────────
@@ -930,13 +901,15 @@ export default async function StatsPage() {
   // Preserve stored ltPaceTrend — it's computed by updateVO2maxAndPaces, not the slow path
   const existingLtPaceTrend = (fitnessCache?.extraVizJson as { ltPaceTrend?: unknown } | null)?.ltPaceTrend ?? [];
 
-  // Save extraViz + statZones to cache for fast-path reads (fire-and-forget)
+  // Save extraViz to cache for fast-path reads (fire-and-forget).
+  // statZonesJson/statZonesLapsJson are NOT written here — those are calibration-only
+  // (written exclusively by updateHRZones, the "Apply zones" button). Writing a live
+  // recompute here was overwriting the calibration snapshot on every stale-cache page
+  // load, silently corrupting the "Statistical threshold estimation" card.
   prisma.fitnessCache.update({
     where: { userId },
     data: {
-      extraVizJson:     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear, ltPaceTrend: existingLtPaceTrend, easyPaceTrend } as Prisma.InputJsonValue,
-      statZonesJson:    (statZones     ?? null) as unknown as Prisma.InputJsonValue,
-      statZonesLapsJson:(statZonesLaps ?? null) as unknown as Prisma.InputJsonValue,
+      extraVizJson: { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor: terrainFactor ?? null, perfByDistYear, ltPaceTrend: existingLtPaceTrend, easyPaceTrend } as Prisma.InputJsonValue,
     },
   }).catch((e: unknown) => console.error("[stats] extraViz cache save failed:", e));
 
@@ -946,7 +919,7 @@ export default async function StatsPage() {
     modelPredictions, modelVdots,
     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear, ltPaceTrend: existingLtPaceTrend as { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[] },
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
-    easyPaceTrend, statZonesLaps,
+    easyPaceTrend, statZonesLapsCached,
     cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDays.length,
     garminWellness);
 }
