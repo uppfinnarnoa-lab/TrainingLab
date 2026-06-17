@@ -2630,4 +2630,84 @@ Every internal API endpoint and cross-module function that crosses a boundary (H
 
 ---
 
-*Last updated: 2026-06-16 (mega feature session — activity matching, activity page stats, cadence/EF/monotony trends, planner DnD + taper + week panel, stream caching, coach commands, PWA, color palettes)*
+### Session 2026-06-17 — Garmin in-app integration (unofficial OAuth2 SSO) + security audit
+
+**Replaced Python sidecar + official OAuth with full TypeScript in-app Garmin authentication.**
+
+Design: Users enter their Garmin Connect email/password once in Settings → we authenticate via Garmin's unofficial SSO and store only the resulting OAuth2 Bearer tokens (encrypted). Email/password never persisted.
+
+**`prisma/schema.prisma`:**
+- `GarminAccount`: added `displayName String?` (Garmin username, needed as path param in Connect API URLs).
+- `schema.prisma` touched → requires `prisma generate + prisma db push` on prod.
+
+**`lib/garmin/auth.ts`** (new):
+- `loginWithGarmin(email, password)` — full SSO → OAuth2 flow:
+  1. GET `sso.garmin.com/sso/signin` → extract `_csrf` hidden field
+  2. POST credentials → Garmin SSO redirects with `ticket=ST-...` in Location header
+  3. GET `connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=...` with OAuth1-signed consumer auth → OAuth1 token pair
+  4. POST `connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0` with OAuth1 token → OAuth2 `{access_token, refresh_token, expires_in}`
+  5. GET `connectapi.garmin.com/userprofile-service/userprofile/personal-information` → `displayName`
+- `refreshGarminTokens(refreshToken)` — refresh via Basic auth with consumer credentials; returns new `{accessToken, refreshToken, expiresAt}`.
+- `fetchDisplayName(accessToken)` — exported helper; returns null on failure (non-fatal).
+- Uses hardcoded Garmin Connect Mobile consumer key/secret (same as garth Python library; publicly embedded in Garmin's Android/iOS app; not our credentials).
+- Throws `GARMIN_INVALID_CREDENTIALS` or `GARMIN_MFA_REQUIRED` (MFA not supported — user must disable 2FA in Garmin account).
+- Cookie jar tracks SSO session across redirect chain. No external HTTP libraries.
+- OAuth1 signing (HMAC-SHA1 per RFC 5849) implemented from scratch using Node.js `crypto`.
+
+**`lib/garmin/client.ts`** (rewrote):
+- Removed all official OAuth functions (`getGarminAuthUrl`, `exchangeGarminCode`, `garminFetch`).
+- `getGarminToken(userId)` — reads GarminAccount, decrypts with `safeDecrypt`, returns valid token. If within 60 s of expiry, calls `refreshGarminTokens()` and stores new tokens (encrypted). Throws `GARMIN_NOT_CONNECTED` if no account.
+- `garminConnectFetch(userId, path, params?)` — builds URL for `connectapi.garmin.com{path}`, fetches with Bearer token.
+
+**`lib/garmin/sync.ts`** (rewrote):
+- Uses `connectapi.garmin.com` endpoints (unofficial Connect API, not Wellness API):
+  - `/usersummary-service/usersummary/daily/{dn}` → restingHR, bodyBattery, respirationRate, stressAvg, steps
+  - `/wellness-service/wellness/dailySleepData/{dn}` → sleepScore, sleepDuration, sleepDeep, sleepLight, sleepRem, sleepAwake
+  - `/hrv-service/hrv/{dn}` → hrvNightly (RMSSD ms), hrvBalance ("Balanced"/"Low"/"Unbalanced")
+  - `/metrics-service/metrics/trainingreadiness` → trainingReadiness (0–100)
+  - `/wellness-service/wellness/user/daily-wellness/spo2/details` → spo2Avg
+- All 5 fetches wrapped in `Promise.all` with per-call error suppression (`safe()` wrapper) — partial data is better than no data.
+- Sleep score field name varies across Garmin firmware → tries "sleepScores", "overallScore", "sleepScore" in order (matches Python sidecar logic).
+- `syncGarminDaily(userId)` returns early if no account or no displayName.
+
+**`app/api/garmin/connect/route.ts`** (new):
+- `POST {email, password}` → calls `loginWithGarmin()` → stores encrypted tokens + displayName via `prisma.garminAccount.upsert()`.
+- Rate-limited at 5 attempts / 10 min per userId (avoids triggering Garmin IP bans).
+- Zod validation: email max 254, password max 256 chars.
+- Returns `{ok: true, displayName}` on success; `{error: "invalid_credentials"|"mfa_required"|"too_many_attempts"|"auth_failed"}` on failure.
+- Email/password never logged or stored.
+
+**`app/api/garmin/disconnect/route.ts`** (new):
+- `POST` → `prisma.garminAccount.deleteMany({where: {userId: session.user.id}})`. Requires valid session.
+
+**`app/api/garmin/callback/route.ts`** (stripped):
+- Old official OAuth callback. Now just redirects to `/settings`. Kept to avoid broken bookmarks.
+
+**`app/(dashboard)/settings/garmin-connect.tsx`** (rewrote):
+- Replaced OAuth button + admin-only credential form with an email/password form available to all users.
+- Shows connected state with displayName + "Sync now" / "Disconnect" buttons.
+- "Sync now" POSTs to `/api/garmin/sync`. 
+- User-friendly error messages for invalid creds, MFA required, rate limit.
+- Password is never echoed; show/hide toggle.
+- Note displayed: "Your password is used only once to obtain a long-lived token and is never stored."
+
+**`app/(dashboard)/settings/page.tsx`** (updated):
+- Removed `getGarminAuthUrl` import and Garmin OAuth URL generation.
+- GarminAccount query now only selects `displayName` (not tokens — never sent to client).
+- Passes `{connected, displayName}` to `<GarminConnectSection>`.
+
+**Security audit — 6 rounds:**
+1. Credential logging: no email/password appears in any log/error message. Error messages are safe strings.
+2. Authorization: all 3 new routes guard with `auth()` + `session?.user?.id` check before any DB access.
+3. Encryption: all token writes use `encrypt()`, all reads use `safeDecrypt()`. DB never stores plaintext.
+4. Cross-user isolation: all DB queries filter by `session.user.id`; no user-supplied userId accepted.
+5. AES-256-GCM integrity: auth-tag mismatch on tampered ciphertext causes `safeDecrypt()` → null → explicit error.
+6. No tokens in HTTP responses: Settings page selects only `displayName`; cron selects only `userId`.
+
+**What still uses the Python sidecar:** Nothing — it's now obsolete. The `scripts/garmin_sync.py` file can be deleted or kept as a fallback for emergency backfill. The cron at 08:00 in `lib/cron.ts` already calls `syncGarminDaily()` (TypeScript).
+
+**Deployment notes:** Schema changed — run the longer deploy command with `prisma generate + prisma db push`.
+
+---
+
+*Last updated: 2026-06-17 (Garmin in-app TypeScript SSO, security audit)*

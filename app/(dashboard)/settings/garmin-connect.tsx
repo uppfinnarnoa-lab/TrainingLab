@@ -1,124 +1,163 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, Eye, EyeOff, Loader2, Copy, CheckCircle } from "lucide-react";
-import { SetupGuide, GARMIN_GUIDE } from "@/components/setup-guide";
+import { Eye, EyeOff, Loader2, RefreshCw, Unplug } from "lucide-react";
 
 interface Props {
-  connected:       boolean;
-  authUrl:         string | null;
-  callbackUrl:     string;
-  hasClientId:     boolean;
-  hasClientSecret: boolean;
-  isAdmin:         boolean;
+  connected:   boolean;
+  displayName: string | null;
 }
 
-export function GarminConnectSection({ connected, authUrl, callbackUrl, hasClientId, hasClientSecret, isAdmin }: Props) {
-  const [clientId,     setClientId]     = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [showSecret,   setShowSecret]   = useState(false);
-  const [saving,       setSaving]       = useState(false);
-  const [saved,        setSaved]        = useState(false);
-  const [copied,       setCopied]       = useState(false);
+export function GarminConnectSection({ connected, displayName }: Props) {
+  const [email,       setEmail]       = useState("");
+  const [password,    setPassword]    = useState("");
+  const [showPass,    setShowPass]    = useState(false);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(connected);
+  const [name,        setName]        = useState(displayName);
+  const [syncing,     setSyncing]     = useState(false);
+  const [syncResult,  setSyncResult]  = useState<"ok" | "error" | null>(null);
 
-  const credentialsSet = hasClientId && hasClientSecret;
+  async function connect() {
+    if (!email.trim() || !password) return;
+    setLoading(true);
+    setError(null);
 
-  async function saveCredentials() {
-    if (!clientId.trim() || !clientSecret.trim()) return;
-    setSaving(true);
-    await fetch("/api/settings/credentials", {
-      method: "POST",
+    const res = await fetch("/api/garmin/connect", {
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        garminClientId:     clientId.trim(),
-        garminClientSecret: clientSecret.trim(),
-      }),
+      body:    JSON.stringify({ email: email.trim(), password }),
     });
-    setSaving(false);
-    setSaved(true);
-    setClientId(""); setClientSecret("");
-    window.location.reload();
+    const data = await res.json().catch(() => ({}));
+    setLoading(false);
+
+    if (!res.ok) {
+      const messages: Record<string, string> = {
+        invalid_credentials: "Wrong email or password.",
+        mfa_required:        "Garmin 2-factor authentication must be disabled for this integration.",
+        too_many_attempts:   "Too many attempts — wait a few minutes.",
+        auth_failed:         "Garmin authentication failed. Check your credentials and try again.",
+        invalid_input:       "Invalid email address.",
+      };
+      setError(messages[data.error] ?? "Connection failed. Please try again.");
+      return;
+    }
+
+    setIsConnected(true);
+    setName(data.displayName ?? email.trim());
+    setEmail("");
+    setPassword("");
   }
 
-  function copyCallback() {
-    navigator.clipboard.writeText(callbackUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  async function disconnect() {
+    setLoading(true);
+    await fetch("/api/garmin/disconnect", { method: "POST" });
+    setIsConnected(false);
+    setName(null);
+    setLoading(false);
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    setSyncResult(null);
+    const res = await fetch("/api/garmin/sync", { method: "POST" });
+    setSyncing(false);
+    setSyncResult(res.ok ? "ok" : "error");
+    setTimeout(() => setSyncResult(null), 4000);
+  }
+
+  if (isConnected) {
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-accent">
+          ✓ Connected{name ? ` as ${name}` : ""}. HRV, sleep, stress and readiness sync daily at 08:00.
+        </p>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={syncNow}
+            disabled={syncing}
+            className="inline-flex items-center gap-2 rounded-xl bg-surface border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-surface-2 disabled:opacity-40 transition"
+          >
+            {syncing && <Loader2 size={14} className="animate-spin" />}
+            {!syncing && <RefreshCw size={14} />}
+            Sync now
+            {syncResult === "ok"    && <span className="text-accent ml-1">✓</span>}
+            {syncResult === "error" && <span className="text-red-400 ml-1">✗</span>}
+          </button>
+
+          <button
+            onClick={disconnect}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-xl bg-surface border border-border px-4 py-2 text-sm font-medium text-muted hover:text-primary hover:bg-surface-2 disabled:opacity-40 transition"
+          >
+            <Unplug size={14} />
+            Disconnect
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-5">
-      {/* Admin-only sections */}
-      {isAdmin && <SetupGuide steps={GARMIN_GUIDE} defaultOpen={!credentialsSet} />}
+    <div className="space-y-4">
+      <p className="text-xs text-muted">
+        Enter your Garmin Connect login. Your password is used only once to obtain a long-lived
+        token and is never stored.
+        <br />
+        <span className="text-amber-400">Note: Garmin 2-factor authentication must be disabled.</span>
+      </p>
 
-      {isAdmin && (
-        <div className="rounded-xl border border-border bg-surface-2 p-4 space-y-2">
-          <p className="text-xs font-semibold text-muted uppercase tracking-wide">Redirect URI for Garmin portal</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs font-mono text-primary bg-surface px-3 py-2 rounded-lg border border-border break-all">
-              {callbackUrl}
-            </code>
-            <button onClick={copyCallback} className="shrink-0 p-2 rounded-lg border border-border hover:bg-surface transition text-muted hover:text-primary">
-              {copied ? <CheckCircle size={15} className="text-accent" /> : <Copy size={15} />}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-muted mb-1 block">Garmin email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            autoComplete="username"
+            className={inp}
+          />
+        </div>
+
+        <div>
+          <label className="text-xs text-muted mb-1 block">Password</label>
+          <div className="relative">
+            <input
+              type={showPass ? "text" : "password"}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Garmin password"
+              autoComplete="current-password"
+              className={`${inp} pr-10`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPass(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-primary"
+              aria-label={showPass ? "Hide password" : "Show password"}
+            >
+              {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
           </div>
         </div>
-      )}
-
-      {/* Credentials — admin only */}
-      {isAdmin && (
-      <div className="space-y-3">
-        <p className="text-xs font-semibold text-muted uppercase tracking-wide">
-          Garmin Health API credentials
-          {credentialsSet && <span className="ml-2 text-accent normal-case font-medium">✓ Saved</span>}
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-muted mb-1 block">Client ID</label>
-            <input type="text" value={clientId} onChange={e => setClientId(e.target.value)}
-              placeholder={hasClientId ? "Already saved" : "Garmin client ID"} className={inp} />
-          </div>
-          <div>
-            <label className="text-xs text-muted mb-1 block">Client Secret</label>
-            <div className="relative">
-              <input type={showSecret ? "text" : "password"} value={clientSecret}
-                onChange={e => setClientSecret(e.target.value)}
-                placeholder={hasClientSecret ? "Already saved" : "Garmin client secret"}
-                className={`${inp} pr-10`} />
-              <button type="button" onClick={() => setShowSecret(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-primary">
-                {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <button onClick={saveCredentials} disabled={saving || (!clientId.trim() && !clientSecret.trim())}
-          className="inline-flex items-center gap-2 rounded-xl bg-surface border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-surface-2 disabled:opacity-40 transition">
-          {saving && <Loader2 size={14} className="animate-spin" />}
-          {saved ? "Saved ✓" : "Save credentials"}
-        </button>
       </div>
-      )}
 
-      {/* Connect button */}
-      {(isAdmin ? credentialsSet : hasClientId) && !connected && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-muted uppercase tracking-wide">Connect your account</p>
-          <a href={authUrl ?? "#"}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition">
-            <ExternalLink size={15} />
-            Connect with Garmin
-          </a>
-        </div>
-      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
 
-      {connected && (
-        <p className="text-sm text-accent">✓ Garmin is connected. HRV and sleep data syncs daily at 08:00.</p>
-      )}
+      <button
+        onClick={connect}
+        disabled={loading || !email.trim() || !password}
+        className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition"
+      >
+        {loading && <Loader2 size={14} className="animate-spin" />}
+        Connect Garmin
+      </button>
     </div>
   );
 }
 
-const inp = "w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition";
+const inp =
+  "w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition";

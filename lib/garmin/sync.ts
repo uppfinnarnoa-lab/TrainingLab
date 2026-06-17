@@ -1,61 +1,100 @@
+// Garmin Connect daily wellness sync — mirrors the Python sidecar data extraction exactly.
+// Uses unofficial Connect API endpoints; same data available as garminconnect Python library.
+
 import { prisma } from "@/lib/db/prisma";
-import { garminFetch } from "./client";
+import { garminConnectFetch } from "./client";
 import { format } from "date-fns";
 
-export async function syncGarminDaily(userId: string, date: Date = new Date()) {
+type AnyObj = Record<string, unknown>;
+
+function safe(promise: Promise<unknown>): Promise<unknown> {
+  return promise.catch(() => null);
+}
+
+export async function syncGarminDaily(userId: string, date: Date = new Date()): Promise<void> {
+  const account = await prisma.garminAccount.findUnique({ where: { userId } });
+  if (!account) return;
+
+  const dn      = account.displayName;
   const dateStr = format(date, "yyyy-MM-dd");
 
-  // Garmin Wellness API: daily summaries
-  let summary;
-  try {
-    const data = await garminFetch(userId, "/dailies", {
-      startDate: dateStr,
-      endDate: dateStr,
-    });
-    summary = Array.isArray(data) ? data[0] : data;
-  } catch (e) {
-    console.warn(`Garmin daily sync failed for ${dateStr}:`, e);
+  if (!dn) {
+    console.warn(`[garmin] No displayName for user ${userId} — reconnect Garmin in Settings`);
     return;
   }
 
-  if (!summary) return;
+  const [summaryRaw, sleepRaw, hrvRaw, readinessRaw, spo2Raw] = await Promise.all([
+    safe(garminConnectFetch(userId, `/usersummary-service/usersummary/daily/${dn}`, { calendarDate: dateStr })),
+    safe(garminConnectFetch(userId, `/wellness-service/wellness/dailySleepData/${dn}`, { date: dateStr, nonSleepBufferMinutes: "60" })),
+    safe(garminConnectFetch(userId, `/hrv-service/hrv/${dn}`, { startDate: dateStr, endDate: dateStr })),
+    safe(garminConnectFetch(userId, `/metrics-service/metrics/trainingreadiness`, { startDate: dateStr })),
+    safe(garminConnectFetch(userId, `/wellness-service/wellness/user/daily-wellness/spo2/details`, { startDate: dateStr, endDate: dateStr })),
+  ]);
 
-  // Sleep data
-  let sleep;
-  try {
-    const sleepData = await garminFetch(userId, "/sleep", {
-      startDate: dateStr,
-      endDate: dateStr,
-    });
-    sleep = Array.isArray(sleepData) ? sleepData[0] : sleepData;
-  } catch {
-    // Sleep data optional
+  const summary   = (summaryRaw as AnyObj | null)  ?? {};
+  const sleepDTO  = ((sleepRaw  as AnyObj | null)?.dailySleepDTO as AnyObj | undefined) ?? {};
+  const hrvSumm   = ((hrvRaw    as AnyObj | null)?.hrvSummary    as AnyObj | undefined) ?? {};
+  const spo2      = (spo2Raw    as AnyObj | null)  ?? {};
+  const allDay    = (spo2.allDay as AnyObj | undefined) ?? {};
+
+  // Training readiness — response is a list; take the last (most recent) entry
+  const readinessList = Array.isArray(readinessRaw) ? readinessRaw as AnyObj[] : [];
+  const readinessEntry: AnyObj = readinessList.length ? readinessList[readinessList.length - 1] : {};
+
+  // Sleep score — field name varies across Garmin firmware versions (same logic as Python sidecar)
+  let sleepScore: number | null = null;
+  for (const key of ["sleepScores", "overallScore", "sleepScore"]) {
+    const raw = sleepDTO[key];
+    if (raw !== null && typeof raw === "object") {
+      const o = raw as AnyObj;
+      const v = (o.overall as AnyObj | undefined)?.value ?? o.value ?? o.qualityScore;
+      if (typeof v === "number") { sleepScore = Math.round(v); break; }
+    } else if (typeof raw === "number") {
+      sleepScore = Math.round(raw);
+      break;
+    }
   }
 
+  // HRV balance status string
+  const status     = String(hrvSumm.status ?? "").toUpperCase();
+  const hrvBalance = status.includes("BALANCED")   ? "Balanced"
+    : status.includes("LOW")        ? "Low"
+    : status.includes("UNBALANCED") ? "Unbalanced"
+    : null;
+
+  const record = {
+    restingHR:         toInt(summary.restingHeartRate),
+    bodyBattery:       toInt(summary.bodyBatteryHighestValue),
+    respirationRate:   toFloat(summary.avgWakingRespirationValue),
+    stressAvg:         toInt(summary.averageStressLevel),
+    steps:             toInt(summary.totalSteps),
+    sleepScore,
+    sleepDuration:     toInt(sleepDTO.sleepTimeSeconds),
+    sleepDeep:         toInt(sleepDTO.deepSleepSeconds),
+    sleepLight:        toInt(sleepDTO.lightSleepSeconds),
+    sleepRem:          toInt(sleepDTO.remSleepSeconds),
+    sleepAwake:        toInt(sleepDTO.awakeSleepSeconds),
+    hrvNightly:        toFloat(hrvSumm.lastNight),
+    hrvBalance,
+    trainingReadiness: toInt(readinessEntry.trainingReadinessScore ?? readinessEntry.score),
+    spo2Avg:           toFloat(allDay.averageSPO2 ?? spo2.averageSPO2),
+  };
+
   await prisma.garminDailySummary.upsert({
-    where: { userId_date: { userId, date } },
-    create: {
-      userId,
-      date,
-      restingHR: summary.restingHeartRateValue ?? null,
-      hrvNightly: summary.averageStressLevel ?? null, // Garmin doesn't expose raw HRV easily
-      hrvBalance: summary.bodyBatteryChargedValue != null
-        ? (summary.bodyBatteryChargedValue > 50 ? "Balanced" : "Low")
-        : null,
-      sleepScore: sleep?.sleepScores?.overall ?? null,
-      sleepDuration: sleep?.durationInSeconds ?? null,
-      sleepDeep: sleep?.deepSleepDurationInSeconds ?? null,
-      sleepLight: sleep?.lightSleepDurationInSeconds ?? null,
-      sleepRem: sleep?.remSleepInSeconds ?? null,
-      sleepAwake: sleep?.awakeDurationInSeconds ?? null,
-      bodyBattery: summary.bodyBatteryChargedValue ?? null,
-      respirationRate: summary.avgWakingRespirationValue ?? null,
-    },
-    update: {
-      restingHR: summary.restingHeartRateValue ?? null,
-      sleepScore: sleep?.sleepScores?.overall ?? null,
-      sleepDuration: sleep?.durationInSeconds ?? null,
-      bodyBattery: summary.bodyBatteryChargedValue ?? null,
-    },
+    where:  { userId_date: { userId, date } },
+    create: { userId, date, ...record },
+    update: record,
   });
+}
+
+function toInt(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return isFinite(n) ? Math.round(n) : null;
+}
+
+function toFloat(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
 }

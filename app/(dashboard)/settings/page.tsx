@@ -2,7 +2,6 @@ import { auth } from "@/auth";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { getStravaAuthUrl } from "@/lib/strava/client";
-import { getGarminAuthUrl } from "@/lib/garmin/client";
 import { getCredentials } from "@/lib/config";
 import { StravaConnectSection } from "./strava-connect";
 import { GarminConnectSection } from "./garmin-connect";
@@ -19,14 +18,13 @@ export default async function SettingsPage() {
   const origin       = process.env.NEXTAUTH_URL ?? `${proto}://${host}`;
   const stravaCallback = `${origin}/api/strava/callback`;
   // Webhook must always point to the public domain (training.helgars.se), never localhost
-  const webhookBaseUrl = (process.env.NEXTAUTH_URL ?? origin).replace(/\/$/, "");
+  const webhookBaseUrl   = (process.env.NEXTAUTH_URL ?? origin).replace(/\/$/, "");
   const stravaWebhookUrl = `${webhookBaseUrl}/api/strava/webhook`;
-  const garminCallback = `${origin}/api/garmin/callback`;
 
   const [stravaAccount, garminAccount, aiSettings, user, appConfig] =
     await Promise.all([
       prisma.stravaAccount.findUnique({ where: { userId } }),
-      prisma.garminAccount.findUnique({ where: { userId } }),
+      prisma.garminAccount.findUnique({ where: { userId }, select: { displayName: true } }),
       prisma.aISettings.findUnique({ where: { userId } }),
       prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } }),
       // App-level API config — read from this user's record
@@ -43,17 +41,9 @@ export default async function SettingsPage() {
   const creds = await getCredentials(userId);
   const hasStravaClientId     = !!creds.stravaClientId;
   const hasStravaClientSecret = !!creds.stravaClientSecret;
-  const hasGarminClientId     = !!creds.garminClientId;
-  const hasGarminClientSecret = !!creds.garminClientSecret;
-
   let stravaAuthUrl: string | null = null;
   if (hasStravaClientId && hasStravaClientSecret) {
     try { stravaAuthUrl = await getStravaAuthUrl(userId, stravaCallback); } catch { /* not configured */ }
-  }
-
-  let garminAuthUrl: string | null = null;
-  if (hasGarminClientId && hasGarminClientSecret) {
-    try { garminAuthUrl = await getGarminAuthUrl(userId, garminCallback); } catch { /* not configured */ }
   }
 
   return (
@@ -76,14 +66,10 @@ export default async function SettingsPage() {
       </IntegrationCard>
 
       {/* ── Garmin ── */}
-      <IntegrationCard logo="🔵" name="Garmin Connect" description="HRV and sleep data — used for readiness score and coach context" connected={!!garminAccount} badge="Optional">
+      <IntegrationCard logo="🔵" name="Garmin Connect" description="HRV, sleep, stress and readiness — used for readiness score and AI coach context" connected={!!garminAccount} badge="Optional">
         <GarminConnectSection
           connected={!!garminAccount}
-          authUrl={garminAuthUrl}
-          callbackUrl={garminCallback}
-          hasClientId={hasGarminClientId}
-          hasClientSecret={hasGarminClientSecret}
-          isAdmin={isAdmin}
+          displayName={garminAccount?.displayName ?? null}
         />
       </IntegrationCard>
 

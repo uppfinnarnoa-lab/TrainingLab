@@ -87,9 +87,10 @@ model StravaAccount {
 model GarminAccount {
   id           String   @id @default(cuid())
   userId       String   @unique
-  accessToken  String
-  refreshToken String
-  expiresAt    DateTime
+  displayName  String?  // Garmin Connect username — needed for Connect API path params
+  accessToken  String   // AES-256-GCM encrypted OAuth2 Bearer token
+  refreshToken String   // AES-256-GCM encrypted OAuth2 refresh token
+  expiresAt    DateTime // access token expiry
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 

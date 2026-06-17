@@ -1,75 +1,54 @@
+// Garmin Connect API client — uses unofficial OAuth2 tokens stored in GarminAccount.
+// Call getGarminToken(userId) to get a valid Bearer token (auto-refreshes if needed).
+
 import { prisma } from "@/lib/db/prisma";
-import { getCredentials } from "@/lib/config";
-import { generateOAuthState } from "@/lib/oauth-state";
 import { encrypt, safeDecrypt } from "@/lib/encrypt";
+import { refreshGarminTokens } from "./auth";
 
-const GARMIN_TOKEN_URL = "https://connectapi.garmin.com/oauth-service/oauth/token";
-const GARMIN_BASE      = "https://apis.garmin.com/wellness-api/rest";
+const CONNECT_API = "https://connectapi.garmin.com";
 
-export async function getGarminAuthUrl(userId: string, redirectUri: string): Promise<string> {
-  const creds = await getCredentials(userId);
-  if (!creds.garminClientId) throw new Error("GARMIN_NOT_CONFIGURED");
-  const params = new URLSearchParams({
-    client_id:     creds.garminClientId,
-    redirect_uri:  redirectUri,
-    response_type: "code",
-    scope:         "WELLNESS",
-    state:         generateOAuthState(userId),
-  });
-  return `https://connect.garmin.com/oauth2Confirm?${params}`;
-}
+/** Returns a valid Bearer token for userId, refreshing it if it's within 60 s of expiry. */
+export async function getGarminToken(userId: string): Promise<string> {
+  const account = await prisma.garminAccount.findUnique({ where: { userId } });
+  if (!account) throw new Error("GARMIN_NOT_CONNECTED");
 
-export async function exchangeGarminCode(userId: string, code: string, redirectUri: string) {
-  const creds = await getCredentials(userId);
-  const credentials = Buffer.from(`${creds.garminClientId}:${creds.garminClientSecret}`).toString("base64");
+  const accessToken = safeDecrypt(account.accessToken);
+  if (!accessToken) throw new Error("Failed to decrypt Garmin access token");
 
-  const res = await fetch(GARMIN_TOKEN_URL, {
-    method: "POST",
-    headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri }),
-  });
-  if (!res.ok) throw new Error(`Garmin token exchange failed: ${res.status}`);
-  return res.json();
-}
+  // Return current token if it still has > 60 s left
+  if (account.expiresAt > new Date(Date.now() + 60_000)) return accessToken;
 
-async function refreshGarminToken(userId: string): Promise<string> {
-  const [account, creds] = await Promise.all([
-    prisma.garminAccount.findUnique({ where: { userId } }),
-    getCredentials(userId),
-  ]);
-  if (!account) throw new Error("No Garmin account");
-  if (account.expiresAt > new Date(Date.now() + 60_000))
-    return safeDecrypt(account.accessToken) ?? account.accessToken;
+  // Refresh
+  const refreshToken = safeDecrypt(account.refreshToken);
+  if (!refreshToken) throw new Error("Failed to decrypt Garmin refresh token");
 
-  const credentials = Buffer.from(`${creds.garminClientId}:${creds.garminClientSecret}`).toString("base64");
-  const res = await fetch(GARMIN_TOKEN_URL, {
-    method: "POST",
-    headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type:    "refresh_token",
-      refresh_token: safeDecrypt(account.refreshToken) ?? account.refreshToken,
-    }),
-  });
-  if (!res.ok) throw new Error(`Garmin token refresh failed: ${res.status}`);
-  const data = await res.json();
+  const tokens = await refreshGarminTokens(refreshToken);
 
-  const newRefresh = data.refresh_token ?? account.refreshToken;
   await prisma.garminAccount.update({
     where: { userId },
     data: {
-      accessToken:  encrypt(data.access_token),
-      refreshToken: encrypt(safeDecrypt(newRefresh) ?? newRefresh),
-      expiresAt:    new Date(Date.now() + data.expires_in * 1000),
+      accessToken:  encrypt(tokens.accessToken),
+      refreshToken: encrypt(tokens.refreshToken),
+      expiresAt:    tokens.expiresAt,
     },
   });
-  return data.access_token;
+
+  return tokens.accessToken;
 }
 
-export async function garminFetch(userId: string, path: string, params?: Record<string, string>) {
-  const token = await refreshGarminToken(userId);
-  const url = new URL(`${GARMIN_BASE}${path}`);
+/** Fetch a Garmin Connect API endpoint for the given userId. */
+export async function garminConnectFetch(
+  userId: string,
+  path: string,
+  params?: Record<string, string>,
+): Promise<unknown> {
+  const token = await getGarminToken(userId);
+  const url   = new URL(`${CONNECT_API}${path}`);
   if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Garmin API error: ${res.status} ${path}`);
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Garmin Connect API error: ${res.status} ${path}`);
   return res.json();
 }
