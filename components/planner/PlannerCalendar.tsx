@@ -41,14 +41,18 @@ interface ContextMenuState {
 }
 
 // ── dnd-kit droppable day cell wrapper ──────────────────────────────────────
-// Renders a zero-footprint wrapper that registers the drop zone with dnd-kit.
+// Must NOT use display:contents — Chromium reports an all-zero
+// getBoundingClientRect() for display:contents elements, so dnd-kit's
+// collision detection could never register this as a valid drop target
+// (the drag looked like it worked — the DragOverlay ghost follows the
+// cursor — but onDragEnd's `over` was always null and the move never fired).
 function DroppableDay({ dateStr, children }: {
   dateStr: string;
   children: React.ReactNode;
 }) {
   const { setNodeRef } = useDroppable({ id: dateStr });
   return (
-    <div ref={setNodeRef} style={{ display: "contents" }}>
+    <div ref={setNodeRef} className="h-full">
       {children}
     </div>
   );
@@ -533,7 +537,7 @@ export function PlannerCalendar({
                         if (templateId && onTemplateDrop) onTemplateDrop(templateId, key);
                       }}
                       className={cn(
-                        "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors overflow-hidden",
+                        "h-full min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors overflow-hidden",
                         isDragOver
                           ? "border-accent bg-accent/10"
                           : isPasteMode || isMoveMode || isPlaceMode
