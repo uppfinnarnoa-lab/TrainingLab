@@ -13,6 +13,18 @@ const CONSUMER_SECRET = "E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF";
 const SSO_BASE    = "https://sso.garmin.com/sso";
 const CONNECT_API = "https://connectapi.garmin.com";
 
+// Browser-like headers — Garmin's SSO bot-detection rejects minimal UAs.
+const BROWSER_HEADERS = {
+  "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Encoding": "gzip, deflate, br",
+  "Connection":      "keep-alive",
+  "Sec-Fetch-Dest":  "document",
+  "Sec-Fetch-Mode":  "navigate",
+  "Sec-Fetch-Site":  "same-origin",
+};
+
 // ── Cookie jar ──────────────────────────────────────────────────────────────
 
 class CookieJar {
@@ -116,10 +128,7 @@ async function fetchSsoPage(jar: CookieJar): Promise<string> {
   });
 
   const res = await fetch(`${SSO_BASE}/signin?${params}`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; TrainingLab/1.0)",
-      Cookie:       jar.header(),
-    },
+    headers: { ...BROWSER_HEADERS, Cookie: jar.header() },
   });
   jar.absorb(res.headers);
   if (!res.ok) throw new Error(`Failed to load Garmin SSO page: ${res.status}`);
@@ -164,10 +173,12 @@ async function submitCredentials(
     method:   "POST",
     redirect: "manual",
     headers: {
+      ...BROWSER_HEADERS,
       "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent":   "Mozilla/5.0 (compatible; TrainingLab/1.0)",
-      Cookie:         jar.header(),
-      Referer:        `${SSO_BASE}/signin`,
+      "Sec-Fetch-Site": "same-origin",
+      Cookie:           jar.header(),
+      Referer:          `${SSO_BASE}/signin`,
+      Origin:           "https://sso.garmin.com",
     },
     body: body.toString(),
   });
@@ -175,20 +186,34 @@ async function submitCredentials(
 
   const location = res.headers.get("location") ?? "";
 
-  if (!location) {
-    const text = await res.text();
-    if (/mfaCode|MFA|verificationCode|two-factor/i.test(text)) {
-      throw new Error("GARMIN_MFA_REQUIRED");
-    }
-    if (res.status === 403 || /InvalidUsernamePassword|badCredentials|username-or-password/i.test(text)) {
-      throw new Error("GARMIN_INVALID_CREDENTIALS");
-    }
-    throw new Error(`Garmin SSO login failed: HTTP ${res.status}`);
+  // Successful login: HTTP 302 with a Location containing a service ticket
+  if (location) {
+    const ticketMatch = location.match(/[?&]ticket=(ST-[^&\s]+)/);
+    if (ticketMatch) return decodeURIComponent(ticketMatch[1]);
+    // Redirect exists but no ticket — follow to see if it arrives on next hop
+    throw new Error(`SSO redirect missing service ticket: ${location.slice(0, 120)}`);
   }
 
-  const ticketMatch = location.match(/[?&]ticket=(ST-[^&\s]+)/);
-  if (!ticketMatch) throw new Error(`No service ticket in SSO redirect: ${location.slice(0, 100)}`);
-  return decodeURIComponent(ticketMatch[1]);
+  // No redirect — login did not complete. Read body to diagnose why.
+  const text = await res.text();
+
+  // Log a safe excerpt for server-side debugging (no credentials in response body)
+  console.error(`[garmin/auth] SSO login returned no redirect. Status: ${res.status}. Body[0:400]: ${text.slice(0, 400).replace(/\s+/g, " ")}`);
+
+  // Specific MFA check: look for an OTP input field, NOT just "MFA" anywhere in the page.
+  // Garmin's login page mentions "Two-Factor Authentication" as an account option even when
+  // it's disabled — so we need to detect the actual MFA challenge form, not just keywords.
+  const hasMfaInput = /<input[^>]+name=["']?(?:mfaCode|otpCode|totpCode|mfa_code)["']?/i.test(text)
+    || /<input[^>]+id=["']?(?:mfa-code|otp-code|mfa_code)["']?/i.test(text);
+  if (hasMfaInput) throw new Error("GARMIN_MFA_REQUIRED");
+
+  // Bad credentials
+  if (/InvalidUsernamePassword|badCredentials|username-or-password|incorrect password|invalid.*credentials/i.test(text)) {
+    throw new Error("GARMIN_INVALID_CREDENTIALS");
+  }
+  if (res.status === 403) throw new Error("GARMIN_INVALID_CREDENTIALS");
+
+  throw new Error(`Garmin SSO login failed: HTTP ${res.status}`);
 }
 
 // ── Step 3: ticket → OAuth1 token via preauthorized endpoint ────────────────
@@ -287,8 +312,17 @@ export async function loginWithGarmin(
   const jar  = new CookieJar();
   const html = await fetchSsoPage(jar);
 
-  const csrfMatch = html.match(/name="_csrf"\s+value="([^"]+)"/i);
-  if (!csrfMatch) throw new Error("CSRF token not found in Garmin SSO page — Garmin may have changed their login flow");
+  // Garmin HTML attribute order varies — try all combinations
+  const csrfMatch =
+    html.match(/name="_csrf"\s+value="([^"]+)"/i) ??
+    html.match(/value="([^"]+)"\s+name="_csrf"/i) ??
+    html.match(/<input[^>]+name="_csrf"[^>]*value="([^"]+)"/i) ??
+    html.match(/<input[^>]+value="([^"]+)"[^>]*name="_csrf"/i);
+
+  if (!csrfMatch) {
+    console.error(`[garmin/auth] CSRF not found in SSO page. Page excerpt: ${html.slice(0, 500).replace(/\s+/g, " ")}`);
+    throw new Error("CSRF token not found in Garmin SSO page — Garmin may have changed their login flow");
+  }
   const csrf = csrfMatch[1];
 
   const ticket            = await submitCredentials(email, password, csrf, jar);
