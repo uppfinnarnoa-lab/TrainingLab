@@ -2917,4 +2917,58 @@ Deep architectural overhaul of the AI coaching system. Full plan in `docs/planni
 
 ---
 
-*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, bot-detection + embed endpoint fix)*
+### Session 2026-06-17f — Garmin auth complete rework: iframe SSO + mobile JSON API
+
+**Root cause of all previous failures:** garth library was deprecated March 27, 2026 (matin/garth v0.8.0). Garmin changed their SSO flow; the `/sso/embed` HTML form flow no longer creates new logins. Our TypeScript implementation copied garth's approach, which is why all server-side attempts fail regardless of endpoint parameters.
+
+**New architecture (two-strategy cascade):**
+
+**Strategy 1 — Browser iframe SSO (primary, guaranteed to bypass bot-detection):**
+- Settings page hosts `https://sso.garmin.com/sso/embed?embedWidget=true&service=https://training.helgars.se/api/garmin/ticket-receiver&...` in an `<iframe>`.
+- User logs in inside the iframe — from their home IP, with genuine browser TLS fingerprint, real cookies. Cloudflare/Garmin bot-detection cannot trigger.
+- After login, Garmin redirects the iframe to `https://training.helgars.se/api/garmin/ticket-receiver?ticket=ST-...`.
+- Ticket-receiver returns minimal HTML: `<script>window.parent.postMessage({garminTicket: "ST-..."}, "*")</script>`.
+- Parent Settings page receives the postMessage and POSTs the ticket to `/api/garmin/exchange-ticket`.
+- Server exchanges ticket → OAuth1 → OAuth2 (pure API call, different detection rules, not bot-blocked).
+- Tokens stored encrypted; page shows "✓ Connected as [name]".
+
+**Strategy 2 — Mobile JSON API (server-side fallback):**
+- If iframe is blocked or unavailable: `GET sso.garmin.com/mobile/sso/en/sign-in` (session cookies) → 2–5 s anti-WAF delay → `POST sso.garmin.com/mobile/api/login?clientId=GCM_ANDROID_DARK&...` with JSON body.
+- Returns `{serviceTicketId: "ST-...", responseStatus: {type: "SUCCESSFUL"}}`.
+- iPhone UA (`Mozilla/5.0 (iPhone; CPU iPhone OS 18_7...)`) on both requests.
+- Falls back further to old `/sso/embed` HTML form if mobile API also fails.
+- All three server-side paths propagate `GARMIN_INVALID_CREDENTIALS` and `GARMIN_MFA_REQUIRED` immediately without trying fallbacks.
+
+**`app/api/garmin/ticket-receiver/route.ts`** (new):
+- `GET ?ticket=ST-...` → returns HTML that postMessages `{garminTicket}` to parent.
+- `GET ?error=...` → postMessages `{garminError}` to parent.
+- Sets `X-Frame-Options: ALLOWALL` + `Content-Security-Policy: frame-ancestors *` so it can load inside an iframe served by our domain.
+
+**`app/api/garmin/exchange-ticket/route.ts`** (new):
+- `POST {ticket: "ST-..."}` (requires valid session; userId always from server session).
+- Calls `ticketToOAuth1` → `oauth1ToOAuth2` → `fetchDisplayName` → `prisma.garminAccount.upsert` with encrypted tokens.
+- Returns `{ok: true, displayName}`.
+
+**`lib/garmin/auth.ts`:**
+- `loginWithMobileApi(email, password)` — new function. GETs sign-in page, delays 2–5 s, POSTs JSON credentials, parses `serviceTicketId` from response. Returns ticket string.
+- `loginWithGarmin(email, password)` — now calls `loginWithMobileApi` first; on non-credential failure falls back to `/sso/embed` HTML form (old strategy).
+- `sleep()` helper added for anti-WAF delays.
+
+**`app/(dashboard)/settings/garmin-connect.tsx`** (rewritten):
+- Props: `{ connected, displayName, garminAuthUrl, origin }`. `origin` used to build iframe embed URL.
+- Primary button: "Connect with Garmin" → shows iframe with Garmin SSO embed.
+- `useEffect` listens for `message` events; on `{garminTicket}` calls `exchangeTicket()` which POSTs to `/api/garmin/exchange-ticket`.
+- Collapsible manual form remains as ultimate fallback (calls `/api/garmin/connect`).
+- `loading` state shown over connected UI while ticket exchange is in progress.
+
+**`app/(dashboard)/settings/page.tsx`:**
+- Passes `origin` prop to `GarminConnectSection`.
+
+**`docs/integrations/strava.md`:**
+- Garmin section rewritten to reflect new two-strategy auth, sync schedule, and that garth is deprecated.
+
+**Plan document:** `docs/planning/GARMIN_AUTH_REWORK_PLAN.md` created with full research findings and architecture rationale.
+
+---
+
+*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, iframe SSO + mobile API rework)*

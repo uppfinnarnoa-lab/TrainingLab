@@ -1,9 +1,15 @@
 // Garmin Connect unofficial OAuth2 authentication.
-// Flow: SSO login (email+password) → service ticket → OAuth1 preauthorized → OAuth2 Bearer tokens.
-// Tokens last ~1 hour (access) and ~6 months (refresh), stored encrypted in GarminAccount.
+//
+// TWO login flows (tried in order):
+//   1. Mobile JSON API (new, June 2026): POST /mobile/api/login → JSON with serviceTicketId
+//   2. SSO Embed HTML form (old, may still work): POST /sso/embed → 302 redirect with ticket
+//
+// Both flows end with the same ticket→OAuth1→OAuth2 exchange.
 // No email/password is persisted — only the resulting tokens.
 
 import { createHmac, randomBytes } from "crypto";
+
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 // Garmin Connect Mobile app consumer credentials (embedded in the Android/iOS app,
 // widely known in open-source Garmin tooling; used to authenticate as the mobile client).
@@ -298,6 +304,79 @@ export async function fetchDisplayName(accessToken: string): Promise<string | nu
   }
 }
 
+// ── Mobile JSON API login (new endpoint, June 2026) ─────────────────────────
+// Garmin migrated from HTML form SSO to a JSON mobile API endpoint.
+// python-garminconnect uses this as its primary strategy.
+
+const MOBILE_SIGN_IN_URL = "https://sso.garmin.com/mobile/sso/en/sign-in";
+const MOBILE_LOGIN_URL   = "https://sso.garmin.com/mobile/api/login";
+const MOBILE_SERVICE_URL = "https://mobile.integration.garmin.com/gcm/android";
+const MOBILE_CLIENT_ID   = "GCM_ANDROID_DARK";
+
+// iPhone Safari UA — garth evolved to this from the Android app UA to reduce Cloudflare detection.
+const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22H123";
+
+async function loginWithMobileApi(email: string, password: string): Promise<string> {
+  const jar = new CookieJar();
+
+  // GET sign-in page to establish session cookies (required before POST)
+  const initRes = await fetch(MOBILE_SIGN_IN_URL, {
+    headers: {
+      "User-Agent": MOBILE_UA,
+      "Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+  });
+  jar.absorb(initRes.headers);
+
+  // Anti-WAF delay: Cloudflare/Garmin detect instant GET→POST sequences as bots.
+  // 2–5 second random delay mimics a human reading the page before typing.
+  await sleep(2000 + Math.random() * 3000);
+
+  const params = new URLSearchParams({
+    clientId: MOBILE_CLIENT_ID,
+    locale:   "en-US",
+    service:  MOBILE_SERVICE_URL,
+  });
+
+  const loginRes = await fetch(`${MOBILE_LOGIN_URL}?${params}`, {
+    method: "POST",
+    headers: {
+      "User-Agent":   MOBILE_UA,
+      "Content-Type": "application/json",
+      "Accept":       "application/json",
+      "Cookie":       jar.header(),
+      "Origin":       "https://sso.garmin.com",
+      "Referer":      MOBILE_SIGN_IN_URL,
+    },
+    body: JSON.stringify({
+      username:     email,
+      password,
+      rememberMe:   false,
+      captchaToken: "",
+    }),
+  });
+  jar.absorb(loginRes.headers);
+
+  if (loginRes.status === 403 || loginRes.status === 429) {
+    throw new Error("GARMIN_BLOCKED");
+  }
+
+  const data = await loginRes.json() as Record<string, unknown>;
+  const status = (data.responseStatus as Record<string, string> | undefined)?.type;
+
+  console.log(`[garmin/auth] Mobile API login response: HTTP ${loginRes.status}, type=${status}`);
+
+  if (status === "INVALID_USERNAME_PASSWORD") throw new Error("GARMIN_INVALID_CREDENTIALS");
+  if (status === "MFA_REQUIRED")             throw new Error("GARMIN_MFA_REQUIRED");
+  if (status !== "SUCCESSFUL")               throw new Error(`GARMIN_MOBILE_LOGIN_FAILED: ${status}`);
+
+  const ticket = data.serviceTicketId as string | undefined;
+  if (!ticket || !ticket.startsWith("ST-")) {
+    throw new Error(`GARMIN_MOBILE_LOGIN_FAILED: no service ticket in response`);
+  }
+  return ticket;
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 export { CookieJar };
@@ -344,31 +423,51 @@ export interface GarminTokens {
 }
 
 /** Authenticate with Garmin Connect using email/password.
+ *  Tries the new mobile JSON API first (June 2026 flow), falls back to the
+ *  older /sso/embed HTML form if the mobile endpoint is unavailable.
  *  Returns OAuth2 tokens and the Garmin display name.
- *  The email/password are used only for this call — they are NOT returned or stored. */
+ *  Email/password are used only for this call — never returned or stored. */
 export async function loginWithGarmin(
   email: string,
   password: string,
 ): Promise<GarminTokens & { displayName: string | null }> {
-  const jar  = new CookieJar();
-  const { html, url: ssoPageUrl } = await fetchSsoPage(jar);
+  let ticket: string;
 
-  // Garmin HTML attribute order varies — try all combinations
-  const csrfMatch =
-    html.match(/name="_csrf"\s+value="([^"]+)"/i) ??
-    html.match(/value="([^"]+)"\s+name="_csrf"/i) ??
-    html.match(/<input[^>]+name="_csrf"[^>]*value="([^"]+)"/i) ??
-    html.match(/<input[^>]+value="([^"]+)"[^>]*name="_csrf"/i);
+  // Strategy 1: Mobile JSON API (new flow, June 2026)
+  try {
+    ticket = await loginWithMobileApi(email, password);
+    console.log("[garmin/auth] Mobile API login succeeded");
+  } catch (mobileErr) {
+    const mobileMsg = mobileErr instanceof Error ? mobileErr.message : String(mobileErr);
 
-  if (!csrfMatch) {
-    console.error(`[garmin/auth] CSRF not found in SSO page. Page excerpt: ${html.slice(0, 500).replace(/\s+/g, " ")}`);
-    throw new Error("CSRF token not found in Garmin SSO page — Garmin may have changed their login flow");
+    // Propagate credential/MFA errors immediately — no point trying fallback
+    if (mobileMsg === "GARMIN_INVALID_CREDENTIALS" || mobileMsg === "GARMIN_MFA_REQUIRED") {
+      throw mobileErr;
+    }
+
+    console.warn(`[garmin/auth] Mobile API failed (${mobileMsg}), falling back to /sso/embed`);
+
+    // Strategy 2: SSO Embed HTML form (older flow — may still work)
+    const jar = new CookieJar();
+    const { html, url: ssoPageUrl } = await fetchSsoPage(jar);
+
+    const csrfMatch =
+      html.match(/name="_csrf"\s+value="([^"]+)"/i) ??
+      html.match(/value="([^"]+)"\s+name="_csrf"/i) ??
+      html.match(/<input[^>]+name="_csrf"[^>]*value="([^"]+)"/i) ??
+      html.match(/<input[^>]+value="([^"]+)"[^>]*name="_csrf"/i);
+
+    if (!csrfMatch) {
+      console.error(`[garmin/auth] CSRF not found. Page excerpt: ${html.slice(0, 500).replace(/\s+/g, " ")}`);
+      throw new Error("GARMIN_BLOCKED");
+    }
+
+    ticket = await submitCredentials(email, password, csrfMatch[1], jar, ssoPageUrl);
   }
-  const csrf = csrfMatch[1];
 
-  const ticket            = await submitCredentials(email, password, csrf, jar, ssoPageUrl);
-  const { token, secret } = await ticketToOAuth1(ticket, jar);
-  const tokens            = await oauth1ToOAuth2(token, secret, jar);
+  const jar2              = new CookieJar();
+  const { token, secret } = await ticketToOAuth1(ticket, jar2);
+  const tokens            = await oauth1ToOAuth2(token, secret, jar2);
   const displayName       = await fetchDisplayName(tokens.accessToken);
 
   return { ...tokens, displayName };

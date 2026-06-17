@@ -75,6 +75,7 @@ export default async function SettingsPage() {
           connected={!!garminAccount}
           displayName={garminAccount?.displayName ?? null}
           garminAuthUrl={garminAuthUrl}
+          origin={origin}
         />
       </IntegrationCard>
 
