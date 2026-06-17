@@ -81,6 +81,7 @@ export default async function SettingsPage() {
           hasGeminiKey={!!aiSettings?.geminiApiKey}
           hasNvidiaKey={!!aiSettings?.nvidiaApiKey}
           hasGroqKey={!!aiSettings?.groqApiKey}
+          hasTavilyKey={!!aiSettings?.tavilyApiKey}
           nvidiaModel={aiSettings?.nvidiaModel ?? ""}
           groqModel={aiSettings?.groqModel ?? ""}
           monthlyBudget={aiSettings?.monthlyBudgetUsd ?? 5}

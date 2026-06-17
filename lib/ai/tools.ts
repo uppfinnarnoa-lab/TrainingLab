@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { safeDecrypt } from "@/lib/encrypt";
 import { addDays, subDays, format, startOfWeek } from "date-fns";
 
 // ── Tool definitions ───────────────────────────────────────────────────────────
@@ -1031,8 +1032,9 @@ export async function executeCoachTool(
 
       // ── web_search ────────────────────────────────────────────────────────
       case "web_search": {
-        const TAVILY_KEY = process.env.TAVILY_API_KEY;
-        if (!TAVILY_KEY) return { success: false, message: "Web search not configured", data: "TAVILY_API_KEY not set in environment." };
+        const settings = await prisma.aISettings.findUnique({ where: { userId }, select: { tavilyApiKey: true } });
+        const TAVILY_KEY = safeDecrypt(settings?.tavilyApiKey) ?? process.env.TAVILY_API_KEY;
+        if (!TAVILY_KEY) return { success: false, message: "Web search not configured", data: "No Tavily API key set. Add one in Settings → AI Coach." };
         const query = input.query as string;
         const res = await fetch("https://api.tavily.com/search", {
           method: "POST",

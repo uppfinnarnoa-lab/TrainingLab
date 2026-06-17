@@ -13,6 +13,7 @@ interface Props {
   hasGeminiKey: boolean;
   hasNvidiaKey: boolean;
   hasGroqKey: boolean;
+  hasTavilyKey: boolean;
   nvidiaModel: string;
   groqModel: string;
   monthlyBudget: number;
@@ -22,7 +23,7 @@ interface Props {
 }
 
 export function AISettingsSection({
-  provider, hasClaudeKey, hasGeminiKey, hasNvidiaKey, hasGroqKey, nvidiaModel, groqModel,
+  provider, hasClaudeKey, hasGeminiKey, hasNvidiaKey, hasGroqKey, hasTavilyKey, nvidiaModel, groqModel,
   monthlyBudget, currentSpend, geminiMonthlyBudget, geminiCurrentSpend,
 }: Props) {
   const [activeProvider, setActiveProvider] = useState(provider);
@@ -30,6 +31,8 @@ export function AISettingsSection({
   const [geminiKey, setGeminiKey] = useState("");
   const [nvidiaKey, setNvidiaKey] = useState("");
   const [groqKey, setGroqKey] = useState("");
+  const [tavilyKey, setTavilyKey] = useState("");
+  const [showTavily, setShowTavily] = useState(false);
   const [selectedNvidiaModel, setSelectedNvidiaModel] = useState(nvidiaModel || NVIDIA_DEFAULT_MODEL);
   const [selectedGroqModel, setSelectedGroqModel] = useState(groqModel || GROQ_DEFAULT_MODEL);
   const [budget, setBudget] = useState(String(monthlyBudget));
@@ -60,6 +63,7 @@ export function AISettingsSection({
           nvidiaModel: selectedNvidiaModel,
           groqApiKey: groqKey || undefined,
           groqModel: selectedGroqModel,
+          tavilyApiKey: tavilyKey || undefined,
           monthlyBudgetUsd: parseFloat(budget) || 5,
           geminiMonthlyBudgetUsd: parseFloat(geminiBudget) || 5,
         }),
@@ -70,6 +74,7 @@ export function AISettingsSection({
       setGeminiKey("");
       setNvidiaKey("");
       setGroqKey("");
+      setTavilyKey("");
       setTimeout(() => setSaved(false), 3000);
     } catch {
       setError("Failed to save settings. Try again.");
@@ -344,6 +349,32 @@ export function AISettingsSection({
               <option key={m.id} value={m.id}>{m.label}</option>
             ))}
           </select>
+        </div>
+      </div>
+
+      {/* Tavily — web search for AI coach */}
+      <div className="space-y-3 border-t border-border pt-5">
+        <p className="text-sm font-medium text-primary">
+          Tavily API key — webbsökning
+          {hasTavilyKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+        </p>
+        <p className="text-xs text-muted">
+          Gör det möjligt för AI-coachen att söka på webben (träningsforskning, tävlingsinfo, väderprognosar m.m.). Gratis upp till 1 000 sökningar/månad. Hämta nyckel på{" "}
+          <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2">tavily.com</a>
+          {" "}→ skapa konto → API Keys.
+        </p>
+        <div className="relative">
+          <input
+            type={showTavily ? "text" : "password"}
+            value={tavilyKey}
+            onChange={(e) => setTavilyKey(e.target.value)}
+            placeholder={hasTavilyKey ? "Redan sparad — klistra in ny nyckel för att byta" : "tvly-..."}
+            className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
+          />
+          <button type="button" onClick={() => setShowTavily(v => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-primary">
+            {showTavily ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
         </div>
       </div>
 

@@ -370,6 +370,7 @@ model AISettings {
   nvidiaModel  String? // default: "nvidia/llama-3.1-nemotron-70b-instruct-hq"
   groqApiKey   String?
   groqModel    String? // default: "llama-3.3-70b-versatile"
+  tavilyApiKey String? // AES-256-GCM encrypted — used by web_search tool
   systemPrompt String?
   coachLanguage String @default("sv") // "sv" | "en"
   // Claude budget

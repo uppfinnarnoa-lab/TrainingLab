@@ -12,6 +12,7 @@ const schema = z.object({
   nvidiaModel:            z.string().optional(),
   groqApiKey:             z.string().optional(),
   groqModel:              z.string().optional(),
+  tavilyApiKey:           z.string().optional(),
   monthlyBudgetUsd:       z.number().min(0).max(1000).optional(),
   geminiMonthlyBudgetUsd: z.number().min(0).max(1000).optional(),
   coachLanguage:          z.enum(["sv", "en"]).optional(),
@@ -33,7 +34,7 @@ async function handleUpdate(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
-  const { provider, claudeApiKey, geminiApiKey, nvidiaApiKey, nvidiaModel, groqApiKey, groqModel, monthlyBudgetUsd, geminiMonthlyBudgetUsd, coachLanguage } = parsed.data;
+  const { provider, claudeApiKey, geminiApiKey, nvidiaApiKey, nvidiaModel, groqApiKey, groqModel, tavilyApiKey, monthlyBudgetUsd, geminiMonthlyBudgetUsd, coachLanguage } = parsed.data;
 
   const data: Record<string, unknown> = {};
   if (provider              !== undefined) data.provider               = provider;
@@ -43,6 +44,7 @@ async function handleUpdate(req: NextRequest) {
   if (nvidiaModel           !== undefined) data.nvidiaModel             = nvidiaModel;
   if (groqApiKey                         ) data.groqApiKey              = encryptIfNeeded(groqApiKey)!;
   if (groqModel             !== undefined) data.groqModel               = groqModel;
+  if (tavilyApiKey                       ) data.tavilyApiKey            = encryptIfNeeded(tavilyApiKey)!;
   if (monthlyBudgetUsd      !== undefined) data.monthlyBudgetUsd        = monthlyBudgetUsd;
   if (geminiMonthlyBudgetUsd !== undefined) data.geminiMonthlyBudgetUsd = geminiMonthlyBudgetUsd;
   if (coachLanguage         !== undefined) data.coachLanguage           = coachLanguage;
