@@ -85,7 +85,7 @@ export default async function DashboardPage() {
     prisma.garminDailySummary.findFirst({
       where: { userId },
       orderBy: { date: "desc" },
-      select: { date: true, hrvNightly: true, sleepScore: true, sleepDuration: true, restingHR: true, bodyBattery: true },
+      select: { date: true, hrvNightly: true, sleepScore: true, sleepDuration: true, restingHR: true, bodyBattery: true, stressAvg: true, trainingReadiness: true, spo2Avg: true },
     }),
     prisma.garminDailySummary.findMany({
       where: { userId },
@@ -255,10 +255,19 @@ export default async function DashboardPage() {
                 <span>{(latestGarmin.sleepDuration / 3600).toFixed(1)}h</span>
               )}
               {latestGarmin.hrvNightly != null && (
-                <span>💗 HRV {Math.round(latestGarmin.hrvNightly)}</span>
+                <span>💗 HRV {Math.round(latestGarmin.hrvNightly)} ms</span>
               )}
               {latestGarmin.bodyBattery != null && (
-                <span>⚡ Body Battery {latestGarmin.bodyBattery}</span>
+                <span>⚡ BB {latestGarmin.bodyBattery}/100</span>
+              )}
+              {latestGarmin.trainingReadiness != null && (
+                <span>🎯 Readiness {latestGarmin.trainingReadiness}/100</span>
+              )}
+              {latestGarmin.stressAvg != null && (
+                <span>🧠 Stress {latestGarmin.stressAvg}/100</span>
+              )}
+              {latestGarmin.spo2Avg != null && (
+                <span>🩸 SpO₂ {latestGarmin.spo2Avg.toFixed(0)}%</span>
               )}
             </div>
           )}
@@ -425,18 +434,22 @@ export default async function DashboardPage() {
 
 function computeReadiness(
   tsb: number,
-  latestGarmin: { hrvNightly?: number | null; sleepScore?: number | null; restingHR?: number | null } | null,
+  latestGarmin: { hrvNightly?: number | null; sleepScore?: number | null; restingHR?: number | null; trainingReadiness?: number | null; stressAvg?: number | null } | null,
   hrv7d: number[]
 ): { score: number; color: string; label: string } {
+  // If Garmin's own training readiness score is available, blend it in (40% weight)
+  // and use our own signals for the remaining 60%.
+  const garminReadiness = latestGarmin?.trainingReadiness ?? null;
+
   let score = 50;
 
-  // TSB (30% weight)
+  // TSB (30% weight — 20% when Garmin readiness available)
   if (tsb > 10)       score += 15;
   else if (tsb > 0)   score += 8;
   else if (tsb < -25) score -= 20;
   else if (tsb < -10) score -= 10;
 
-  // HRV trend (40% weight)
+  // HRV trend (40% weight — 25% when Garmin readiness available)
   if (latestGarmin?.hrvNightly && hrv7d.length >= 3) {
     const baseline = hrv7d.slice(1).reduce((a, b) => a + b, 0) / Math.max(hrv7d.slice(1).length, 1);
     if (baseline > 0) {
@@ -451,6 +464,16 @@ function computeReadiness(
   // Sleep score (20% weight)
   if (latestGarmin?.sleepScore != null) {
     score += (latestGarmin.sleepScore - 60) / 5;
+  }
+
+  // Stress penalty (high stress = lower readiness)
+  if (latestGarmin?.stressAvg != null && latestGarmin.stressAvg > 60) {
+    score -= Math.round((latestGarmin.stressAvg - 60) / 4);
+  }
+
+  // Blend in Garmin's own training readiness (40% pull toward Garmin's value)
+  if (garminReadiness != null) {
+    score = Math.round(score * 0.6 + garminReadiness * 0.4);
   }
 
   score = Math.min(100, Math.max(0, Math.round(score)));

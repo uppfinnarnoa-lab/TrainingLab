@@ -132,6 +132,12 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
     }
     const bb = garminRecent.at(-1)?.bodyBattery;
     if (bb) healthLines.push(`Body Battery: ${bb}/100`);
+    const readiness = garminRecent.at(-1)?.trainingReadiness;
+    if (readiness != null) healthLines.push(`Training Readiness (Garmin): ${readiness}/100`);
+    const stress = garminRecent.at(-1)?.stressAvg;
+    if (stress != null) healthLines.push(`Avg stress yesterday: ${stress}/100${stress > 70 ? " ⚠ high" : ""}`);
+    const spo2 = garminRecent.at(-1)?.spo2Avg;
+    if (spo2 != null && spo2 < 95) healthLines.push(`SpO₂: ${spo2.toFixed(0)}% ⚠ low`);
   }
   if (missedWorkouts.length > 0) {
     const injuryStreak = missedWorkouts.filter((w: { missedReason: string | null }) => w.missedReason === "injury" || w.missedReason === "illness").length;

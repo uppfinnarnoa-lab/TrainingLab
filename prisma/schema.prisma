@@ -106,9 +106,13 @@ model GarminDailySummary {
   sleepLight      Int?     // seconds
   sleepRem        Int?     // seconds
   sleepAwake      Int?     // seconds
-  bodyBattery     Int?     // 0-100
-  respirationRate Float?
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bodyBattery       Int?     // 0-100
+  respirationRate   Float?
+  stressAvg         Int?     // 0-100 average daily stress level
+  trainingReadiness Int?     // 0-100 Garmin training readiness score
+  spo2Avg           Float?   // % avg blood oxygen (SpO2)
+  steps             Int?     // total daily steps
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([userId, date])
