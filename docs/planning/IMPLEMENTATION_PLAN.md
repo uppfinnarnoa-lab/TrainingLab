@@ -2971,4 +2971,16 @@ Deep architectural overhaul of the AI coaching system. Full plan in `docs/planni
 
 ---
 
-*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, iframe SSO + mobile API rework)*
+### Session 2026-06-17h — Garmin SSO: fixed `consumeServiceTicket` so the iframe actually redirects to `ticket-receiver`
+
+**Symptom:** After logging in inside the iframe, the user saw the raw `{serviceUrl, serviceTicket}` object rendered as plain text on `sso.garmin.com/sso/embed?ticket=ST-...` instead of the page completing the connection.
+
+**Root cause:** `buildEmbedUrl()` in `garmin-connect.tsx` set `consumeServiceTicket: "false"` since the iframe-SSO rework was first written (Session 2026-06-17f) — never revisited. This CAS-widget param controls whether the embed widget redirects the iframe to the `service` URL with the ticket appended (consuming it) versus just displaying the ticket as text for the host to grab some other way. `"false"` meant Garmin never redirected to our `/api/garmin/ticket-receiver`, so that route's (correct, same-origin) `postMessage` never had a chance to fire — explaining the prior session's debug finding that "postMessage never reaches our listener."
+
+**Fix:** `app/(dashboard)/settings/garmin-connect.tsx` — `consumeServiceTicket: "false"` → `"true"`.
+
+**Not yet removed:** the temporary `debugMsg` postMessage logging (added in Session 2026-06-17g's last commit) is left in place until the user confirms the live login flow completes end-to-end. Remove it in a follow-up once confirmed.
+
+---
+
+*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, iframe SSO + mobile API rework, consumeServiceTicket fix)*

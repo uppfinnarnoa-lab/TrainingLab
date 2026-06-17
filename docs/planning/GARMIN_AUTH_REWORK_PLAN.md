@@ -176,3 +176,14 @@ Two real bugs found during testing, both now fixed:
    which most browsers interpret as DENY (most restrictive wins on conflicting values).
    Removed the redundant route-level header; `SAMEORIGIN` already permits this since
    the ticket-receiver is always framed by our own `/settings` page.
+
+4. **`consumeServiceTicket: "false"` since day one — the actual reason `ticket-receiver`
+   was never hit.** This CAS-widget param controls whether the embed widget redirects
+   the iframe to `service` with the ticket appended (consuming it) versus just displaying
+   the ticket/serviceUrl as plain text in the page for the host to read some other way.
+   It was set to `"false"` in the original rework commit and never revisited. That's why
+   the iframe showed the literal `{serviceUrl, serviceTicket}` object on `sso.garmin.com`
+   itself instead of redirecting to our domain — `ticket-receiver` was unreachable, so its
+   (correct, same-origin) `postMessage` never had a chance to fire. Fixed by flipping to
+   `"true"`. Debug `postMessage` logging (added in a prior session) is left in
+   `garmin-connect.tsx` until this is confirmed working live, then should be removed.

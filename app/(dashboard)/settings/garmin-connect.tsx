@@ -24,7 +24,7 @@ function buildEmbedUrl(origin: string) {
     redirectAfterAccountCreationUrl: `${origin}/api/garmin/ticket-receiver`,
     locale:                          "en_US",
     clientId:                        "GarminConnect",
-    consumeServiceTicket:            "false",
+    consumeServiceTicket:            "true",
     generateExtraServiceTicket:      "true",
     generateTwoExtraServiceTickets:  "true",
     generateNoServiceTicket:         "false",
