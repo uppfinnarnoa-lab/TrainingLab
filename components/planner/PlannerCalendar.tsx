@@ -504,9 +504,7 @@ export function PlannerCalendar({
                         e.preventDefault();
                         setDragOverDate(null);
                         const templateId = e.dataTransfer.getData("templateId");
-                        const workoutId  = e.dataTransfer.getData("workoutId");
-                        if (workoutId && onWorkoutMove) onWorkoutMove(workoutId, key);
-                        else if (templateId && onTemplateDrop) onTemplateDrop(templateId, key);
+                        if (templateId && onTemplateDrop) onTemplateDrop(templateId, key);
                       }}
                       className={cn(
                         "min-h-[70px] md:min-h-[88px] rounded-xl p-1 md:p-1.5 cursor-pointer border transition-colors overflow-hidden",

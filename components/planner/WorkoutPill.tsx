@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useRef } from "react";
 import type { PlannedWorkout } from "@/lib/planner/types";
 import { formatDuration, formatDistance } from "@/lib/utils";
 import { workoutColor } from "@/lib/planner/colors";
@@ -17,20 +17,10 @@ interface Props {
 }
 
 export function WorkoutPill({ workout, isPast, onClick, compact, inMoveMode, onContextMenu, onLongPressMenu }: Props) {
-  const [dragging, setDragging] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
   const touchX = useRef(0);
   const touchY = useRef(0);
-
-  function handleDragStart(e: React.DragEvent) {
-    e.dataTransfer.setData("workoutId", workout.id);
-    e.dataTransfer.effectAllowed = "move";
-    e.stopPropagation();
-    setDragging(true);
-  }
-
-  function handleDragEnd() { setDragging(false); }
 
   function handleTouchStart(e: React.TouchEvent) {
     const touch = e.touches[0];
@@ -59,9 +49,6 @@ export function WorkoutPill({ workout, isPast, onClick, compact, inMoveMode, onC
 
   return (
     <button
-      draggable
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -76,7 +63,6 @@ export function WorkoutPill({ workout, isPast, onClick, compact, inMoveMode, onC
         "w-full text-left rounded-lg text-xs transition-all group relative overflow-hidden select-none",
         "border",
         compact ? "px-2 py-0.5" : "px-2 py-1.5",
-        dragging ? "opacity-40 scale-95" :
         isMissed && showStatus    ? "opacity-55 bg-surface border-border" :
         isCompleted && showStatus ? "bg-surface border-border" :
                                     "bg-surface border-border hover:border-accent/30"
