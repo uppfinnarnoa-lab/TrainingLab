@@ -2110,6 +2110,40 @@ User reported descriptions no longer importing correctly from Strava, the activi
 
 **Verification:** `pnpm build --no-lint` passes. No browser available in this session — the map fix has not been visually verified; check on `training.helgars.se` after deploy (CartoDB tiles + Leaflet zoom control should render as a proper grid with no dark gaps).
 
+**Session 2026-06-17 — Garmin unofficial sidecar sync:**
+
+Official Garmin Developer Program requires a business application and is not accessible for personal projects. Alternative: Python sidecar that uses the unofficial `garminconnect` library (same SSO OAuth as the Garmin mobile app) — no developer credentials required.
+
+**New files:**
+- `scripts/garmin_sync.py`: authenticates via `garminconnect` (token-based, ~6-month lifetime, MFA-aware on first run), fetches all available wellness data not in Strava, upserts into `GarminDailySummary`. CLI flags: `--date YYYY-MM-DD`, `--backfill N`. Intended as a daily cron job at 08:15. Run once interactively to authenticate.
+- `scripts/requirements-garmin.txt`: `garminconnect>=0.2.14`, `psycopg2-binary>=2.9`.
+
+**Data fetched per day** (all unavailable from Strava):
+- `get_user_summary(d)`: `restingHR`, `bodyBattery` (daily peak), `respirationRate`, `stressAvg`, `steps`
+- `get_sleep_data(d)`: `sleepDuration`, `sleepDeep`, `sleepLight`, `sleepRem`, `sleepAwake`, `sleepScore`
+- `get_hrv_data(d)`: `hrvNightly` (RMSSD ms), `hrvBalance` (Balanced/Low/Unbalanced)
+- `get_training_readiness(d)`: `trainingReadiness` (0–100, Garmin's proprietary daily readiness score)
+- `get_spo2_data(d)`: `spo2Avg` (% avg blood oxygen)
+
+**`prisma/schema.prisma`** — `GarminDailySummary` gains 4 new fields: `stressAvg Int?`, `trainingReadiness Int?`, `spo2Avg Float?`, `steps Int?`.
+
+**`app/(dashboard)/dashboard/page.tsx`:**
+- `latestGarmin` select extended to include all new fields.
+- Dashboard wellness row now shows: Sleep score, sleep hours, HRV, Body Battery, Garmin Readiness, Stress, SpO₂ (SpO₂ always shown, not just when low — user can see it's normal).
+- `computeReadiness()`: Garmin's `trainingReadiness` (0–100) is blended in at 40% weight when available. High stress (`stressAvg > 60`) applies a penalty. Type signature updated.
+
+**`lib/ai/context-builder.ts`:** Health log extended with Garmin Readiness score, yesterday's stress level (⚠ flagged if > 70), and SpO₂ (⚠ flagged if < 95).
+
+**Setup on server:**
+```bash
+pip install garminconnect psycopg2-binary
+# Create /var/www/traininglab/.env.garmin with GARMIN_EMAIL, GARMIN_PASSWORD, DATABASE_URL, TRAININGLAB_USER_ID
+source /var/www/traininglab/.env.garmin
+python3 /var/www/traininglab/scripts/garmin_sync.py   # first run — handles MFA
+# Then add to crontab:
+# 15 8 * * * source /var/www/traininglab/.env.garmin && python3 /var/www/traininglab/scripts/garmin_sync.py >> /var/log/garmin_sync.log 2>&1
+```
+
 **Session 2026-06-16e — i18n: full site translation Swedish → English:**
 
 Translated every user-visible Swedish string across 16 files. Regex patterns in workout-type classification code (WorkoutBuilder, PlannerCalendar, sports-manager) intentionally kept bi-lingual — they match user-entered workout names which may be Swedish. AI chat language toggle also intentionally untouched.
