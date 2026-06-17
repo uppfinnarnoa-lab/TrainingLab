@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Eye, EyeOff, Loader2, RefreshCw, Unplug, ChevronDown, ChevronUp } from "lucide-react";
 
 interface Props {
@@ -10,9 +10,11 @@ interface Props {
   origin:        string;  // e.g. "https://training.helgars.se"
 }
 
-// Garmin /sso/embed widget. Its JS calls window.parent.postMessage(...) on success —
-// that only works when truly embedded in an iframe (a popup's window.parent === itself,
-// so the message never leaves a popup window). Must be an iframe, not window.open().
+// Garmin /sso/embed widget. Our `service` URL is not on Garmin's redirect whitelist
+// (only connect.garmin.com is allowed there), so after login it always breaks out of
+// any iframe/popup and lands on its own domain showing {serviceUrl, serviceTicket} as
+// plain text - there's no way to intercept that programmatically. So: open it in a real
+// tab and have the user paste the ticket back into the form below.
 function buildEmbedUrl(origin: string) {
   const params = new URLSearchParams({
     id:                              "gauth-widget",
@@ -52,9 +54,8 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
 
-  const [showIframe,   setShowIframe]   = useState(false);
-  const [iframeLoaded, setIframeLoaded] = useState(false);
-  const [debugMsg,      setDebugMsg]    = useState<string | null>(null);
+  const [showTicketForm, setShowTicketForm] = useState(false);
+  const [ticketInput,    setTicketInput]    = useState("");
 
   // Manual fallback
   const [showManual, setShowManual] = useState(false);
@@ -63,36 +64,6 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   const [showPass,   setShowPass]   = useState(false);
 
   const embedUrl = buildEmbedUrl(origin);
-
-  // Listen for postMessage from the Garmin embed widget (or our ticket-receiver) inside the iframe
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      // DEBUG: surface every message event so we can see exactly what arrives
-      // (origin + payload) without needing devtools. Remove once flow is confirmed working.
-      setDebugMsg(`origin=${event.origin} data=${JSON.stringify(event.data)}`);
-
-      const data = event.data as Record<string, unknown>;
-      if (typeof data !== "object" || data === null) return;
-
-      // Garmin's native embed widget format: {serviceUrl: '...', serviceTicket: 'ST-...'}
-      const ticket = typeof data.serviceTicket === "string" ? data.serviceTicket
-                   : typeof data.garminTicket  === "string" ? data.garminTicket
-                   : null;
-
-      if (ticket) {
-        setShowIframe(false);
-        exchangeTicket(ticket);
-      } else if (typeof data.garminError === "string") {
-        setShowIframe(false);
-        setError(`Garmin login failed (${data.garminError}). Try the manual form below.`);
-        setShowManual(true);
-      }
-    }
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   async function exchangeTicket(ticket: string) {
     setLoading(true);
@@ -107,13 +78,15 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
     setLoading(false);
 
     if (!res.ok) {
-      setError("Token exchange failed. Try the manual form below.");
+      setError("Token exchange failed. The ticket may have expired - try again, or use the manual form below.");
       setShowManual(true);
       return;
     }
 
     setIsConnected(true);
     setName(typeof data.displayName === "string" ? data.displayName : null);
+    setShowTicketForm(false);
+    setTicketInput("");
   }
 
   async function disconnect() {
@@ -215,46 +188,58 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
         </div>
       )}
 
-      {!loading && !showIframe && (
+      {!loading && !showTicketForm && (
         <button
-          onClick={() => { setShowIframe(true); setIframeLoaded(false); setError(null); }}
+          onClick={() => { setShowTicketForm(true); setError(null); }}
           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition"
         >
           Connect with Garmin
         </button>
       )}
 
-      {showIframe && (
-        <div className="rounded-xl border border-border overflow-hidden bg-white">
-          {!iframeLoaded && (
-            <div className="flex items-center justify-center h-12 gap-2 text-xs text-muted">
-              <Loader2 size={12} className="animate-spin" /> Loading Garmin login…
-            </div>
-          )}
-          <iframe
-            src={embedUrl}
-            width="100%"
-            height="500"
-            title="Garmin Connect login"
-            onLoad={() => setIframeLoaded(true)}
-            className={iframeLoaded ? "block" : "hidden"}
-            style={{ border: "none" }}
-          />
-          <div className="flex justify-end px-3 pb-2">
+      {showTicketForm && (
+        <div className="space-y-3 rounded-xl border border-border p-4">
+          <ol className="list-decimal list-inside space-y-1 text-xs text-muted">
+            <li>
+              <a
+                href={embedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent underline"
+              >
+                Open Garmin login in a new tab
+              </a>{" "}
+              and log in.
+            </li>
+            <li>
+              You&apos;ll land on a page showing{" "}
+              <span className="font-mono">serviceTicket: &apos;ST-...&apos;</span>.
+            </li>
+            <li>Copy just the <span className="font-mono">ST-...</span> value and paste it below.</li>
+          </ol>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={ticketInput}
+              onChange={e => setTicketInput(e.target.value)}
+              placeholder="ST-..."
+              className={`${inp} font-mono`}
+            />
             <button
-              onClick={() => setShowIframe(false)}
-              className="text-xs text-muted hover:text-primary transition"
+              onClick={() => exchangeTicket(ticketInput.trim())}
+              disabled={!ticketInput.trim().startsWith("ST-")}
+              className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition"
             >
-              Cancel
+              Connect
             </button>
           </div>
+          <button
+            onClick={() => { setShowTicketForm(false); setTicketInput(""); }}
+            className="text-xs text-muted hover:text-primary transition"
+          >
+            Cancel
+          </button>
         </div>
-      )}
-
-      {debugMsg && (
-        <p className="text-[10px] font-mono text-muted break-all bg-surface-2 rounded p-2">
-          DEBUG message event: {debugMsg}
-        </p>
       )}
 
       {error && <p className="text-xs text-red-400">{error}</p>}

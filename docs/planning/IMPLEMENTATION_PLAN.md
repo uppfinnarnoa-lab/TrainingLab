@@ -2977,10 +2977,26 @@ Deep architectural overhaul of the AI coaching system. Full plan in `docs/planni
 
 **Root cause:** `buildEmbedUrl()` in `garmin-connect.tsx` set `consumeServiceTicket: "false"` since the iframe-SSO rework was first written (Session 2026-06-17f) — never revisited. This CAS-widget param controls whether the embed widget redirects the iframe to the `service` URL with the ticket appended (consuming it) versus just displaying the ticket as text for the host to grab some other way. `"false"` meant Garmin never redirected to our `/api/garmin/ticket-receiver`, so that route's (correct, same-origin) `postMessage` never had a chance to fire — explaining the prior session's debug finding that "postMessage never reaches our listener."
 
-**Fix:** `app/(dashboard)/settings/garmin-connect.tsx` — `consumeServiceTicket: "false"` → `"true"`.
-
-**Not yet removed:** the temporary `debugMsg` postMessage logging (added in Session 2026-06-17g's last commit) is left in place until the user confirms the live login flow completes end-to-end. Remove it in a follow-up once confirmed.
+**Fix:** `app/(dashboard)/settings/garmin-connect.tsx` — `consumeServiceTicket: "false"` → `"true"`. This did **not** fix the symptom (see next session) but is left in place since it's the semantically-correct value.
 
 ---
 
-*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, iframe SSO + mobile API rework, consumeServiceTicket fix)*
+### Session 2026-06-17i — Garmin SSO: confirmed iframe/postMessage hand-off is dead, replaced with manual ticket paste
+
+**Confirmed root cause (the real one):** the `consumeServiceTicket` fix had zero effect — same symptom, different ticket value. Asked the user to check two things: (1) does the whole browser tab navigate away from training.helgars.se, or does the text stay contained inside the iframe box, and (2) does the small DEBUG postMessage line ever render. Answers: the **whole tab navigates away** to `sso.garmin.com`, and the DEBUG line never appears because the page is destroyed before React can render it.
+
+This means Garmin's `/sso/embed` widget does not honor our `service`/`redirectAfterAccountLoginUrl` params at all (likely whitelist-rejected — only `connect.garmin.com`-style URLs are accepted, exactly the risk flagged in `GARMIN_AUTH_REWORK_PLAN.md`'s "Unknowns" section back in Session 2026-06-17f). Instead it consumes the ticket against **itself** (`serviceUrl: 'https://sso.garmin.com/sso/embed'`) and the whole page escapes any iframe/popup framing to show the result — so `/api/garmin/ticket-receiver` is never reached and no `postMessage` ever arrives at our listener, regardless of iframe vs. popup vs. `consumeServiceTicket` value. No client-side param can fix a server-side whitelist we don't control.
+
+Also tried the manual email+password fallback as a quicker alternative — failed with `auth_failed` ("Server-side authentication failed"), so the mobile-JSON-API/HTML-form server-side cascade in `lib/garmin/auth.ts` is currently not working either (not investigated further this session; PM2 logs would be needed, which requires the user to SSH in themselves).
+
+**Fix — manual ticket paste, since the ticket itself is valid and the exchange endpoint works:**
+- `app/(dashboard)/settings/garmin-connect.tsx` rewritten:
+  - Removed the `useEffect` postMessage listener, `showIframe`/`iframeLoaded`/`debugMsg` state, and the `<iframe>` block entirely — all dead code now that the hand-off is confirmed unreachable.
+  - "Connect with Garmin" now shows: a link that opens the same `embedUrl` in a real new tab (`target="_blank"`) instead of an iframe, plus a text input + "Connect" button. User logs in on Garmin's own page, copies the `ST-...` value Garmin displays, pastes it in, and we POST it to the already-working `/api/garmin/exchange-ticket`.
+  - `exchangeTicket()` unchanged (still calls the same endpoint); on success now also resets the ticket form state.
+
+**Now likely dead code (not removed, low risk to leave):** `app/api/garmin/ticket-receiver/route.ts` is no longer reachable from the new flow since Garmin never redirects there. Left in place in case Garmin's whitelist behavior changes or it's useful again later — but if revisiting this area, this route can likely be deleted.
+
+---
+
+*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync, MFA false-positive fix, iframe SSO + mobile API rework, consumeServiceTicket fix, manual ticket-paste flow)*
