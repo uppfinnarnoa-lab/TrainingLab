@@ -10,7 +10,10 @@ export async function GET(req: NextRequest) {
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>
 try {
   var msg = ${ticket ? `{garminTicket:${JSON.stringify(ticket)}}` : `{garminError:${JSON.stringify(error ?? "no_ticket")}}`};
-  window.parent.postMessage(msg, "*");
+  // Works both when opened as a popup (opener) and embedded as iframe (parent)
+  var target = window.opener || window.parent;
+  target.postMessage(msg, "*");
+  if (window.opener) window.close();
 } catch(e) {}
 </script></body></html>`;
 
