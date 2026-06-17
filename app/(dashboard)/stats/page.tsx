@@ -208,7 +208,7 @@ export default async function StatsPage() {
     const recentForCurve = await prisma.activity.findMany({
       where: { userId, startDate: { gte: subDays(now, 3 * 365) } },
       select: { movingTime: true, averageHeartrate: true, startDate: true, startDateLocal: true, sportType: true, averageSpeed: true,
-        distance: true, totalElevationGain: true, isRace: true, averageCadence: true, trainingLoad: true },
+        distance: true, totalElevationGain: true, isRace: true, averageCadence: true, trainingLoad: true, name: true },
       orderBy: { startDate: "asc" },
     });
     const curveTSSMap = new Map<string, number>();
@@ -1081,14 +1081,20 @@ type WeatherAct = {
   averageHeartrate: number | null;
 };
 
-function computeWeatherStats(acts: WeatherAct[], maxHR: number): WeatherStats {
-  const isOL = (a: WeatherAct) =>
+// Excludes orienteering, indoor/virtual, and warmup/cooldown segments from pace-based
+// aerobic analysis — terrain, navigation stops, and treadmill calibration all distort the
+// pace/HR relationship that easy-pace and weather-pace trends depend on.
+function isOL(a: { sportType: string; name?: string | null }): boolean {
+  return (
     /virtualrun/i.test(a.sportType) ||
     /indoor|inomhus/i.test(a.name ?? "") ||
     /orienteer|ol\b|ol-/i.test(a.sportType) ||
     /\bol\b|\borienteringsl|\bskogsl|\bolpass|\bmoc\b|stafett/i.test(a.name ?? "") ||
-    /^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i.test(a.name ?? "");
+    /^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i.test(a.name ?? "")
+  );
+}
 
+function computeWeatherStats(acts: WeatherAct[], maxHR: number): WeatherStats {
   const clean = acts.filter(a =>
     a.averageSpeed && a.averageSpeed > 0 &&
     !isOL(a) &&
@@ -1232,7 +1238,7 @@ export type GarminWellnessPoint = {
 
 type EasyPaceAct = {
   sportType: string; startDate: Date; distance: number; movingTime: number;
-  totalElevationGain: number; averageHeartrate: number | null; isRace: boolean;
+  totalElevationGain: number; averageHeartrate: number | null; isRace: boolean; name: string;
 };
 
 function computeEasyPaceTrend(acts: EasyPaceAct[], lt1HR: number): EasyPacePoint[] {
@@ -1240,6 +1246,7 @@ function computeEasyPaceTrend(acts: EasyPaceAct[], lt1HR: number): EasyPacePoint
   for (const a of acts) {
     if (!a.averageHeartrate || a.isRace) continue;
     if (!/run|trail/i.test(a.sportType)) continue;
+    if (isOL(a)) continue;
     if (a.averageHeartrate >= lt1HR) continue;
     if (a.distance < 6000 || a.movingTime < 1200) continue;
     const rawPace = a.movingTime / (a.distance / 1000);

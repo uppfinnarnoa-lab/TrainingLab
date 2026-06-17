@@ -3036,6 +3036,20 @@ Each card shows a "No … data yet" / "Connect Garmin in Settings" message when 
 
 ---
 
+### Session 2026-06-18c — Bug: "Aerobic pace trend" chart missing the OL (orienteering) filter that every other pace-based chart has
+
+User noticed the "Aerobic Pace Trend" chart (`EasyPaceTrendChart`, Stats → Overview) didn't exclude orienteering sessions — visible as illogical jumps in the trend (OL pace at a given HR is much slower than road/trail pace at the same HR, due to technical terrain and navigation stops).
+
+Confirmed real: `computeEasyPaceTrend()` in `stats/page.tsx` had no orienteering exclusion at all, while two other pace-based analyses in the same file already did — `computeWeatherStats()`'s local `isOL()` (excludes orienteering, indoor/virtual runs, and warmup/cooldown segments) and the inline OL filter inside the `terrainFactor` computation. Three near-duplicate regex implementations existed; `computeEasyPaceTrend` simply never got one when it was added.
+
+**Fix:** extracted `computeWeatherStats`'s `isOL()` to a module-level function (same regex, now shared) and added `if (isOL(a)) continue;` to `computeEasyPaceTrend`'s filter loop. Added the `name` field to `EasyPaceAct` (needed by the check) and to the fast-path `recentForCurve` Prisma `select` (the slow-path `activities` query already selected `name`). The `terrainFactor` computation's separate inline filter was left as-is — it intentionally *selects* OL runs rather than excluding them, so reusing the shared predicate there is a smaller, separate cleanup, not part of this fix.
+
+**Caveat:** the fast path can read `easyPaceTrend` straight from `FitnessCache.extraVizJson` (1-hour TTL) instead of recomputing — existing cached values from before this fix won't reflect the OL exclusion until the cache naturally expires or the next slow-path recompute runs. Not a new issue, just how this cache already behaves for any computation change.
+
+**Verification:** `pnpm build --no-lint` passes.
+
+---
+
 ### Session 2026-06-18 — Coach chat "stuck with no feedback" fix, large-screen layout, planner desktop drag-and-drop regression
 
 **Bug 1 — AI coach: long silent waits, no "thinking" indicator, occasional total hang.**
