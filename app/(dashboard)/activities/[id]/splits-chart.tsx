@@ -46,15 +46,14 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
 
   const avgSecPerKm  = avgSpeedMs > 0 ? 1000 / avgSpeedMs : 300;
   const paces        = validSplits.map(s => 1000 / s.average_speed);
-  const minPace      = Math.min(...paces); // fastest
-  const maxPace      = Math.max(...paces); // slowest
-  const paceRange    = maxPace - minPace;
 
-  // P10–P90 shade reference: fills the full alpha range even for steady-paced runs
+  // Scale reference: P10–P90, not raw min/max. A single GPS-glitch or paused-lap
+  // outlier would otherwise stretch the whole axis and crush every real lap down
+  // to the height floor (and drag the avg-pace line down into the x-axis labels).
   const sortedPaces   = [...paces].sort((a, b) => a - b);
-  const shadeFastPace = sortedPaces[Math.max(0, Math.floor(sortedPaces.length * 0.10))];
-  const shadeSlowPace = sortedPaces[Math.min(sortedPaces.length - 1, Math.floor(sortedPaces.length * 0.90))];
-  const shadePaceRange = Math.max(shadeSlowPace - shadeFastPace, 5);
+  const scaleFastPace = sortedPaces[Math.max(0, Math.floor(sortedPaces.length * 0.10))];
+  const scaleSlowPace = sortedPaces[Math.min(sortedPaces.length - 1, Math.floor(sortedPaces.length * 0.90))];
+  const paceRange     = Math.max(scaleSlowPace - scaleFastPace, 5);
 
   const totalTimeSec = validSplits.reduce((s, sp) => s + sp.moving_time, 0);
   const totalDistM   = validSplits.reduce((s, sp) => s + sp.distance, 0);
@@ -72,15 +71,15 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
         ? (sp.moving_time / totalTimeSec) * 100
         : (sp.distance   / totalDistM)   * 100;
 
-      // 0 = slowest, 1 = fastest
-      const normalizedSpeed = paceRange > 0 ? (maxPace - pace) / paceRange : 0.5;
+      // 0 = slowest, 1 = fastest — clamped to the P10–P90 scale so an outlier lap
+      // outside that range renders at the floor/ceiling instead of NaN or overflow.
+      const normalizedSpeed = Math.max(0, Math.min(1, (scaleSlowPace - pace) / paceRange));
 
       // Power curve: slow laps compressed toward zero, fast laps at full height
       const heightFrac = Math.max(0.04, Math.pow(normalizedSpeed, POWER));
 
-      // Alpha: 18% for slowest → 100% for fastest; P10–P90 reference stretches contrast
-      const shadeNorm = Math.max(0, Math.min(1, (shadeSlowPace - pace) / shadePaceRange));
-      const alpha    = Math.round((0.18 + 0.82 * shadeNorm) * 255);
+      // Alpha: 18% for slowest → 100% for fastest
+      const alpha    = Math.round((0.18 + 0.82 * normalizedSpeed) * 255);
       const alphaHex = alpha.toString(16).padStart(2, "0");
 
       cumTimeSec += sp.moving_time;
@@ -96,10 +95,10 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
       return { sp, pace, widthPct, heightFrac, alphaHex, label };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [validSplits, xMode, totalTimeSec, totalDistM, minPace, maxPace, paceRange, shadeFastPace, shadeSlowPace, shadePaceRange, labelEvery]);
+  }, [validSplits, xMode, totalTimeSec, totalDistM, scaleFastPace, scaleSlowPace, paceRange, labelEvery]);
 
-  // Avg pace line: position in non-linear scale
-  const avgNorm     = paceRange > 0 ? Math.max(0, Math.min(1, (maxPace - avgSecPerKm) / paceRange)) : 0.5;
+  // Avg pace line: position in the same clamped non-linear scale as the bars
+  const avgNorm     = Math.max(0, Math.min(1, (scaleSlowPace - avgSecPerKm) / paceRange));
   const avgLineFrac = Math.pow(avgNorm, POWER);
 
   return (
@@ -131,10 +130,11 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
         {/* Baseline */}
         <div className="absolute bottom-7 left-0 right-10 border-b border-border/50" />
 
-        {/* Average pace dashed line */}
+        {/* Average pace dashed line — base offset (28) matches the bars' own
+            "bottom-7" baseline (Tailwind spacing token 7 = 28px, not 7px) */}
         <div
           className="absolute left-0 right-10 border-b border-dashed border-accent/50 pointer-events-none"
-          style={{ bottom: 7 + chartHeight * avgLineFrac }}
+          style={{ bottom: 28 + chartHeight * avgLineFrac }}
           title={`Avg pace: ${secPerKmStr(avgSecPerKm)}/km`}
         />
 
@@ -169,10 +169,10 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
           ))}
         </div>
 
-        {/* Pace scale: fastest at top, slowest at bottom */}
+        {/* Pace scale: fastest at top, slowest at bottom (P10–P90 range — matches bar scale) */}
         <div className="absolute right-0 top-0 bottom-7 flex flex-col justify-between pointer-events-none pr-1">
-          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(minPace)}</span>
-          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(maxPace)}</span>
+          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(scaleFastPace)}</span>
+          <span className="text-[9px] text-muted font-mono leading-none">{secPerKmStr(scaleSlowPace)}</span>
         </div>
 
         {/* X-axis labels — right-10 matches bars container */}

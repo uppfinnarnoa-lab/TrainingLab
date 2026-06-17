@@ -3047,6 +3047,19 @@ Two stacked causes, found in two passes:
 
 **Verification:** `pnpm build --no-lint` passes after both passes. Manually verified in a real browser (local dev DB, throwaway test user, cleaned up afterward) that dashboard/planner/coach pages correctly use full window width at 1920px. User is verifying the actual drag gesture manually.
 
+**Bug 5 — activity detail: Laps/Splits chart broken on the latest activity — every bar squashed to the floor, and the avg-pace dashed line rendered straight through the x-axis label text.**
+
+Two independent bugs in `app/(dashboard)/activities/[id]/splits-chart.tsx`, both visible at once on this activity:
+
+1. Bar height and the avg-pace line were scaled against the *raw* min/max lap pace. A single outlier lap (GPS glitch, or a real lap recorded across a pause) sets `minPace`/`maxPace` far outside the rest of the laps, which stretches the whole scale and crushes every normal lap down to the `0.04` height floor. Worse, a lap slower than the (skewed) max produced a negative `normalizedSpeed`, and `Math.pow(negative, 2.8)` is `NaN` — an unclamped case that could render a bar with no height at all. The alpha/shading already used a P10–P90 percentile reference for exactly this reason ("fills the full alpha range even for steady-paced runs") but the height scale and avg-line position didn't share it. **Fix:** unified everything — bar height, shading, the avg-pace line, and the pace-scale labels — onto the same P10–P90-clamped scale (`scaleFastPace`/`scaleSlowPace`/`paceRange`), with `normalizedSpeed` clamped to `[0,1]` so an outlier renders at the floor/ceiling instead of skewing or NaN-ing everyone else.
+2. Independent of the above: the avg-pace dashed line's inline style used `bottom: 7 + chartHeight * avgLineFrac`, but the bars/baseline use the Tailwind class `bottom-7`, which is the *spacing-scale token* 7 (`1.75rem` = **28px**), not 7 literal pixels. The line's coordinate space was therefore offset 21px low versus the bars it's supposed to align with — for any `avgLineFrac` below ~0.18 (common — it only takes the average pace being closer to the slow end of the lap range) the line rendered inside the x-axis label row instead of among the bars, which is the literal "text over the line" symptom. **Fix:** changed the base offset to `28` to match.
+
+**Bug 6 — planner: rolling 4-week view always showed exactly 4 weeks regardless of screen size, wasting vertical space on large monitors.**
+
+`components/planner/PlannerCalendar.tsx`'s rolling mode hardcoded `start = startOfWeek(subWeeks(now,1))` → `end = endOfWeek(addWeeks(now,2))`, always exactly 4 weeks. **Fix:** added `rollingWeeksCount` state (default 4) driving the date range, plus a `ResizeObserver`-free measurement effect (window resize listener) that measures one rendered week's actual height (`weeksListRef.current.scrollHeight / weeks.length`, which naturally includes the per-week `WeekSummaryStrip` in row layout) against the remaining viewport height below the calendar, and grows the count to fill it (clamped to 4–16 weeks). Also fixed `rollingWeekLabel` ("Last week"/"This week"/"Next week"/…), which previously only had branches for those three cases and fell through to a hardcoded `"In 2 weeks"` for every week beyond that — now computes the actual week offset and shows `"In N weeks"`.
+
+**Verification:** `pnpm build --no-lint` passes.
+
 ---
 
-*Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill)*
+*Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height)*

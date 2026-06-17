@@ -135,6 +135,11 @@ export function PlannerCalendar({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [moveWorkout, setMoveWorkout] = useState<PlannedWorkout | null>(null);
 
+  // Rolling mode: how many weeks to show — grows beyond the 4-week default to
+  // fill whatever vertical space is actually available (measured below).
+  const [rollingWeeksCount, setRollingWeeksCount] = useState(4);
+  const weeksListRef = useRef<HTMLDivElement>(null);
+
   // dnd-kit: track which workout is being dragged (for DragOverlay)
   const [dndActiveWorkout, setDndActiveWorkout] = useState<PlannedWorkout | null>(null);
   // dnd-kit: track which day is being hovered during drag
@@ -218,9 +223,9 @@ export function PlannerCalendar({
 
   const days = useMemo(() => {
     if (calendarMode === "rolling") {
-      const now = new Date();
+      const now   = new Date();
       const start = startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 });
-      const end   = endOfWeek(addWeeks(now, 2), { weekStartsOn: 1 });
+      const end   = endOfWeek(addWeeks(start, rollingWeeksCount - 1), { weekStartsOn: 1 });
       return eachDayOfInterval({ start, end });
     }
     const monthStart = startOfMonth(currentMonth);
@@ -229,7 +234,7 @@ export function PlannerCalendar({
       start: startOfWeek(monthStart, { weekStartsOn: 1 }),
       end:   endOfWeek(monthEnd,   { weekStartsOn: 1 }),
     });
-  }, [calendarMode, currentMonth]);
+  }, [calendarMode, currentMonth, rollingWeeksCount]);
 
   const byDate = useMemo(() => {
     const map = new Map<string, PlannedWorkout[]>();
@@ -265,6 +270,27 @@ export function PlannerCalendar({
     for (let i = 0; i < days.length; i += 7) ws.push(days.slice(i, i + 7));
     return ws;
   }, [days]);
+
+  // Rolling mode: measure how tall one rendered week (incl. its summary strip)
+  // actually is, then grow rollingWeeksCount to fill the space below it — so a
+  // tall monitor shows 6-8 weeks instead of always the same fixed 4.
+  useEffect(() => {
+    if (calendarMode !== "rolling") return;
+    function recompute() {
+      const el = weeksListRef.current;
+      if (!el || weeks.length === 0) return;
+      const avgWeekHeight = el.scrollHeight / weeks.length;
+      if (!avgWeekHeight) return;
+      const top = el.getBoundingClientRect().top;
+      const available = window.innerHeight - top - 16; // bottom breathing room
+      const fit = Math.floor(available / avgWeekHeight);
+      const next = Math.min(16, Math.max(4, fit));
+      setRollingWeeksCount(prev => prev === next ? prev : next);
+    }
+    recompute();
+    window.addEventListener("resize", recompute);
+    return () => window.removeEventListener("resize", recompute);
+  }, [calendarMode, summaryLayout, weeks.length]);
 
   const today = format(new Date(), "yyyy-MM-dd");
 
@@ -411,7 +437,7 @@ export function PlannerCalendar({
       </div>
 
       {/* Calendar grid */}
-      <div className="space-y-2">
+      <div className="space-y-2" ref={weeksListRef}>
         {weeks.map((week, wi) => {
           const weekStart    = week[0];
           const weekWorkouts = week.flatMap(d => byDate.get(format(d, "yyyy-MM-dd")) ?? []);
@@ -420,13 +446,13 @@ export function PlannerCalendar({
 
           const rollingWeekLabel = (() => {
             if (calendarMode !== "rolling") return null;
-            const now = new Date();
-            const thisWeekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd");
-            const wk = format(weekStart, "yyyy-MM-dd");
-            if (wk === format(startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Last week";
-            if (wk === thisWeekStart) return "This week";
-            if (wk === format(startOfWeek(addWeeks(now, 1), { weekStartsOn: 1 }), "yyyy-MM-dd")) return "Next week";
-            return "In 2 weeks";
+            const now           = new Date();
+            const thisWeekStart = startOfWeek(now, { weekStartsOn: 1 });
+            const weekOffset    = Math.round((weekStart.getTime() - thisWeekStart.getTime()) / (7 * 86_400_000));
+            if (weekOffset === -1) return "Last week";
+            if (weekOffset === 0)  return "This week";
+            if (weekOffset === 1)  return "Next week";
+            return `In ${weekOffset} weeks`;
           })();
 
           return (
