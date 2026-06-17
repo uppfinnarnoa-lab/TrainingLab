@@ -108,7 +108,7 @@ async function fetchSsoPage(jar: CookieJar): Promise<{ html: string; url: string
     clientId:                        "GarminConnect",
     consumeServiceTicket:            "false",
     initialFocus:                    "true",
-    embedWidget:                     "false",
+    embedWidget:                     "true",
     generateExtraServiceTicket:      "true",
     generateTwoExtraServiceTickets:  "true",
     generateNoServiceTicket:         "false",
@@ -160,13 +160,14 @@ async function submitCredentials(
     generateNoServiceTicket:         "false",
     connectLegalTerms:               "true",
     mobile:                          "false",
+    embedWidget:                     "true",
   });
 
   const body = new URLSearchParams({
     username:            email,
     password,
     _csrf:               csrf,
-    embed:               "false",
+    embed:               "true",
     displayNameRequired: "false",
   });
 
