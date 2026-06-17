@@ -2710,4 +2710,20 @@ Design: Users enter their Garmin Connect email/password once in Settings → we 
 
 ---
 
-*Last updated: 2026-06-17 (Garmin in-app TypeScript SSO, security audit)*
+### Session 2026-06-17b — Garmin gap handling + double daily sync
+
+**`lib/garmin/sync.ts`:**
+- `upsert` update clause now uses COALESCE behavior: only updates fields with non-null values. A sync that returns null for a field (e.g. sleep not available because watch wasn't worn, or readiness not yet processed) no longer overwrites previously stored data for that day. `create` still stores all fields (including null) for new records.
+- This handles the case where the user wears the watch only some nights — existing sleep/HRV data is preserved even when a subsequent sync for the same date can't fetch it.
+
+**`lib/cron.ts`:**
+- 08:00 cron now passes `yesterday` explicitly to `syncGarminDaily()`. Garmin processes overnight sleep/HRV data and makes it available by morning under the previous day's calendar date. Syncing `new Date()` at 08:00 was reading the wrong date.
+- New 20:00 cron syncs TODAY (steps, body battery, stress, readiness accumulated during the day) AND yesterday again (training readiness and other fields can arrive late by several hours).
+
+**`app/(dashboard)/dashboard/page.tsx`:**
+- `garmin7d` query now bounded to a 14-day date window (`date >= now - 14d`) with `take: 10`, preventing HRV trend from using month-old values when the user skips wearing the watch for several days.
+- `garminDateLabel(garminDate, now)` helper added — returns "Today" / "Yesterday" / "N days ago". Shown as a dim prefix on the Garmin metrics row so the user can see data age when nights are skipped.
+
+---
+
+*Last updated: 2026-06-17 (Garmin in-app SSO, security audit, gap handling, double sync)*
