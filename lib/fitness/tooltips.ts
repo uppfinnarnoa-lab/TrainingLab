@@ -87,4 +87,28 @@ export const tooltips: Record<string, Tooltip> = {
     why: "A downward trend (faster pace at the same easy effort) is the clearest sign that your aerobic base is improving. Needs ≥ 3 qualifying sessions per period to appear.",
     range: "Expect improvement of 10–30 sec/km per year with consistent easy running.",
   },
+  hrvTrend: {
+    title: "HRV — Heart Rate Variability",
+    what: "Nightly HRV (ms), measured by Garmin overnight, plus the status it assigns relative to your personal 5-night rolling baseline.",
+    why: "Higher HRV generally means your nervous system is well-recovered. A sustained downward trend over more than 7 days often precedes illness or overtraining by days, before you feel it.",
+    range: "Watch the trend, not the absolute number — baselines vary a lot between individuals.",
+  },
+  sleepTrend: {
+    title: "Sleep Stages & Score",
+    what: "Hours of deep / light / REM / awake time per night, with Garmin's overall sleep score overlaid.",
+    why: "Deep sleep drives physical recovery and growth hormone release. REM sleep drives cognitive function and motor learning. Consistently low deep sleep impairs athletic adaptation even when training load is moderate.",
+    range: "Healthy adults: ~13–23% deep, ~20–25% REM. Sleep score 80+: excellent, 60–79: fair, below 60: poor.",
+  },
+  restingHRTrend: {
+    title: "Resting Heart Rate Trend",
+    what: "Morning resting heart rate (bpm) from Garmin, over time.",
+    why: "A rising resting HR (3–5 bpm above your normal) is an early signal of fatigue, illness, or dehydration. Track your own baseline rather than a generic range.",
+    range: "Most trained endurance athletes sit around 40–55 bpm at rest.",
+  },
+  garminWellness: {
+    title: "Body Battery, Stress & Readiness",
+    what: "Garmin's own daily scores: Body Battery (0–100 energy reserve, drains through the day and stress, refills with rest/sleep), average daily Stress (0–100, lower is calmer), and Garmin's Training Readiness (0–100, its own composite recovery score).",
+    why: "These three together give a quick read on whether today is a good day to push training or back off — independent of TrainingLab's own Readiness score, which blends in TSB and HRV as well.",
+    range: "Body Battery 50+: good energy for training. Stress consistently above 60: under-recovered. Training Readiness 70+: ready for a hard session.",
+  },
 };

@@ -30,7 +30,7 @@ export default async function StatsPage() {
     prisma.athleteProfile.findUnique({ where: { userId } }),
     prisma.fitnessCache.findUnique({ where: { userId } }),
     prisma.garminDailySummary.findMany({
-      where: { userId, date: { gte: subDays(now, 30) } },
+      where: { userId, date: { gte: subDays(now, 112) } }, // 16 weeks, matches other trend charts
       orderBy: { date: "asc" },
     }),
     prisma.raceRecord.findMany({
@@ -108,6 +108,25 @@ export default async function StatsPage() {
     thisWeek: toSum(runWkAgg), thisMonth: toSum(runMoAgg), ytd: toSum(runYtdAgg),
     lyWeek: toSum(runLyWkAgg), lyMonth: toSum(runLyMoAgg), lyYtd: toSum(runLyYtdAgg),
   };
+
+  const garminWellness: GarminWellnessPoint[] = garminRecent.map((g: {
+    date: Date; hrvNightly: number | null; hrvBalance: string | null; sleepScore: number | null;
+    sleepDeep: number | null; sleepLight: number | null; sleepRem: number | null; sleepAwake: number | null;
+    restingHR: number | null; bodyBattery: number | null; stressAvg: number | null; trainingReadiness: number | null;
+  }) => ({
+    date:              format(g.date, "yyyy-MM-dd"),
+    hrvNightly:        g.hrvNightly,
+    hrvBalance:        g.hrvBalance,
+    sleepScore:        g.sleepScore,
+    sleepDeepH:        g.sleepDeep   != null ? Math.round(g.sleepDeep   / 360) / 10 : null,
+    sleepLightH:       g.sleepLight  != null ? Math.round(g.sleepLight  / 360) / 10 : null,
+    sleepRemH:         g.sleepRem    != null ? Math.round(g.sleepRem    / 360) / 10 : null,
+    sleepAwakeH:       g.sleepAwake  != null ? Math.round(g.sleepAwake  / 360) / 10 : null,
+    restingHR:         g.restingHR,
+    bodyBattery:       g.bodyBattery,
+    stressAvg:         g.stressAvg,
+    trainingReadiness: g.trainingReadiness,
+  }));
 
   // ── Check if we can use FitnessCache for expensive computations ─────────
   const cacheAge = fitnessCache?.computedAt
@@ -395,7 +414,8 @@ export default async function StatsPage() {
       overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraVizFresh,
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
       fpEasyPaceTrend, fastStatZonesLaps,
-      fpCadenceByWeek, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length);
+      fpCadenceByWeek, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length,
+      garminWellness);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────
@@ -927,7 +947,8 @@ export default async function StatsPage() {
     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear, ltPaceTrend: existingLtPaceTrend as { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[] },
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
     easyPaceTrend, statZonesLaps,
-    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDays.length);
+    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDays.length,
+    garminWellness);
 }
 
 // Shared render — used by both fast and slow paths
@@ -981,6 +1002,7 @@ function renderStats(
   strain?: number | null,
   avgRecoveryDays?: number | null,
   recoveryDaysCount?: number,
+  garminWellness?: GarminWellnessPoint[],
 ) {
   return (
     <div className="space-y-2">
@@ -1020,6 +1042,7 @@ function renderStats(
         strain={strain ?? null}
         avgRecoveryDays={avgRecoveryDays ?? null}
         recoveryDaysCount={recoveryDaysCount ?? 0}
+        garminWellness={garminWellness ?? []}
       />
       </StatsErrorBoundary>
     </div>
@@ -1191,6 +1214,21 @@ function median(vals: number[]): number {
 // ── Easy run pace trend ──────────────────────────────────────────────────────
 
 export type EasyPacePoint = { month: string; medianGap: number; avgHR: number; count: number };
+
+export type GarminWellnessPoint = {
+  date:              string; // yyyy-MM-dd
+  hrvNightly:        number | null;
+  hrvBalance:        string | null;
+  sleepScore:        number | null;
+  sleepDeepH:        number | null;
+  sleepLightH:       number | null;
+  sleepRemH:         number | null;
+  sleepAwakeH:       number | null;
+  restingHR:         number | null;
+  bodyBattery:       number | null;
+  stressAvg:         number | null;
+  trainingReadiness: number | null;
+};
 
 type EasyPaceAct = {
   sportType: string; startDate: Date; distance: number; movingTime: number;

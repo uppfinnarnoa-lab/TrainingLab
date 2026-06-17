@@ -14,6 +14,10 @@ import { TrainingLoadChart } from "@/components/charts/TrainingLoadChart";
 import { HRZonesChart } from "@/components/charts/HRZonesChart";
 import { EasyPaceTrendChart } from "@/components/charts/EasyPaceTrendChart";
 import { LTPaceTrendChart } from "@/components/charts/LTPaceTrendChart";
+import { SleepTrendChart } from "@/components/charts/SleepTrendChart";
+import { HrvTrendChart } from "@/components/charts/HrvTrendChart";
+import { RestingHRTrendChart } from "@/components/charts/RestingHRTrendChart";
+import { GarminWellnessChart } from "@/components/charts/GarminWellnessChart";
 import { MetricTooltip } from "@/components/stats/metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
@@ -22,7 +26,7 @@ import type { DailyLoad } from "@/lib/fitness/training-load";
 import { tsbLabel } from "@/lib/fitness/training-load";
 import type { HRZones, PaceZones, StatisticalZoneResult } from "@/lib/fitness/zones";
 import type { VO2maxEstimate } from "@/lib/fitness/vo2max";
-import type { WeatherStats, WeatherBand, EasyPacePoint } from "@/app/(dashboard)/stats/page";
+import type { WeatherStats, WeatherBand, EasyPacePoint, GarminWellnessPoint } from "@/app/(dashboard)/stats/page";
 import { cn } from "@/lib/utils";
 
 interface SumData { km: number; timeSec: number; count: number }
@@ -72,6 +76,7 @@ interface Props {
   strain: number | null;
   avgRecoveryDays: number | null;
   recoveryDaysCount: number;
+  garminWellness: GarminWellnessPoint[];
   extraViz: {
     heatmapData: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
@@ -88,7 +93,7 @@ function pct(curr: number, prev: number) {
   return Math.round(((curr - prev) / prev) * 100);
 }
 
-const SECTIONS = ["Overview", "Volume", "Load", "Zones", "Fitness"] as const;
+const SECTIONS = ["Overview", "Volume", "Load", "Recovery", "Zones", "Fitness"] as const;
 type Section = (typeof SECTIONS)[number];
 
 export function StatsClient(props: Props) {
@@ -97,7 +102,7 @@ export function StatsClient(props: Props) {
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZonesLaps, analytics, paceZoneSeconds,
     modelPredictions, modelVdots, extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend,
-    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDaysCount } = props;
+    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDaysCount, garminWellness } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -282,6 +287,35 @@ export function StatsClient(props: Props) {
                 Recovery days measures how long it takes to bounce back from a hard training block. TSB (Training Stress Balance) quantifies form minus fatigue — when TSB drops below −15 you are in a fatigue state, and the number of days to return to neutral defines your personal recovery profile.
               </p>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Recovery ── */}
+      {section === "Recovery" && (
+        <div className="space-y-6">
+          {garminWellness.length === 0 ? (
+            <p className="text-sm text-muted py-8 text-center">
+              Connect Garmin in Settings to see HRV, sleep, resting heart rate and readiness trends here.
+            </p>
+          ) : (
+            <>
+              <SectionCard title="Sleep stages & score (16 weeks)" tips={[tooltips.sleepTrend]}>
+                <SleepTrendChart data={garminWellness} />
+              </SectionCard>
+
+              <SectionCard title="HRV trend (16 weeks)" tips={[tooltips.hrvTrend]}>
+                <HrvTrendChart data={garminWellness} />
+              </SectionCard>
+
+              <SectionCard title="Resting heart rate trend (16 weeks)" tips={[tooltips.restingHRTrend]}>
+                <RestingHRTrendChart data={garminWellness} />
+              </SectionCard>
+
+              <SectionCard title="Body Battery, stress & readiness (16 weeks)" tips={[tooltips.garminWellness]}>
+                <GarminWellnessChart data={garminWellness} />
+              </SectionCard>
+            </>
           )}
         </div>
       )}

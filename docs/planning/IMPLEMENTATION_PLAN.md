@@ -3016,6 +3016,26 @@ User reported the ticket-paste flow still failed with "Token exchange failed" us
 
 ---
 
+### Session 2026-06-18b — New Stats "Recovery" tab: HRV, sleep, resting HR and Garmin wellness trend charts
+
+With the Garmin exchange finally working (previous session), `GarminDailySummary` data was only ever displayed as a single "today" snapshot row on the Dashboard — no historical trend anywhere, even though the original master spec (this file, "Recovery & Health" section) called for HRV/sleep/resting-HR trend charts from the start. `app/(dashboard)/stats/page.tsx` already queried 30 days of `garminRecent` but only used it for one fallback value (`restingHR` for HR-zone calc) — the rest was unused.
+
+**Added — new "Recovery" tab on the Stats page** (`app/(dashboard)/stats/stats-client.tsx`, between "Load" and "Zones"), with 4 cards, all 16-week views (widened the existing `garminRecent` query in `stats/page.tsx` from 30 to 112 days):
+- **Sleep stages & score** (`components/charts/SleepTrendChart.tsx`) — stacked area of deep/light/REM/awake hours with sleep score overlaid on a secondary 0–100 axis.
+- **HRV trend** (`components/charts/HrvTrendChart.tsx`) — nightly HRV line, dots colored by Garmin's own `hrvBalance` field (Balanced/Low/Unbalanced) rather than a recomputed baseline, since Garmin already provides that classification.
+- **Resting heart rate trend** (`components/charts/RestingHRTrendChart.tsx`) — line chart with a dashed reference line at the period average.
+- **Body Battery, stress & readiness** (`components/charts/GarminWellnessChart.tsx`) — 3-line 0–100 chart combining fields that didn't exist when the original spec was written.
+
+Each card shows a "No … data yet" / "Connect Garmin in Settings" message when `garminWellness` is empty, instead of an empty chart.
+
+**Data plumbing:** new exported `GarminWellnessPoint` type in `stats/page.tsx` (date string + the relevant `GarminDailySummary` fields, sleep stage seconds converted to hours); computed once from the widened `garminRecent` query and threaded through `renderStats(...)` (added as a new final parameter at both call sites — fast-cache-path and slow-path — since they were already positional) down to `<StatsClient>`.
+
+**New tooltips** in `lib/fitness/tooltips.ts`: `hrvTrend`, `sleepTrend`, `restingHRTrend`, `garminWellness` (reused the existing spec's tooltip copy for the first three; wrote new copy for the Body Battery/stress/readiness one, which wasn't in the original spec).
+
+**Verification:** `pnpm build --no-lint` passes (had to add an explicit parameter type to the `garminRecent.map()` callback — TS couldn't infer it through the mixed `Promise.all` destructuring). **Not visually verified in a browser** — per this project's CLAUDE.md, the dev server is only started when explicitly requested, and the dev DB has no real Garmin rows to render anyway (the only real data is in production, from the previous session's fix). User should check the new Recovery tab after deploying.
+
+---
+
 ### Session 2026-06-18 — Coach chat "stuck with no feedback" fix, large-screen layout, planner desktop drag-and-drop regression
 
 **Bug 1 — AI coach: long silent waits, no "thinking" indicator, occasional total hang.**
