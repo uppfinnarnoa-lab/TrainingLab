@@ -33,6 +33,7 @@ export function AISettingsSection({
   const [groqKey, setGroqKey] = useState("");
   const [tavilyKey, setTavilyKey] = useState("");
   const [showTavily, setShowTavily] = useState(false);
+  const [hasTavilyKeyLocal, setHasTavilyKeyLocal] = useState(hasTavilyKey);
   const [selectedNvidiaModel, setSelectedNvidiaModel] = useState(nvidiaModel || NVIDIA_DEFAULT_MODEL);
   const [selectedGroqModel, setSelectedGroqModel] = useState(groqModel || GROQ_DEFAULT_MODEL);
   const [budget, setBudget] = useState(String(monthlyBudget));
@@ -74,6 +75,7 @@ export function AISettingsSection({
       setGeminiKey("");
       setNvidiaKey("");
       setGroqKey("");
+      if (tavilyKey) setHasTavilyKeyLocal(true);
       setTavilyKey("");
       setTimeout(() => setSaved(false), 3000);
     } catch {
@@ -355,20 +357,20 @@ export function AISettingsSection({
       {/* Tavily — web search for AI coach */}
       <div className="space-y-3 border-t border-border pt-5">
         <p className="text-sm font-medium text-primary">
-          Tavily API key — webbsökning
-          {hasTavilyKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registrerad</span>}
+          Tavily API key — web search
+          {hasTavilyKeyLocal && <span className="ml-2 text-xs font-normal text-accent">✓ Registered</span>}
         </p>
         <p className="text-xs text-muted">
-          Gör det möjligt för AI-coachen att söka på webben (träningsforskning, tävlingsinfo, väderprognosar m.m.). Gratis upp till 1 000 sökningar/månad. Hämta nyckel på{" "}
+          Lets the AI coach search the web (training research, race info, weather forecasts, etc.). Free up to 1,000 searches/month. Get your key at{" "}
           <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2">tavily.com</a>
-          {" "}→ skapa konto → API Keys.
+          {" "}→ create account → API Keys.
         </p>
         <div className="relative">
           <input
             type={showTavily ? "text" : "password"}
             value={tavilyKey}
             onChange={(e) => setTavilyKey(e.target.value)}
-            placeholder={hasTavilyKey ? "Redan sparad — klistra in ny nyckel för att byta" : "tvly-..."}
+            placeholder={hasTavilyKeyLocal ? "Already saved — paste new key to replace" : "tvly-..."}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 pr-10 text-sm font-mono text-primary placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           />
           <button type="button" onClick={() => setShowTavily(v => !v)}
