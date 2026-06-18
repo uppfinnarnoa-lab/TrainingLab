@@ -6,6 +6,7 @@ import { buildHRZones } from "@/lib/fitness/zones";
 import { safeDecrypt } from "@/lib/encrypt";
 import { subDays } from "date-fns";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 /**
  * POST /api/coach/calibrate?mode=algorithmic|ai|pct
@@ -19,6 +20,10 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const userId = session.user.id;
+
+  const rl = checkRateLimit(`calibrate:${userId}`, 5, 600);
+  if (!rl.allowed) return NextResponse.json({ error: "rate_limited", retryAfter: rl.resetIn }, { status: 429 });
+
   const { searchParams } = new URL(req.url);
   const mode = searchParams.get("mode") ?? "algorithmic";
 

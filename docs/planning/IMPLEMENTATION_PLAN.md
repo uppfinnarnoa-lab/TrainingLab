@@ -3168,4 +3168,21 @@ Pointed the user at `scripts/year-estimate-test.ts` (a standalone, frozen copy o
 
 ---
 
+**Session 2026-06-18 — Security audit: session-token storage, client-side admin checks, rate limiting, password leakage:**
+
+Four read-only audits run in parallel. Three came back clean (no findings requiring changes): session/OAuth tokens never touch `localStorage`/`sessionStorage` or the client-visible NextAuth session object; the single `User.isAdmin` role is re-checked server-side in every `/api/admin/*` route handler (client-side `isAdmin` checks are cosmetic only); no password hash or OAuth token is ever logged or serialized into an API response (bcrypt cost 12 throughout, explicit Prisma `select` allowlists everywhere user/account records are returned).
+
+Rate limiting (`lib/rate-limit.ts`, in-memory, single-instance — sufficient for this single-user deployment) existed on only 4 of ~36 routes. Fixed the two highest-priority gaps plus one minor logging issue:
+
+- `app/api/coach/calibrate/route.ts`: added `checkRateLimit('calibrate:${userId}', 5, 600)` — this endpoint can trigger an LLM call (mode=ai) and had no limiter at all.
+- `app/api/coach/summarize/route.ts`: added `checkRateLimit('summarize:${userId}', 20, 60)`. Note: verified this route does **not** actually call an LLM — it's the documented stub from session 2026-06-16 (`{ messages: count }` only); real summarization goes through `/api/coach/chat`, which was already rate-limited. No client code calls this endpoint at all currently (`handleSummarize()` in `ChatInterface.tsx` only pre-fills the textarea). Limiter added anyway as defense-in-depth since the route is still directly reachable over HTTP.
+- `app/api/strava/webhook/route.ts`: Strava does not sign POST event payloads (no Stripe/GitHub-style HMAC header), so the POST handler previously processed any inbound JSON with zero authentication. Added a shared-secret check: the POST handler now reads a `?secret=` query param and compares it against the same `stravaWebhookToken`/`STRAVA_WEBHOOK_VERIFY_TOKEN` already used for the GET handshake. This only works if the Strava push-subscription `callback_url` is registered (or re-registered) **with the secret baked into the URL**, e.g. `.../api/strava/webhook?secret=STRAVA_WEBHOOK_VERIFY_TOKEN` — Strava preserves the registered query string on every event delivery, not just the GET handshake. **Action required from the user:** re-register the Strava push subscription with the updated `callback_url` (delete the old subscription via the Strava API, create a new one with the secret in the URL) — this is a production-side change against Strava's API, not something reachable from this dev machine.
+- `scripts/seed-user.ts`: removed the plaintext password from the `console.log` line after user creation (it's already known to whoever set `SEED_PASSWORD`; logging it again only risked it persisting in shell/CI history).
+
+Not fixed (lower priority, left for a future session): no rate limiting on `garmin/sync`, `strava/sync`, `strava/backfill-*`, `weather/backfill`; `middleware.ts` excludes `/api/admin/*` from its matcher (currently safe only because both admin routes do their own in-handler check — no defense-in-depth layer if a future admin route forgets it).
+
+**Verification:** `pnpm build --no-lint` passes.
+
+---
+
 *Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification, statistical-threshold card now mirrors applied zones + create-branch field fix, duplicate HR-zone-distribution title disambiguated)*

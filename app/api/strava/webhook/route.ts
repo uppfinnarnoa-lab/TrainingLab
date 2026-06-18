@@ -4,10 +4,13 @@
  * GET  /api/strava/webhook  — Strava validation challenge (called once at subscription time)
  * POST /api/strava/webhook  — Incoming push events (activity create/update/delete)
  *
- * Activation: after deploying to a public domain, register once with:
+ * Strava does not sign POST event payloads (unlike Stripe/GitHub webhooks), so the
+ * callback_url itself must carry a shared secret as a query param — Strava preserves
+ * the registered query string on every subsequent event delivery, not just the GET
+ * handshake. Register (and re-register if rotating the secret) with:
  *   curl -X POST https://www.strava.com/api/v3/push_subscriptions \
  *     -d "client_id=..." -d "client_secret=..." \
- *     -d "callback_url=https://yourdomain.com/api/strava/webhook" \
+ *     -d "callback_url=https://yourdomain.com/api/strava/webhook?secret=STRAVA_WEBHOOK_VERIFY_TOKEN" \
  *     -d "verify_token=STRAVA_WEBHOOK_VERIFY_TOKEN"
  */
 
@@ -16,6 +19,11 @@ import { prisma } from "@/lib/db/prisma";
 import { syncSingleActivity, deleteStravaActivity, resyncRecentActivities } from "@/lib/strava/sync";
 import { backfillWeather } from "@/lib/weather/backfill";
 import { backfillRunner } from "@/lib/strava/backfill-runner";
+
+async function getValidWebhookToken(): Promise<string | undefined> {
+  const config = await prisma.appConfig.findFirst({ select: { stravaWebhookToken: true } });
+  return config?.stravaWebhookToken ?? process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
+}
 
 // GET — Strava sends this to verify the endpoint during subscription setup
 export async function GET(req: NextRequest) {
@@ -26,9 +34,7 @@ export async function GET(req: NextRequest) {
 
   if (mode !== "subscribe") return new Response("Forbidden", { status: 403 });
 
-  // Check against DB token (set when registering) or env fallback
-  const config = await prisma.appConfig.findFirst({ select: { stravaWebhookToken: true } });
-  const validToken = config?.stravaWebhookToken ?? process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
+  const validToken = await getValidWebhookToken();
   if (!validToken || token !== validToken) return new Response("Forbidden", { status: 403 });
 
   return Response.json({ "hub.challenge": challenge });
@@ -46,6 +52,11 @@ interface StravaEvent {
 
 // POST — incoming event (must respond 200 within 2 s; processing is async)
 export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const secret = searchParams.get("secret");
+  const validToken = await getValidWebhookToken();
+  if (!validToken || secret !== validToken) return new Response("Forbidden", { status: 403 });
+
   let event: StravaEvent;
   try {
     event = await req.json();

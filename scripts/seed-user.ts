@@ -41,7 +41,7 @@ async function main() {
     await prisma.sportCategory.create({ data: { ...s, userId: user.id, isDefault: true } });
   }
 
-  console.log(`✓ Created user: ${email} (password: ${password})`);
+  console.log(`✓ Created user: ${email}`);
   console.log(`✓ Seeded ${sports.length} sport categories`);
 }
 
