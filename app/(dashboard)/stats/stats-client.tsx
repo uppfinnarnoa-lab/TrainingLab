@@ -548,7 +548,10 @@ export function StatsClient(props: Props) {
 
           {/* LT/AT tempo development over time */}
           <div className="rounded-xl border border-border p-4 space-y-3">
-            <p className="text-sm font-semibold text-primary">LT/AT pace development</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-semibold text-primary">LT/AT pace development</p>
+              <MetricTooltip tip={tooltips.ltPaceTrend} />
+            </div>
             <LTPaceTrendChart
               data={extraViz?.ltPaceTrend ?? []}
               currentLT2={paceZones?.threshold?.[0]}
@@ -1113,7 +1116,10 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult | null }) {
     <div className="rounded-xl border border-border overflow-hidden">
       <div className="px-4 py-3 border-b border-border bg-surface-2 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-primary">Statistical threshold estimation</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-primary">Statistical threshold estimation</p>
+            <MetricTooltip tip={tooltips.statZones} />
+          </div>
           {sz && <p className="text-xs text-muted mt-0.5">{sz.bucketCount} pace buckets · piecewise regression</p>}
         </div>
         {sz && (

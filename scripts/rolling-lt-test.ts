@@ -26,6 +26,16 @@ import { gradeAdjustedPace } from "../lib/fitness/vo2max";
 const prisma = new PrismaClient();
 
 // ── OL filter ────────────────────────────────────────────────────────────────
+// Tried massively expanding this (via real data: 278 isRace=true activities, 270+
+// of them Swedish orienteering events the original 7-keyword list never matched)
+// to exclude essentially all OL races by name. Reverted: it regressed the LIVE
+// computation (already validated, matches the documented baseline) from 3:53/km
+// to 4:00/km. This athlete is a competitive orienteer — most genuinely maximal
+// hard efforts happen DURING races, not pure road training, so excluding OL races
+// wholesale removes real high-intensity signal, not just noise. The original,
+// narrower filter (catching only clearly slow/technical OL terminology) plus the
+// existing pace-threshold check (excluding any race slower than easy-training
+// pace, terrain/navigation-limited) is the validated, correct balance.
 function makeOlFilter(olPaceThresholdSecPerKm: number, gateToRaceOnly: boolean) {
   return (name: string, sportType: string, isRace: boolean, averageSpeed: number | null) =>
     !/virtualrun/i.test(sportType) &&
@@ -54,12 +64,6 @@ function estimateZones(
     asOf?: Date;
     minEffWeight?: number;
     verbose?: boolean;
-    // Live (current, most data-rich) computation — historical windows only, never
-    // passed for the live computation itself (which IS the source of this anchor).
-    // HR at LT1/LT2 drifts slowly over years; PACE at LT1/LT2 improves with fitness
-    // but only so fast. Both are used to reject implausible breakpoints in sparse
-    // historical data instead of forcing a wrong answer onto noisy buckets.
-    anchor?: { lt1HR: number; lt2HR: number; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; asOf: Date };
   } = {},
 ): EstimateResult | null {
   const refTime = (opts.asOf ?? new Date()).getTime();
@@ -167,53 +171,41 @@ function estimateZones(
 
   const slopes = paceArr.slice(0, -1).map((p, i) => (hrArr[i] - hrArr[i + 1]) / (paceArr[i + 1] - p));
   const slopeMax = Math.max(...slopes);
-  let bp1: number | null;
-  if (opts.anchor) {
-    // Historical window: bound how much slower LT2 pace plausibly was at this point
-    // in time vs. the live anchor. Piecewise-linear drift rate fit to the user's own
-    // stated bounds (≤10s/km slower at 1yr, ≤25s/km slower at 5yr), with margin.
-    const yearsAgo = (opts.anchor.asOf.getTime() - refTime) / (365.25 * 86400000);
-    const maxDriftSec = yearsAgo <= 1 ? 12 * yearsAgo : 12 + 4 * (yearsAgo - 1);
-    const maxPlausibleLt2Pace = opts.anchor.lt2PaceSecPerKm + maxDriftSec;
-    // Training has generally improved toward the live anchor — a historical point
-    // shouldn't be meaningfully FASTER than today, just slower by some bounded amount.
-    // Small slack allows for noise/minor fitness fluctuation, not a faster fitness peak.
-    const minPlausibleLt2Pace = opts.anchor.lt2PaceSecPerKm - 5;
 
-    // Require a genuinely dominant kink to exist at all — a smooth/ambiguous curve
-    // (no period with a clearly steeper transition than the rest) isn't reliable
-    // regardless of which bucket "wins" the relative 20%-of-max test. Calibrated
-    // against the live computation (slopeMax≈0.50) and a confirmed-good historical
-    // month (2021-11, slopeMax≈0.32) vs. a confirmed-ambiguous one (slopeMax≈0.20).
-    const MIN_ABS_SLOPE = 0.25;
-    if (slopeMax < MIN_ABS_SLOPE) {
-      if (V) console.log(`  [NULL] slopeMax(${slopeMax.toFixed(3)}) < ${MIN_ABS_SLOPE} — no dominant kink, curve too smooth/ambiguous to trust`);
-      return null;
-    }
+  // Require a genuinely dominant kink to exist at all — applied identically to every
+  // window (live or historical). A smooth/ambiguous curve (no period with a clearly
+  // steeper transition than the rest) isn't reliable regardless of which bucket "wins"
+  // the relative 20%-of-max test below. Calibrated against the live computation
+  // (slopeMax≈0.50), a confirmed-good sparse historical month (2021-11, slopeMax≈0.32),
+  // and a confirmed-ambiguous one (2025-08, slopeMax≈0.20).
+  const MIN_ABS_SLOPE = 0.25;
+  if (slopeMax < MIN_ABS_SLOPE) {
+    if (V) console.log(`  [NULL] slopeMax(${slopeMax.toFixed(3)}) < ${MIN_ABS_SLOPE} — no dominant kink, curve too smooth/ambiguous to trust`);
+    return null;
+  }
 
-    // Among buckets whose own pace falls within the plausible range for this point
-    // in time, pick the one with the steepest qualifying slope, same significance
-    // test as the live case. No longer blindly skipping the fastest bucket — the
-    // plausibility window is the filter now, not bucket index.
-    const candidates: number[] = [];
-    for (let i = 0; i < slopes.length - 2; i++) {
-      if (paceArr[i] >= minPlausibleLt2Pace && paceArr[i] <= maxPlausibleLt2Pace && slopes[i] > 0.20 * slopeMax) candidates.push(i);
-    }
-    if (V) console.log(`  anchor: lt2Pace=${fmt(opts.anchor.lt2PaceSecPerKm)} yearsAgo=${yearsAgo.toFixed(2)} maxDrift=${maxDriftSec.toFixed(0)}s plausibleRange=[${fmt(minPlausibleLt2Pace)},${fmt(maxPlausibleLt2Pace)}]  candidates=[${candidates.join(",")}]`);
-    bp1 = candidates.length > 0
-      ? candidates.reduce((best, c) => slopes[c] > slopes[best] ? c : best)
-      : null; // no plausible breakpoint for this point in time — data too sparse/noisy to trust
+  // Scan from the FASTEST bucket — no longer unconditionally skipping index 0 — but
+  // require a much stronger signal there specifically (60% of max, not 20%). Bucket 0
+  // is disproportionately prone to a PAV merge of a non-monotonic fast-pace inversion
+  // (e.g. a few scattered hard efforts), which can produce a moderate slope that's
+  // real noise, not LT2 (confirmed in 2025-06/09/10/11: bucket-0 slope ~33-55% of max,
+  // selecting it gave a physiologically impossible LT2 faster than the live result).
+  // 2021-11's genuine fastest-bucket kink is far stronger (78% of max) and survives
+  // this bar; the previous blanket skip would have rejected it regardless of strength.
+  //
+  // (A bucket-weight confidence floor was also tried — rejecting candidates whose
+  // bucket barely clears minEffWeight — but PAV merging additively combines weights
+  // from the buckets it merges, so a borderline-sparse bucket's weight after merging
+  // looks no different from a well-supported one; it didn't discriminate the cases it
+  // was meant to catch and reduced coverage elsewhere. Reverted.)
+  let bp1 = 1;
+  if (slopes[0] > 0.60 * slopeMax) {
+    bp1 = 0;
   } else {
-    // Live/current computation (the anchor source itself) — unchanged from the
-    // validated production behavior: skip the fastest bucket (i=0), since with
-    // no anchor to disambiguate, that bucket is the one most likely to be a
-    // sparse-data artifact rather than the true LT2.
-    bp1 = 1;
     for (let i = 1; i < slopes.length - 2; i++) {
       if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
     }
   }
-  if (bp1 === null) { if (V) console.log(`  [NULL] no plausible bp1 candidate within drift bound`); return null; }
 
   let bestErr = Infinity, bp2 = Math.min(bp1 + 2, nb - 2);
   for (let j = bp1 + 1; j < nb - 1; j++) {
@@ -249,14 +241,6 @@ function estimateZones(
   if (lt2PaceSecPerKm >= lt1PaceSecPerKm)              { if (V) console.log(`  [NULL] lt2Pace >= lt1Pace`); return null; }
   if (lt2PaceSecPerKm > gapP60) { if (V) console.log(`  [NULL] lt2Pace(${fmt(lt2PaceSecPerKm)}) > P60(${fmt(gapP60)})`); return null; }
   if (lt1PaceSecPerKm > gapP85) { if (V) console.log(`  [NULL] lt1Pace(${fmt(lt1PaceSecPerKm)}) > P85(${fmt(gapP85)})`); return null; }
-
-  // HR at LT1/LT2 doesn't drift far over time — secondary sanity check on top of the
-  // pace-drift bound above. Don't force a result; null is preferred over a guess.
-  const MAX_HR_DRIFT = 8;
-  if (opts.anchor) {
-    if (Math.abs(lt2HR - opts.anchor.lt2HR) > MAX_HR_DRIFT) { if (V) console.log(`  [NULL] lt2HR(${lt2HR}) too far from anchor(${opts.anchor.lt2HR})`); return null; }
-    if (Math.abs(lt1HR - opts.anchor.lt1HR) > MAX_HR_DRIFT) { if (V) console.log(`  [NULL] lt1HR(${lt1HR}) too far from anchor(${opts.anchor.lt1HR})`); return null; }
-  }
 
   return { lt1HR, lt2HR, lt1PaceSecPerKm, lt2PaceSecPerKm, rSquared, bucketCount: buckets.length, lapCount: runs.length };
 }
@@ -347,22 +331,6 @@ async function main() {
 
   console.log(`Monthly windows: ${windowEnds.length}  (${format(windowEnds[0], "yyyy-MM")} → ${format(windowEnds.at(-1)!, "yyyy-MM")})\n`);
 
-  // Live anchor: the current, most data-rich computation (asOf=now, full history) — used
-  // to resolve breakpoint ambiguity in sparse historical windows. HR at LT1/LT2 drifts
-  // slowly over years even as pace improves, so this is a reliable prior.
-  const liveCfg = CONFIGS[0];
-  const liveOlThreshold = bootstrapOlThreshold(allActs, maxHR, restHR, liveCfg.gateToRaceOnly, now);
-  const liveOlFilter = makeOlFilter(liveOlThreshold, liveCfg.gateToRaceOnly);
-  const liveDataset = [...buildActs(allActs, liveOlFilter), ...buildLaps(allActs, liveOlFilter)];
-  const liveResult = estimateZones(liveDataset, maxHR, restHR, { asOf: now });
-  if (!liveResult) throw new Error("Live anchor computation returned null — cannot proceed");
-  console.log(`Live anchor: LT1=${liveResult.lt1HR}bpm@${fmt(liveResult.lt1PaceSecPerKm)}/km  LT2=${liveResult.lt2HR}bpm@${fmt(liveResult.lt2PaceSecPerKm)}/km  R²=${liveResult.rSquared}\n`);
-  const anchor = {
-    lt1HR: liveResult.lt1HR, lt2HR: liveResult.lt2HR,
-    lt1PaceSecPerKm: liveResult.lt1PaceSecPerKm, lt2PaceSecPerKm: liveResult.lt2PaceSecPerKm,
-    asOf: now,
-  };
-
   console.log(`${"Month".padEnd(8)}  ${"Config".padEnd(36)}  LT2          LT1          R²     n     OL_thr`);
   console.log("-".repeat(100));
 
@@ -384,8 +352,7 @@ async function main() {
 
       const verbose = process.env.DEBUG_MONTH === month;
       if (verbose) console.log(`\n[DEBUG ${month} / ${cfg.label}] laps=${windowLaps.length} acts=${windowActs.length}`);
-      const isCurrentMonth = windowEnd === windowEnds.at(-1);
-      const result = estimateZones(dataset, maxHR, restHR, { asOf: windowEnd, verbose, anchor: isCurrentMonth ? undefined : anchor });
+      const result = estimateZones(dataset, maxHR, restHR, { asOf: windowEnd, verbose });
       if (result) {
         any = true;
         console.log(
@@ -437,30 +404,42 @@ function smoothTrend(points: Array<{ month: string; lt2Sec: number; lt1Sec: numb
   if (points.length < 2) return points;
   const result = points.map(p => ({ ...p }));
 
+  // No longer requires an exact 1-month gap on both sides — with the breakpoint fix,
+  // some months legitimately return null (data too ambiguous to trust), so a point's
+  // nearest surviving neighbors are often calendar-gapped. Instead: when the two
+  // nearest available neighbors closely AGREE with each other (regardless of how far
+  // apart in time they are), and the current point disagrees with both, the current
+  // point is the more likely outlier — a median-filter-style check, not a fixed-gap one.
+  //
+  // lt2 is the primary statistically-detected breakpoint; lt1 is derived from it
+  // (VT1/VT2 ratio). Only lt2 is checked — when it's flagged, lt1 is rescaled by its
+  // original ratio to lt2 rather than checked independently, which previously let one
+  // get "corrected" while the other didn't (decoupling them from their physiological
+  // ratio: a real case smoothed lt2 from 232s to 263s while lt1 stayed at 275s, a ratio
+  // nowhere near the ~1.185 the algorithm itself assumes).
   const OUTLIER_THRESHOLD = 15;
   for (let i = 1; i < result.length - 1; i++) {
-    if (monthDiff(result[i - 1].month, result[i].month) !== 1) continue;
-    if (monthDiff(result[i].month, result[i + 1].month) !== 1) continue;
-    for (const key of ["lt2Sec", "lt1Sec"] as const) {
-      const prev = result[i - 1][key];
-      const curr = result[i][key];
-      const next = result[i + 1][key];
-      const isFasterThanBoth = curr <= prev - OUTLIER_THRESHOLD && curr <= next - OUTLIER_THRESHOLD;
-      const isSlowerThanBoth = curr >= prev + OUTLIER_THRESHOLD && curr >= next + OUTLIER_THRESHOLD;
-      if (isFasterThanBoth || isSlowerThanBoth) {
-        (result[i] as unknown as Record<string, number>)[key] = (prev + next) / 2;
-      }
+    const prev = result[i - 1].lt2Sec, curr = result[i].lt2Sec, next = result[i + 1].lt2Sec;
+    if (Math.abs(prev - next) > OUTLIER_THRESHOLD) continue; // neighbors don't agree — no basis to call curr the outlier
+    const isFasterThanBoth = curr <= Math.min(prev, next) - OUTLIER_THRESHOLD;
+    const isSlowerThanBoth = curr >= Math.max(prev, next) + OUTLIER_THRESHOLD;
+    if (isFasterThanBoth || isSlowerThanBoth) {
+      const smoothedLt2 = (prev + next) / 2;
+      const ratio = result[i].lt1Sec / result[i].lt2Sec;
+      result[i] = { ...result[i], lt2Sec: smoothedLt2, lt1Sec: smoothedLt2 * ratio };
     }
   }
 
   // Symmetric rate cap (Bug 9 fix) — caps both improvement AND degradation at
-  // 20s/km per month, not just improvement.
+  // 20s/km per elapsed month, not just improvement. Scaled by the actual gap since
+  // consecutive array entries are no longer guaranteed to be 1 calendar month apart.
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
   const MAX_CHANGE_PER_MONTH = 20;
   for (let i = 1; i < result.length; i++) {
-    if (monthDiff(result[i - 1].month, result[i].month) !== 1) continue;
+    const gap = monthDiff(result[i - 1].month, result[i].month);
+    const maxChange = MAX_CHANGE_PER_MONTH * gap;
     const prevLt2 = result[i - 1].lt2Sec;
-    const cappedLt2 = clamp(result[i].lt2Sec, prevLt2 - MAX_CHANGE_PER_MONTH, prevLt2 + MAX_CHANGE_PER_MONTH);
+    const cappedLt2 = clamp(result[i].lt2Sec, prevLt2 - maxChange, prevLt2 + maxChange);
     if (cappedLt2 !== result[i].lt2Sec) {
       const ratio = result[i].lt1Sec / result[i].lt2Sec;
       result[i] = { ...result[i], lt2Sec: cappedLt2, lt1Sec: cappedLt2 * ratio };

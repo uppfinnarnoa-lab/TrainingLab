@@ -425,9 +425,30 @@ export function estimateZonesFromStatisticalAnalysis(
   // of the curve's own geometry — no HR value or maxHR% is referenced.
   const slopes = paceArr.slice(0, -1).map((p, i) => (hrArr[i] - hrArr[i + 1]) / (paceArr[i + 1] - p));
   const slopeMax = Math.max(...slopes);
+
+  // Require a genuinely dominant kink to exist at all — rejects a smooth/ambiguous
+  // curve (no period with a clearly steeper transition than the rest) regardless of
+  // which bucket "wins" the relative test below. Validated against 5+ years of real
+  // data (scripts/rolling-lt-test.ts): the live computation and well-supported sparse
+  // historical windows both have slopeMax well above this; genuinely ambiguous windows
+  // (smooth decline, no real kink) sit clearly below it.
+  if (slopeMax < 0.25) return null;
+
+  // Scan from the FASTEST bucket — but require a much stronger signal there
+  // specifically (60% of max, not 20%). Bucket 0 is disproportionately prone to a
+  // pool-adjacent-violators merge of a non-monotonic fast-pace inversion (a handful of
+  // scattered hard efforts), which can produce a moderate slope that's noise, not LT2 —
+  // confirmed empirically: in several real months this selected a LT2 pace faster than
+  // the live (most data-rich) result, which isn't physiologically plausible. A genuine
+  // fastest-bucket kink (e.g. in sparse historical data where it's the only one with
+  // enough weight to register) is far stronger and clears this higher bar regardless.
   let bp1 = 1; // fallback: second bucket
-  for (let i = 1; i < slopes.length - 2; i++) {
-    if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
+  if (slopes[0] > 0.60 * slopeMax) {
+    bp1 = 0;
+  } else {
+    for (let i = 1; i < slopes.length - 2; i++) {
+      if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
+    }
   }
 
   // Fix bp1, find bp2 by minimising remaining two-segment error.

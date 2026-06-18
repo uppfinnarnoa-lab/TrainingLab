@@ -1,6 +1,6 @@
 # LT/AT Rolling Trend — Breakpoint Detection Fix Plan
 
-**Status:** Draft — validated in standalone script against real data, NOT yet implemented in production. One open question below needs the user's input before proceeding.
+**Status:** Implemented 2026-06-18 (see IMPLEMENTATION_PLAN.md Bug 17 for the final shipped version — it differs from this plan). Archived here for the investigation history: the anchor/pace-drift-bound approach described below was superseded by a simpler fix (60%-of-max threshold + absolute slopeMax floor on the breakpoint scan itself, no cross-time anchoring needed) after further testing showed the anchoring approach incorrectly rejected well-supported real months. The "open question" below was resolved empirically, not by user judgment call — see Bug 17.
 
 ## Background
 

@@ -86,37 +86,49 @@ function smoothLTTrend(points: LTPacePointSmooth[]): LTPacePointSmooth[] {
     return Math.abs((by - ay) * 12 + (bm - am));
   };
 
-  // Pass 1: remove isolated single-month spikes (±15s from both neighbors)
+  // Pass 1: remove isolated single-month spikes. No longer requires an exact 1-month
+  // gap on both sides — some months legitimately return null now (breakpoint detection
+  // found the data too ambiguous to trust), so a point's nearest surviving neighbors
+  // are often calendar-gapped. Instead: when the two nearest available neighbors closely
+  // AGREE with each other (within 15s, regardless of how far apart in time), and the
+  // current point disagrees with both by more than 15s, the current point is the more
+  // likely outlier — a median-filter-style check, not a fixed-gap one.
+  // lt2 is the primary statistically-detected breakpoint; lt1 is derived from it
+  // (VT1/VT2 pace ratio). Checking each independently let one get "corrected" while
+  // the other didn't, decoupling them from their physiological ratio (e.g. a real case:
+  // lt2 flagged and smoothed from 232s to 263s while lt1 stayed at 275s — a 275/263
+  // ratio nowhere near the ~1.185 the algorithm itself assumes). When lt2 is flagged,
+  // rescale lt1 by its original ratio to lt2 instead of checking it independently.
   const pass1: LTPacePointSmooth[] = sorted.map((p, i) => {
     if (i === 0 || i === sorted.length - 1) return p;
     const prev = sorted[i - 1], next = sorted[i + 1];
-    if (monthDiff(prev.month, p.month) !== 1 || monthDiff(p.month, next.month) !== 1) return p;
-    const lt2Spike = (p.lt2PaceSecPerKm - prev.lt2PaceSecPerKm > 15 && p.lt2PaceSecPerKm - next.lt2PaceSecPerKm > 15) ||
-                     (prev.lt2PaceSecPerKm - p.lt2PaceSecPerKm > 15 && next.lt2PaceSecPerKm - p.lt2PaceSecPerKm > 15);
-    const lt1Spike = (p.lt1PaceSecPerKm - prev.lt1PaceSecPerKm > 15 && p.lt1PaceSecPerKm - next.lt1PaceSecPerKm > 15) ||
-                     (prev.lt1PaceSecPerKm - p.lt1PaceSecPerKm > 15 && next.lt1PaceSecPerKm - p.lt1PaceSecPerKm > 15);
-    return {
-      ...p,
-      lt2PaceSecPerKm: lt2Spike ? Math.round((prev.lt2PaceSecPerKm + next.lt2PaceSecPerKm) / 2) : p.lt2PaceSecPerKm,
-      lt1PaceSecPerKm: lt1Spike ? Math.round((prev.lt1PaceSecPerKm + next.lt1PaceSecPerKm) / 2) : p.lt1PaceSecPerKm,
-    };
+    const lt2NeighborsAgree = Math.abs(prev.lt2PaceSecPerKm - next.lt2PaceSecPerKm) <= 15;
+    const lt2Spike = lt2NeighborsAgree &&
+      (p.lt2PaceSecPerKm <= Math.min(prev.lt2PaceSecPerKm, next.lt2PaceSecPerKm) - 15 ||
+       p.lt2PaceSecPerKm >= Math.max(prev.lt2PaceSecPerKm, next.lt2PaceSecPerKm) + 15);
+    if (!lt2Spike) return p;
+    const smoothedLt2 = Math.round((prev.lt2PaceSecPerKm + next.lt2PaceSecPerKm) / 2);
+    const ratio = p.lt1PaceSecPerKm / p.lt2PaceSecPerKm;
+    return { ...p, lt2PaceSecPerKm: smoothedLt2, lt1PaceSecPerKm: Math.round(smoothedLt2 * ratio) };
   });
 
-  // Pass 2: cap month-over-month change at 20s in EITHER direction (physiological rate
-  // limit). Originally only capped improvement — degradation had no limit at all, so a
-  // single bad current-month estimate (the trailing point, which pass 1 can never smooth
-  // since it has no "next" neighbor to compare against) could show an implausible jump
-  // slower with nothing to catch it.
-  const clamp = (curr: number, prev: number) =>
-    curr < prev - 20 ? prev - 20 : curr > prev + 20 ? prev + 20 : curr;
+  // Pass 2: cap month-over-month change at 20s per elapsed month in EITHER direction
+  // (physiological rate limit), scaled by the actual gap since consecutive entries are
+  // no longer guaranteed to be 1 calendar month apart. Originally only capped
+  // improvement — degradation had no limit at all, so a single bad current-month
+  // estimate (the trailing point, which pass 1 can never smooth since it has no "next"
+  // neighbor to compare against) could show an implausible jump slower with nothing to
+  // catch it.
+  const clamp = (curr: number, prev: number, maxChange: number) =>
+    curr < prev - maxChange ? prev - maxChange : curr > prev + maxChange ? prev + maxChange : curr;
   const pass2: LTPacePointSmooth[] = [pass1[0]];
   for (let i = 1; i < pass1.length; i++) {
     const prev = pass2[i - 1], curr = pass1[i];
-    if (monthDiff(prev.month, curr.month) !== 1) { pass2.push(curr); continue; }
+    const maxChange = 20 * monthDiff(prev.month, curr.month);
     pass2.push({
       ...curr,
-      lt2PaceSecPerKm: clamp(curr.lt2PaceSecPerKm, prev.lt2PaceSecPerKm),
-      lt1PaceSecPerKm: clamp(curr.lt1PaceSecPerKm, prev.lt1PaceSecPerKm),
+      lt2PaceSecPerKm: clamp(curr.lt2PaceSecPerKm, prev.lt2PaceSecPerKm, maxChange),
+      lt1PaceSecPerKm: clamp(curr.lt1PaceSecPerKm, prev.lt1PaceSecPerKm, maxChange),
     });
   }
   return pass2;

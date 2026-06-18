@@ -105,15 +105,35 @@ const slopes = paceArr.slice(0, -1).map((p, i) =>
   (hrArr[i] - hrArr[i+1]) / (paceArr[i+1] - p)
 );
 const slopeMax = Math.max(...slopes);
-let bp1 = 1;
-for (let i = 0; i < slopes.length - 2; i++) {
-  if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
+if (slopeMax < 0.25) return null;   // no dominant kink at all — too smooth/ambiguous to trust
+
+let bp1 = 1; // fallback: second bucket
+if (slopes[0] > 0.60 * slopeMax) {
+  bp1 = 0;
+} else {
+  for (let i = 1; i < slopes.length - 2; i++) {
+    if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
+  }
 }
 ```
 
 Scans from the fastest bucket. The first transition where the HR-pace slope exceeds
 20% of the curve's own maximum slope = LT2. The 0.20 threshold is dimensionless —
 it scales with the curve's own geometry, not with any HR value or maxHR%.
+
+**The fastest bucket needs a much stronger signal (60% of max, not 20%) to be selected
+as LT2 itself.** Originally this bucket was *always* skipped, to guard against a sparse,
+noisy fast-pace bucket dominating the result. That blanket rule was too blunt: in some
+real sparse historical windows the fastest bucket is the genuine, best-supported kink
+(highest weight of any bucket that month), while in others a moderate fastest-bucket
+slope (33–55% of max) turned out to be a pool-adjacent-violators merge artifact that gave
+a physiologically impossible result (faster than the live, most data-rich computation).
+The 60%/0.25 thresholds were calibrated against exactly these cases — see
+IMPLEMENTATION_PLAN.md Bug 17 for the full empirical investigation, including several
+plausible-looking fixes (cross-time anchoring, wider recency halfLife, a bucket-weight
+confidence floor, a much more aggressive orienteering name-filter) that were tested
+against 5+ years of real data and rejected because each one regressed something already
+validated as correct.
 
 ### Step 8: bp2 via regression (LT1 fallback anchor)
 
@@ -238,7 +258,36 @@ Clearing `FitnessCache` forces a full rebuild with whatever algorithm is current
 
 ---
 
-## 6. Standalone Test Scripts
+## 6. Confidence and Known Limitations
+
+The live computation (Statistical threshold estimation card) is the **highest-confidence**
+output — it pools the entire training history (thousands of points across 5+ years), which
+dilutes any single noisy data point to near-irrelevance. The R² shown there has consistently
+matched or exceeded the documented baseline (0.99) throughout this algorithm's development.
+
+The rolling trend (LT/AT pace development chart) is **structurally identical** but run on
+much smaller per-window samples (a few hundred to a few thousand points for a single
+historical month vs. the full pooled history). Smaller samples are more sensitive to:
+
+- **Sparse fast-pace data** — a historical window with few hard efforts has fewer buckets to
+  detect a breakpoint from, which is why some months return no point at all (judged too
+  ambiguous to trust) rather than a forced guess.
+- **Race composition noise** — for this athlete specifically, most race-effort data is
+  orienteering, not road racing. OL pace/HR relationships carry more inherent noise (terrain,
+  navigation stops) than road effort. Tested removing OL races from the dataset entirely:
+  it regressed the live result (3:53/km → 4:00/km), so this isn't filtered out — the
+  athlete's hardest verifiable efforts mostly happen during races, OL or not, and removing
+  them removes real signal along with the noise. This is accepted as a known source of
+  residual per-window noise rather than something with a clean fix.
+
+**Practical implication:** trust the current month and the overall multi-year direction more
+than any single older month's exact value. The UI surfaces this directly via tooltips on both
+the live card (`tooltips.statZones`) and the trend chart (`tooltips.ltPaceTrend`) in
+`lib/fitness/tooltips.ts`.
+
+---
+
+## 7. Standalone Test Scripts
 
 - `scripts/year-estimate-test.ts` — validates the single-point estimator against real data without touching production. Run with: `pnpm tsx scripts/year-estimate-test.ts`. See `docs/guides/year-estimate-test.md`.
 - `scripts/rolling-lt-test.ts` — validates the rolling monthly trend (mirrors `estimateZonesFromActivities()`) month-by-month against real data. Run with: `npx tsx scripts/rolling-lt-test.ts`, or `DEBUG_MONTH=2025-06 npx tsx scripts/rolling-lt-test.ts` for bucket/breakpoint detail on one month.
@@ -247,4 +296,4 @@ Both are frozen, standalone reimplementations — never imported from `zones.ts`
 
 ---
 
-*Last updated: 2026-06-18 (unified updateHRZones() and updateVO2maxAndPaces() onto one shared estimateZonesFromActivities() pipeline; reconfirmed the OL pace-threshold exclusion must stay isRace-gated after real-data validation showed the alternative discards legitimate easy training)*
+*Last updated: 2026-06-18 (unified updateHRZones() and updateVO2maxAndPaces() onto one shared estimateZonesFromActivities() pipeline; reconfirmed the OL pace-threshold exclusion must stay isRace-gated after real-data validation showed the alternative discards legitimate easy training; fixed the breakpoint scan's blanket fastest-bucket skip — now selectable with a 60%-of-max threshold plus an absolute slopeMax≥0.25 floor; gap-aware median-filter smoothing with lt1/lt2 ratio consistency; confidence/limitations section added; confidence tooltips added to the live card and trend chart)*

@@ -81,6 +81,18 @@ export const tooltips: Record<string, Tooltip> = {
     why: "Consistency is the most important long-term performance driver. No single session matters as much as showing up reliably.",
     range: "85%+: elite-level adherence. 70–84%: solid. Below 60%: investigate why sessions are being missed.",
   },
+  statZones: {
+    title: "Statistical Threshold Estimation",
+    what: "LT1/LT2 detected from the breakpoints in your pace-vs-HR curve, using all training data (laps + activities) you have.",
+    why: "This is the highest-confidence estimate available — it uses your full history, not a single rolling window — which is why R² here is usually higher than any single month in the LT/AT pace development chart below.",
+    range: "R² ≥ 0.90: high confidence. 0.80–0.89: medium. Below 0.80: falls back to race-derived or fixed-percentage zones instead.",
+  },
+  ltPaceTrend: {
+    title: "LT/AT Pace Development",
+    what: "Each point recomputes LT1/LT2 as if that month were live today, from training data up to that point only — not with hindsight.",
+    why: "Confidence is highest for the current month (most data) and for months with a clear, well-supported breakpoint. Months with too little or too ambiguous data show no point at all, rather than a forced guess. For this athlete specifically, race efforts include orienteering — terrain and navigation make pace less consistent than road racing, so sparser historical months are more sensitive to a handful of races than the current, large-sample estimate is.",
+    range: "Trust the current point and the overall direction more than any single older month's exact value.",
+  },
   easyPaceTrend: {
     title: "Aerobic Pace Trend",
     what: "Monthly median Grade-Adjusted Pace (GAP) on easy runs — runs below LT1 HR, ≥ 6 km, and not races. GAP corrects for hills so a hilly route doesn't look slower than a flat one.",
