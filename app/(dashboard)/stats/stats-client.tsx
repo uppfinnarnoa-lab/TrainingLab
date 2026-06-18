@@ -1030,7 +1030,7 @@ function PolarisationCard({ pol, zoneSeconds }: {
   if (!pol) return (
     <div className="rounded-xl border border-border overflow-hidden">
       <div className="px-4 py-3 border-b border-border bg-surface-2">
-        <p className="text-sm font-semibold text-primary">HR zone distribution (last 12 weeks)</p>
+        <p className="text-sm font-semibold text-primary">Training intensity distribution (Seiler 80/20)</p>
       </div>
       <div className="p-4">
         <p className="text-xs text-muted py-4 text-center">No polarisation data available yet.</p>
@@ -1050,7 +1050,7 @@ function PolarisationCard({ pol, zoneSeconds }: {
   return (
     <div className="rounded-xl border border-border overflow-hidden">
       <div className="px-4 py-3 border-b border-border bg-surface-2 flex items-center justify-between">
-        <p className="text-sm font-semibold text-primary">HR zone distribution (last 12 weeks)</p>
+        <p className="text-sm font-semibold text-primary">Training intensity distribution (Seiler 80/20)</p>
         <span className="text-xs font-semibold font-mono" style={{ color: scoreColor }}>Seiler score {score}/100</span>
       </div>
       <div className="p-4 space-y-4">
