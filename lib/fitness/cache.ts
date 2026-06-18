@@ -731,6 +731,14 @@ export async function updateHRZones(userId: string) {
     ? { z1Pct: Math.round(polZ1/polTotal2*100), z2Pct: Math.round(polZ2/polTotal2*100), z3Pct: Math.round(polZ3/polTotal2*100) }
     : null;
 
+  // statZonesJson/statZonesLapsJson must be written on BOTH create and update — omitting
+  // them from create left the "Statistical threshold estimation" card with no value at
+  // all after the very first calibration on a fresh/cleared cache row.
+  const statZonesFields = {
+    statZonesJson: (statResult ?? null) as object | null,
+    statZonesLapsJson: (statLapOnlyResult ?? null) as object | null,
+  };
+
   await prisma.fitnessCache.upsert({
     where: { userId },
     create: {
@@ -739,14 +747,14 @@ export async function updateHRZones(userId: string) {
       confidence: vo2maxResult.confidence, method: vo2maxResult.method,
       paces: pacesJson(paceZones), zoneSecondsJson, polarisationJson: polarisationJson ?? undefined,
       predictionsJson, vo2maxBreakdownJson: vo2maxResult.breakdown ?? {},
+      ...statZonesFields,
     },
     update: { maxHR, restHR, thresholdHR, zones: zonesJson,
       vo2max: vo2maxResult.value, vdot: vo2maxResult.vdot,
       confidence: vo2maxResult.confidence, method: vo2maxResult.method,
       paces: pacesJson(paceZones), zoneSecondsJson, polarisationJson: polarisationJson ?? undefined,
       predictionsJson, vo2maxBreakdownJson: vo2maxResult.breakdown ?? {},
-      statZonesJson: (statResult ?? null) as object | null,
-      statZonesLapsJson: (statLapOnlyResult ?? null) as object | null,
+      ...statZonesFields,
     },
   });
 

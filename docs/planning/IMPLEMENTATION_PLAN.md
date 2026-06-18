@@ -3137,6 +3137,25 @@ Root cause (not a regression — confirmed via `git log -p` across the full hist
 
 **Verification:** `pnpm build --no-lint` passes.
 
+**Bug 11 — after Bugs 8-10 deployed, user proved with the "Apply zones" result banner that the discrepancy was real and *not* a caching artifact: calibration computed LT1 151bpm/LT2 162bpm (correct, matches the documented baseline) but the "Statistical threshold estimation" card still showed LT1 143bpm/LT2 159bpm right after.**
+
+Root cause: `updateHRZones()` computes **two different things** from two different input sets, by original design:
+- `statResult` = `estimateZonesFromStatisticalAnalysis(statRuns + statLapRunsZones, ...)` — whole activities *and* laps combined. This is what actually determines the applied zones (`fitnessCache.zones`) when the statistical method wins, and what the "Apply zones" banner's LT1/LT2 reflects.
+- `statLapOnlyResult` = the same function over **laps-only** data. Stored as `statZonesLapsJson` and — per Bug 8's fix — that's exactly what the "Statistical threshold estimation" card read.
+
+These can legitimately disagree: any race or hard effort recorded as a single lap-less Strava block contributes to `statResult` but is invisible to `statLapOnlyResult`. The user's working theory ("some data that shouldn't be used is being used") may well be correct for *why* the laps-only subset specifically degraded — most likely new/changed lap data — but rather than chase that data forensically without DB access, the more direct fix is to stop displaying the laps-only number where it can mislead: the card should show the number that's actually in effect.
+
+**Fix:** `stats/page.tsx`'s `statZonesLapsCached` now reads `fitnessCache?.statZonesJson` (combined) instead of `statZonesLapsJson` (laps-only) — the card now always matches what "Apply zones" just applied. `statZonesLapsJson` is left in place, still computed and stored, in case the laps-only diagnostic is useful again later.
+
+Also fixed, found while reading the surrounding code: `updateHRZones()`'s `fitnessCache.upsert()` only included `statZonesJson`/`statZonesLapsJson` in its `update:` branch, not `create:` — so the very first calibration ever (or the first one after a cleared cache row, as happened here) wrote nothing to either field, leaving the card with no data until a second calibration. Both branches now share a `statZonesFields` object.
+
+**Verification:** `pnpm build --no-lint` passes.
+
+**Also investigated this round (Garmin/Recovery-tab confusion, no code change needed):**
+- Confirmed `lib/garmin/sync.ts` (`syncGarminDaily`) only ever writes to `GarminDailySummary` — never touches `Activity` rows. There is no overlap with Strava activity data to deduplicate; the only field Garmin can supply that Strava conceptually could too is `restingHR`, and the resting-HR resolution already prioritizes the user's manual profile value everywhere (verified in Bug 8).
+- The new "Recovery" tab's "Connect Garmin in Settings..." message (from the unrelated parallel `feat: Garmin recovery stats` work) is driven by `garminWellness.length === 0`, i.e. zero `GarminDailySummary` rows in the last 112 days — this means *no Garmin daily sync has run yet*, not that the account connection itself is broken. `syncGarminDaily` is currently only triggered by a manual `POST /api/garmin/sync` call (confirmed no cron wiring) — connecting the account alone doesn't populate any wellness rows.
+- The empty "LT/AT pace development" chart (`No data — requires sufficient laps per monthly period`) is the direct, expected consequence of the user's own `DELETE FROM "FitnessCache"` deploy step: that history (`extraVizJson.ltPaceTrend`) is only ever rebuilt by `updateVO2maxAndPaces()`, which runs on an actual Strava sync — not on viewing the page, and not on "Apply zones" (`updateHRZones()`, a different function). It will repopulate (most of it in one pass, since the rebuild loop covers ~30 months per run) the next time a sync runs; triggering one manually (Dashboard → Sync) rather than waiting for the nightly cron will restore it immediately.
+
 ---
 
-*Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification)*
+*Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification, statistical-threshold card now mirrors applied zones + create-branch field fix)*

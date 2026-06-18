@@ -146,7 +146,14 @@ export default async function StatsPage() {
   // live here. A rolling 90-day recency window drifts on its own as time passes even
   // with zero new activities, so a live recompute on every stale-cache page load would
   // make this card silently diverge from the applied zones below it between calibrations.
-  const statZonesLapsCached = (fitnessCache?.statZonesLapsJson ?? null) as import("@/lib/fitness/zones").StatisticalZoneResult | null;
+  //
+  // Reads statZonesJson (computed from activities + laps combined), NOT statZonesLapsJson
+  // (laps-only). Those are two different inputs to the same algorithm and can legitimately
+  // disagree — laps-only excludes any race/hard-effort activity that wasn't recorded with
+  // lap splits, which can make it measurably less reliable. statZonesJson is exactly the
+  // dataset that determines the applied zones below when the statistical method wins, so
+  // reading it here is what makes "Apply zones" visibly match this card.
+  const statZonesLapsCached = (fitnessCache?.statZonesJson ?? null) as import("@/lib/fitness/zones").StatisticalZoneResult | null;
 
   const weatherStats = computeWeatherStats(weatherActs as WeatherAct[], maxHR);
 
