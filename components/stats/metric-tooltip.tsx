@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 export function MetricTooltip({ tip, className }: { tip: Tooltip; className?: string }) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // Only set when opened by click/tap, not hover — see backdrop comment below.
+  const [pinned, setPinned] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const show = useCallback(() => {
@@ -33,8 +35,10 @@ export function MetricTooltip({ tip, className }: { tip: Tooltip; className?: st
     setVisible(true);
   }, []);
 
-  const hide  = useCallback(() => setVisible(false), []);
-  const toggle = useCallback(() => { if (visible) { hide(); } else { show(); } }, [visible, show, hide]);
+  const hide = useCallback(() => { setVisible(false); setPinned(false); }, []);
+  const toggle = useCallback(() => {
+    if (visible) { hide(); } else { show(); setPinned(true); }
+  }, [visible, show, hide]);
 
   return (
     <>
@@ -53,8 +57,13 @@ export function MetricTooltip({ tip, className }: { tip: Tooltip; className?: st
 
       {visible && pos && (
         <>
-          {/* Click-away backdrop — closes tooltip on mobile tap */}
-          <div className="fixed inset-0 z-[9998]" onClick={hide} />
+          {/* Click-away backdrop — closes tooltip on mobile tap. Only rendered when opened
+              by click/tap (pinned), never for a plain hover: this is a full-viewport
+              fixed div, which sits on top of the trigger button itself wherever it is on
+              screen. With a stationary mouse, showing it on hover stole the hover target
+              from the button (mouseleave -> hide -> button exposed again -> mouseenter ->
+              show -> backdrop again -> ...), flickering the tooltip open/closed forever. */}
+          {pinned && <div className="fixed inset-0 z-[9998]" onClick={hide} />}
           <div
             className="fixed z-[9999] rounded-xl bg-surface border border-border shadow-xl p-4 space-y-2 text-left"
             style={{ top: pos.top, left: pos.left, width: Math.min(288, window.innerWidth - 32) }}

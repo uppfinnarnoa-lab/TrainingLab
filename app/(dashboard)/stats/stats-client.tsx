@@ -712,12 +712,18 @@ function SectionCard({ title, children, action, tips, href }: {
       href && "hover:border-accent/40")}>
       {/* Full-card link overlay — sits at z-0 so buttons/charts above it stay interactive */}
       {href && <Link href={href} className="absolute inset-0 rounded-xl z-0" aria-hidden tabIndex={-1} />}
+      {/* Title + tip icons are grouped together, separate from `action` — purely a
+          visual/layout fix: `action` (e.g. ZoneCalibrationButton, a multi-row
+          pill-selector + button group) was entangled with the tip icons in one
+          flex-wrap row, landing them in an inconsistent spot at narrower widths.
+          (The actual hover-flicker bug was a separate, unrelated issue — see
+          metric-tooltip.tsx — fixed independently of this layout change.) */}
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-primary">{title}</h2>
-        <div className="flex items-center gap-1 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <h2 className="text-sm font-semibold text-primary">{title}</h2>
           {tips?.map((tip, i) => <MetricTooltip key={i} tip={tip} />)}
-          {action}
         </div>
+        {action}
       </div>
       <div className="relative z-10">{children}</div>
     </div>

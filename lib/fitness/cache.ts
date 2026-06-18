@@ -396,6 +396,28 @@ export async function updateVO2maxAndPaces(userId: string) {
             }))
         );
 
+    // Whole-activity rows (no lap split required) — combined with buildTrendLaps below so
+    // each window matches exactly what updateHRZones() actually applies (statResult: acts +
+    // laps combined), not the narrower laps-only subset. A race/hard effort recorded as a
+    // single lap-less block is invisible to buildTrendLaps alone, which let this trend's
+    // current-month point diverge from the real, currently-applied calibration.
+    const buildTrendActs = (acts: TrendAct[], olFilter: (a: TrendAct) => boolean) =>
+      acts
+        .filter(a =>
+          a.averageHeartrate && olFilter(a) &&
+          a.distance >= 4000 && a.movingTime >= 900 &&
+          !WU_CD_RE.test(a.name)
+        )
+        .map(a => ({
+          avgHR: a.averageHeartrate!,
+          distanceM: a.distance,
+          movingTimeSec: a.movingTime,
+          totalElevationGain: a.totalElevationGain,
+          startDate: a.startDate,
+          isRace: a.isRace,
+          weatherTemp: a.weatherTemp ?? null,
+        }));
+
     // Per-window bootstrap: OL threshold is computed from all acts up to windowEnd
     // (same principle as LIVE calibration, just anchored to a historical point in time)
     for (let i = 0; i < 30; i++) {
@@ -406,16 +428,23 @@ export async function updateVO2maxAndPaces(userId: string) {
 
       const actsUpToWindow = (activities as TrendAct[]).filter(a => a.startDate <= windowEnd);
 
+      // Bootstrap stays laps-only, matching updateHRZones()'s own phase1 — it's only used to
+      // derive the OL pace threshold below, never displayed.
       const phase1Window = estimateZonesFromStatisticalAnalysis(
         buildTrendLaps(actsUpToWindow, nameOnlyOlFilter), maxHR, restHR, windowEnd
       );
       const windowOlThreshold = phase1Window ? Math.round(phase1Window.lt1PaceSecPerKm * 1.15) : 330;
+      // Pace-threshold check applies to ALL activities, not just races — a slow OL
+      // *training* session (isRace=false, no recognizable name keyword) is just as
+      // terrain/navigation-limited as a slow OL race, and was previously let through
+      // unfiltered since this only checked pace when isRace was true.
       const windowOlFilter = (a: TrendAct) =>
         nameOnlyOlFilter(a) &&
-        (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < windowOlThreshold));
+        (a.averageSpeed == null || 1000 / a.averageSpeed < windowOlThreshold);
 
       const windowLaps = buildTrendLaps(actsUpToWindow, windowOlFilter);
-      const result = estimateZonesFromStatisticalAnalysis(windowLaps, maxHR, restHR, windowEnd);
+      const windowActs = buildTrendActs(actsUpToWindow, windowOlFilter);
+      const result = estimateZonesFromStatisticalAnalysis([...windowActs, ...windowLaps], maxHR, restHR, windowEnd);
       if (result && !ltPaceTrend.find(p => p.month === month)) {
         ltPaceTrend.push({ month, lt1PaceSecPerKm: result.lt1PaceSecPerKm, lt2PaceSecPerKm: result.lt2PaceSecPerKm, r2: result.rSquared });
       }
@@ -610,9 +639,11 @@ export async function updateHRZones(userId: string) {
   const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR);
   const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
 
+  // Pace-threshold check applies to ALL activities, not just races — see windowOlFilter
+  // in updateVO2maxAndPaces() for the full reasoning (same gap, same fix, both places).
   const olRaceFilterLight = (a: ActLight) =>
     nameOnlyOlFilter(a) &&
-    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < olPaceThreshold));
+    (a.averageSpeed == null || 1000 / a.averageSpeed < olPaceThreshold);
 
   const wuCdExclude = (name: string) =>
     !/^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i.test(name);
