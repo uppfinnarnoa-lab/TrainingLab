@@ -203,10 +203,26 @@ Config D produces identical results on this dataset while applying correctly to 
 
 ## 5. Integration in TrainingLab
 
-- `lib/fitness/zones.ts` — `estimateZonesFromStatisticalAnalysis()`
-- `lib/fitness/cache.ts` — `updateHRZones()`: OL threshold bootstrap (Phase 1), then calls the estimator twice (all data + laps-only)
-- Laps-only result stored as `statZonesLapsJson` — shown in "Statistisk tröskelestimering" card
+As of 2026-06-18, both call sites share **one** pipeline — `estimateZonesFromActivities()` in
+`lib/fitness/zones.ts` — instead of each maintaining its own copy of the OL-bootstrap +
+dataset-construction logic. This was a deliberate architectural fix (see IMPLEMENTATION_PLAN.md
+Bug 16): two parallel hand-maintained implementations had drifted apart in different ways
+(Bugs 11/14/15), so the fix was to delete the duplication, not patch it again.
+
+- `lib/fitness/zones.ts` — `estimateZonesFromActivities(activities, maxHR, restHR, asOf?)`:
+  name-only OL filter → phase-1 laps-only bootstrap → OL pace threshold (`isRace`-gated only —
+  see §3) → combined whole-activity + laps dataset → `estimateZonesFromStatisticalAnalysis()`
+- `lib/fitness/cache.ts` — `updateHRZones()` (manual "Apply zones" button) calls it once, `asOf`
+  defaulted to now → writes `statZonesJson`. (`statZonesLapsJson` is vestigial, always `null`.)
+- `lib/fitness/cache.ts` — `updateVO2maxAndPaces()` (auto, every Strava sync) calls it once per
+  rolling monthly window, `asOf` anchored to each historical `windowEnd` → writes
+  `extraVizJson.ltPaceTrend` (the "LT/AT pace development" chart)
 - Applied if R² ≥ 0.80; falls back to race-PB method or fixed percentages if not
+
+Because both call sites invoke the exact same function, the trend chart's current-month point
+is now structurally guaranteed to match what "Apply zones" would produce on the same data —
+verified by running both functions directly against 5+ years of real data and confirming
+byte-identical `lt1PaceSecPerKm`/`lt2PaceSecPerKm` output.
 
 Priority order in `updateHRZones()`:
 ```
@@ -216,18 +232,19 @@ Priority order in `updateHRZones()`:
 4. Fixed percentages (fallback)
 ```
 
-**Important:** `updateVO2maxAndPaces()` (auto-sync path) does NOT run zone calibration.
-Zone results are only written by `updateHRZones()` (manual calibration button).
+**Historical trend months are locked in once computed** — `updateVO2maxAndPaces()` only computes
+a month that's missing from `extraVizJson.ltPaceTrend` (or the current month, always recomputed).
+Clearing `FitnessCache` forces a full rebuild with whatever algorithm is current at sync time.
 
 ---
 
-## 6. Standalone Test Script
+## 6. Standalone Test Scripts
 
-`scripts/year-estimate-test.ts` — validates the algorithm against real data without touching production.
-Run with: `pnpm tsx scripts/year-estimate-test.ts`
+- `scripts/year-estimate-test.ts` — validates the single-point estimator against real data without touching production. Run with: `pnpm tsx scripts/year-estimate-test.ts`. See `docs/guides/year-estimate-test.md`.
+- `scripts/rolling-lt-test.ts` — validates the rolling monthly trend (mirrors `estimateZonesFromActivities()`) month-by-month against real data. Run with: `npx tsx scripts/rolling-lt-test.ts`, or `DEBUG_MONTH=2025-06 npx tsx scripts/rolling-lt-test.ts` for bucket/breakpoint detail on one month.
 
-See `docs/guides/year-estimate-test.md` for full documentation.
+Both are frozen, standalone reimplementations — never imported from `zones.ts` — so algorithm experiments can't accidentally affect production. When an experiment is confirmed good, port it into `zones.ts` by hand and re-validate both scripts against it.
 
 ---
 
-*Last updated: 2026-05-31 (Config D: data-driven pace bounds, OL bootstrap; Config K: weighted P80, slope-based LT2)*
+*Last updated: 2026-06-18 (unified updateHRZones() and updateVO2maxAndPaces() onto one shared estimateZonesFromActivities() pipeline; reconfirmed the OL pace-threshold exclusion must stay isRace-gated after real-data validation showed the alternative discards legitimate easy training)*

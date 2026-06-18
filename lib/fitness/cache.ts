@@ -14,7 +14,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromStatisticalAnalysis, ensureValidZones, computeZoneTime, type ZoneTimeActivity, MAXHR_ARTIFACT_CAP } from "./zones";
+import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromActivities, ensureValidZones, computeZoneTime, type ZoneTimeActivity, MAXHR_ARTIFACT_CAP } from "./zones";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, personalizedFatigueExponent, type RacePB } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
 import { estimateCriticalSpeed } from "./critical-speed";
@@ -370,56 +370,10 @@ export async function updateVO2maxAndPaces(userId: string) {
     ltPaceTrend.push(...historical);
 
     type TrendAct = Act & { laps?: unknown };
-    type LapRow = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
-    const WU_CD_RE = /^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i;
 
-    const nameOnlyOlFilter = (a: TrendAct) =>
-      /run|trail/i.test(a.sportType) &&
-      !/virtualrun/i.test(a.sportType) &&
-      !/indoor|inomhus/i.test(a.name) &&
-      !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name);
-
-    const buildTrendLaps = (acts: TrendAct[], olFilter: (a: TrendAct) => boolean) =>
-      acts
-        .filter(a => olFilter(a) && !WU_CD_RE.test(a.name) && Array.isArray(a.laps))
-        .flatMap(a =>
-          (a.laps as LapRow[])
-            .filter(l => l.average_heartrate && l.distance >= 800 && l.moving_time >= 180)
-            .map(l => ({
-              avgHR: l.average_heartrate!,
-              distanceM: l.distance,
-              movingTimeSec: l.moving_time,
-              totalElevationGain: l.total_elevation_gain ?? 0,
-              startDate: a.startDate,
-              isRace: a.isRace,
-              weatherTemp: a.weatherTemp ?? null,
-            }))
-        );
-
-    // Whole-activity rows (no lap split required) — combined with buildTrendLaps below so
-    // each window matches exactly what updateHRZones() actually applies (statResult: acts +
-    // laps combined), not the narrower laps-only subset. A race/hard effort recorded as a
-    // single lap-less block is invisible to buildTrendLaps alone, which let this trend's
-    // current-month point diverge from the real, currently-applied calibration.
-    const buildTrendActs = (acts: TrendAct[], olFilter: (a: TrendAct) => boolean) =>
-      acts
-        .filter(a =>
-          a.averageHeartrate && olFilter(a) &&
-          a.distance >= 4000 && a.movingTime >= 900 &&
-          !WU_CD_RE.test(a.name)
-        )
-        .map(a => ({
-          avgHR: a.averageHeartrate!,
-          distanceM: a.distance,
-          movingTimeSec: a.movingTime,
-          totalElevationGain: a.totalElevationGain,
-          startDate: a.startDate,
-          isRace: a.isRace,
-          weatherTemp: a.weatherTemp ?? null,
-        }));
-
-    // Per-window bootstrap: OL threshold is computed from all acts up to windowEnd
-    // (same principle as LIVE calibration, just anchored to a historical point in time)
+    // Per-window: same shared estimateZonesFromActivities() pipeline updateHRZones() uses for
+    // the live calibration, just anchored to a historical asOf date — guarantees the trend's
+    // current-month point can never diverge from what "Apply zones" would actually produce.
     for (let i = 0; i < 30; i++) {
       const windowEnd = subDays(now, i * 30);
       const month = format(windowEnd, "yyyy-MM");
@@ -427,24 +381,7 @@ export async function updateVO2maxAndPaces(userId: string) {
       if (month < currentMonth && historicalKeys.has(month)) continue;
 
       const actsUpToWindow = (activities as TrendAct[]).filter(a => a.startDate <= windowEnd);
-
-      // Bootstrap stays laps-only, matching updateHRZones()'s own phase1 — it's only used to
-      // derive the OL pace threshold below, never displayed.
-      const phase1Window = estimateZonesFromStatisticalAnalysis(
-        buildTrendLaps(actsUpToWindow, nameOnlyOlFilter), maxHR, restHR, windowEnd
-      );
-      const windowOlThreshold = phase1Window ? Math.round(phase1Window.lt1PaceSecPerKm * 1.15) : 330;
-      // Pace-threshold check applies to ALL activities, not just races — a slow OL
-      // *training* session (isRace=false, no recognizable name keyword) is just as
-      // terrain/navigation-limited as a slow OL race, and was previously let through
-      // unfiltered since this only checked pace when isRace was true.
-      const windowOlFilter = (a: TrendAct) =>
-        nameOnlyOlFilter(a) &&
-        (a.averageSpeed == null || 1000 / a.averageSpeed < windowOlThreshold);
-
-      const windowLaps = buildTrendLaps(actsUpToWindow, windowOlFilter);
-      const windowActs = buildTrendActs(actsUpToWindow, windowOlFilter);
-      const result = estimateZonesFromStatisticalAnalysis([...windowActs, ...windowLaps], maxHR, restHR, windowEnd);
+      const result = estimateZonesFromActivities(actsUpToWindow, maxHR, restHR, windowEnd);
       if (result && !ltPaceTrend.find(p => p.month === month)) {
         ltPaceTrend.push({ month, lt1PaceSecPerKm: result.lt1PaceSecPerKm, lt2PaceSecPerKm: result.lt2PaceSecPerKm, r2: result.rSquared });
       }
@@ -605,72 +542,13 @@ export async function updateHRZones(userId: string) {
     : buildHRZones(maxHR, restHR);
 
   // ── Method 2: Statistical zone analysis from bucketed training data ───
-  type LapRowLight = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
-
-  // Name-based OL/indoor/virtual exclusions are universal — always applied.
-  const nameOnlyOlFilter = (a: ActLight) =>
-    !/virtualrun/i.test(a.sportType) &&
-    !/indoor|inomhus/i.test(a.name ?? "") &&
-    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name ?? "");
-
-  // Bootstrap OL race pace threshold from a preliminary estimate:
-  // Phase 1 — run with name-only filter (no pace check) to get a preliminary LT1.
-  // Phase 2 — threshold = LT1 × 1.15 = upper boundary of easy training pace.
-  // A race slower than easy-training pace is terrain/navigation limited, not fitness limited.
-  // Falls back to 330 s/km (5:30/km) when phase-1 produces no estimate.
-  const buildStatLapRuns = (olFilter: (a: ActLight) => boolean) =>
-    (acts as (ActLight & { laps?: unknown })[])
-      .filter(a => /run|trail/i.test(a.sportType) && olFilter(a) && Array.isArray(a.laps))
-      .flatMap(a =>
-        (a.laps as LapRowLight[]).filter(l =>
-          l.average_heartrate && l.distance >= 800 && l.moving_time >= 180
-        ).map(l => ({
-          avgHR: l.average_heartrate!,
-          distanceM: l.distance,
-          movingTimeSec: l.moving_time,
-          totalElevationGain: l.total_elevation_gain ?? 0,
-          startDate: (a as ActLight).startDate,
-          isRace: (a as ActLight).isRace,
-          weatherTemp: (a as ActLight).weatherTemp ?? null,
-        }))
-      );
-
-  const phase1Laps = buildStatLapRuns(nameOnlyOlFilter);
-  const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR);
-  const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
-
-  // Pace-threshold check applies to ALL activities, not just races — see windowOlFilter
-  // in updateVO2maxAndPaces() for the full reasoning (same gap, same fix, both places).
-  const olRaceFilterLight = (a: ActLight) =>
-    nameOnlyOlFilter(a) &&
-    (a.averageSpeed == null || 1000 / a.averageSpeed < olPaceThreshold);
-
-  const wuCdExclude = (name: string) =>
-    !/^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i.test(name);
-
-  const statRuns = acts
-    .filter(a =>
-      a.averageHeartrate &&
-      /run|trail/i.test(a.sportType) &&
-      olRaceFilterLight(a) &&
-      a.distance >= 4000 && a.movingTime >= 900 &&
-      wuCdExclude(a.name ?? "")
-    )
-    .map(a => ({
-      avgHR: a.averageHeartrate!,
-      distanceM: a.distance,
-      movingTimeSec: a.movingTime,
-      totalElevationGain: a.totalElevationGain ?? 0,
-      startDate: a.startDate,
-      isRace: a.isRace,
-    }));
-
-  const statLapRunsZones = buildStatLapRuns(olRaceFilterLight);
-
-  const statResult = estimateZonesFromStatisticalAnalysis([...statRuns, ...statLapRunsZones], maxHR, restHR);
-  const statLapOnlyResult = estimateZonesFromStatisticalAnalysis(statLapRunsZones, maxHR, restHR);
-  console.log(`[zones] OL race threshold (bootstrap): ${olPaceThreshold}s/km  (phase1: LT1=${phase1Result?.lt1PaceSecPerKm ?? "n/a"}s/km)`);
-
+  // Same shared estimateZonesFromActivities() pipeline as updateVO2maxAndPaces()'s rolling
+  // trend — see that function's call site and zones.ts's doc comment for why (they must
+  // never diverge: this is what "Apply zones" actually applies).
+  const statResult = estimateZonesFromActivities(
+    (acts as (ActLight & { laps?: unknown })[]).filter(a => /run|trail/i.test(a.sportType)),
+    maxHR, restHR,
+  );
   let zonesMethod: "statistical" | "race-pbs" | "fallback" | "manual" = "fallback";
   let rSquared: number | undefined;
   // Default to formula-based zones (standard percentages) when statistical is unavailable
@@ -762,12 +640,14 @@ export async function updateHRZones(userId: string) {
     ? { z1Pct: Math.round(polZ1/polTotal2*100), z2Pct: Math.round(polZ2/polTotal2*100), z3Pct: Math.round(polZ3/polTotal2*100) }
     : null;
 
-  // statZonesJson/statZonesLapsJson must be written on BOTH create and update — omitting
-  // them from create left the "Statistical threshold estimation" card with no value at
-  // all after the very first calibration on a fresh/cleared cache row.
+  // statZonesJson must be written on BOTH create and update — omitting it from create left
+  // the "Statistical threshold estimation" card with no value at all after the very first
+  // calibration on a fresh/cleared cache row.
+  // statZonesLapsJson is vestigial (laps-only result, no longer read anywhere — the card
+  // reads statZonesJson) but kept null rather than dropping the column outright.
   const statZonesFields = {
     statZonesJson: (statResult ?? null) as object | null,
-    statZonesLapsJson: (statLapOnlyResult ?? null) as object | null,
+    statZonesLapsJson: null,
   };
 
   await prisma.fitnessCache.upsert({

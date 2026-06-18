@@ -526,6 +526,99 @@ function poolAdjacentViolators(buckets: BucketPoint[]): BucketPoint[] {
   return out;
 }
 
+export interface ActivityForZoneEstimation {
+  name: string;
+  sportType: string;
+  startDate: Date;
+  isRace: boolean | null;
+  averageSpeed: number | null;
+  averageHeartrate: number | null;
+  distance: number;
+  movingTime: number;
+  totalElevationGain: number;
+  weatherTemp?: number | null;
+  laps?: unknown;
+}
+
+type LapRowForZones = { average_heartrate?: number; distance: number; moving_time: number; total_elevation_gain?: number };
+const ZONE_WU_CD_RE = /^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i;
+
+function nameOnlyOlFilter(a: ActivityForZoneEstimation): boolean {
+  return /run|trail/i.test(a.sportType) &&
+    !/virtualrun/i.test(a.sportType) &&
+    !/indoor|inomhus/i.test(a.name) &&
+    !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(a.name);
+}
+
+function buildLapRunsForZones(acts: ActivityForZoneEstimation[], olFilter: (a: ActivityForZoneEstimation) => boolean) {
+  return acts
+    .filter(a => olFilter(a) && !ZONE_WU_CD_RE.test(a.name) && Array.isArray(a.laps))
+    .flatMap(a =>
+      (a.laps as LapRowForZones[])
+        .filter(l => l.average_heartrate && l.distance >= 800 && l.moving_time >= 180)
+        .map(l => ({
+          avgHR: l.average_heartrate!,
+          distanceM: l.distance,
+          movingTimeSec: l.moving_time,
+          totalElevationGain: l.total_elevation_gain ?? 0,
+          startDate: a.startDate,
+          isRace: a.isRace ?? false,
+          weatherTemp: a.weatherTemp ?? null,
+        }))
+    );
+}
+
+function buildWholeActRunsForZones(acts: ActivityForZoneEstimation[], olFilter: (a: ActivityForZoneEstimation) => boolean) {
+  return acts
+    .filter(a =>
+      a.averageHeartrate && olFilter(a) &&
+      a.distance >= 4000 && a.movingTime >= 900 &&
+      !ZONE_WU_CD_RE.test(a.name)
+    )
+    .map(a => ({
+      avgHR: a.averageHeartrate!,
+      distanceM: a.distance,
+      movingTimeSec: a.movingTime,
+      totalElevationGain: a.totalElevationGain,
+      startDate: a.startDate,
+      isRace: a.isRace ?? false,
+      weatherTemp: a.weatherTemp ?? null,
+    }));
+}
+
+/**
+ * Single shared pipeline for statistical zone estimation — used identically by
+ * updateHRZones() (live "Apply zones" calibration) and updateVO2maxAndPaces()'s
+ * rolling monthly trend (LT/AT pace development chart). Both call sites must use
+ * this exact function so they can never diverge: the trend's current-month point
+ * always matches what the live calibration would produce on the same data.
+ *
+ * Validated empirically against 5+ years of real training data (scripts/rolling-lt-test.ts):
+ * combining whole-activity + lap-level rows gives much better month-to-month coverage
+ * and equal-or-better R² than laps-only. The OL pace-threshold exclusion is intentionally
+ * gated to isRace=true only — broadening it to all activities was tried and reverted after
+ * testing showed it discards legitimate easy/recovery training (which is routinely slower
+ * than 1.15× LT1 pace and is not OL) far more often than it catches a genuine OL leak.
+ */
+export function estimateZonesFromActivities(
+  activities: ActivityForZoneEstimation[],
+  maxHR: number,
+  restHR: number,
+  asOf?: Date,
+): StatisticalZoneResult | null {
+  const phase1Laps = buildLapRunsForZones(activities, nameOnlyOlFilter);
+  const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR, asOf);
+  const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
+
+  const olFilter = (a: ActivityForZoneEstimation) =>
+    nameOnlyOlFilter(a) &&
+    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < olPaceThreshold));
+
+  const runs = buildWholeActRunsForZones(activities, olFilter);
+  const lapRuns = buildLapRunsForZones(activities, olFilter);
+  return estimateZonesFromStatisticalAnalysis([...runs, ...lapRuns], maxHR, restHR, asOf);
+}
+
 function segErr(paces: number[], hrs: number[], from: number, to: number, weights?: number[]): number {
   if (to - from < 2) return 0;
   const xs = paces.slice(from, to + 1), ys = hrs.slice(from, to + 1);

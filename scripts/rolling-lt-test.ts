@@ -1,11 +1,23 @@
 /**
- * Rolling monthly LT/AT estimator investigation script.
- * For each calendar month going back as far as data allows, runs estimateZones
- * on a rolling window ending that month. Tests multiple window sizes and configs
- * to find which combination gives the most stable, physiologically plausible trend.
+ * Rolling monthly LT/AT estimator validation script.
+ *
+ * For each calendar month going back as far as data allows, runs the same
+ * estimateZonesFromActivities() pipeline now shared by lib/fitness/zones.ts
+ * (used by both updateHRZones()'s live calibration and updateVO2maxAndPaces()'s
+ * rolling trend) against a window ending that month — standalone reimplementation,
+ * frozen from production so experiments here can't accidentally affect prod.
+ *
+ * Validated against 5+ years of real local data (see IMPLEMENTATION_PLAN.md Bug
+ * 14/15): combined activities+laps data gives much better month-coverage and
+ * equal-or-better R² than laps-only. The OL pace-threshold exclusion MUST stay
+ * gated to isRace=true only — broadening it to all activities was tried and
+ * reverted, since it discards legitimate easy/recovery training (routinely
+ * slower than 1.15× LT1 pace, and not OL) far more often than it catches a
+ * genuine OL leak. gateToRaceOnly/combined below are kept as toggles in case
+ * a future change needs re-validating the same way.
  *
  * Usage: npx tsx scripts/rolling-lt-test.ts
- * Output: one row per month per config — pipe to a file for analysis.
+ * Usage (verbose bucket/breakpoint detail for one month): DEBUG_MONTH=2025-06 npx tsx scripts/rolling-lt-test.ts
  */
 import { PrismaClient } from "@prisma/client";
 import { subDays, format, addDays } from "date-fns";
@@ -14,12 +26,14 @@ import { gradeAdjustedPace } from "../lib/fitness/vo2max";
 const prisma = new PrismaClient();
 
 // ── OL filter ────────────────────────────────────────────────────────────────
-function makeOlRaceFilter(olRacePaceThresholdSecPerKm: number) {
+function makeOlFilter(olPaceThresholdSecPerKm: number, gateToRaceOnly: boolean) {
   return (name: string, sportType: string, isRace: boolean, averageSpeed: number | null) =>
     !/virtualrun/i.test(sportType) &&
     !/indoor|inomhus/i.test(name) &&
     !/\bol\b|\borienteringsl|\bskogsl|\bolpass|orienteer|\bmoc\b|stafett/i.test(name) &&
-    (!isRace || (averageSpeed != null && 1000 / averageSpeed < olRacePaceThresholdSecPerKm));
+    (gateToRaceOnly
+      ? (!isRace || (averageSpeed != null && 1000 / averageSpeed < olPaceThresholdSecPerKm))
+      : (averageSpeed == null || 1000 / averageSpeed < olPaceThresholdSecPerKm));
 }
 
 const WU_CD_RE = /^\s*wu\b|^\s*cd\b|\bwarm.?up\b|\bcool.?down\b|\bnedvarvning\b|\buppvärmning\b/i;
@@ -37,18 +51,24 @@ function estimateZones(
   maxHR: number,
   restHR: number,
   opts: {
-    windowDays: number;
-    minCount: number;
     asOf?: Date;
-    halfLifeDays?: number;
     minEffWeight?: number;
-    dataDrivenBounds?: boolean;
     verbose?: boolean;
-  } = { windowDays: 90, minCount: 8 },
+    // Live (current, most data-rich) computation — historical windows only, never
+    // passed for the live computation itself (which IS the source of this anchor).
+    // HR at LT1/LT2 drifts slowly over years; PACE at LT1/LT2 improves with fitness
+    // but only so fast. Both are used to reject implausible breakpoints in sparse
+    // historical data instead of forcing a wrong answer onto noisy buckets.
+    anchor?: { lt1HR: number; lt2HR: number; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; asOf: Date };
+  } = {},
 ): EstimateResult | null {
   const refTime = (opts.asOf ?? new Date()).getTime();
   const recentCount = runs.filter(r => r.startDate && (refTime - r.startDate.getTime()) / 86400000 < 90).length;
-  const halfLife = opts.halfLifeDays ?? (recentCount >= 40 ? 90 : 180);
+  // Smoothed halfLife (Bug 9 fix, mirrored from lib/fitness/zones.ts) — linear
+  // interpolation instead of a hard cliff at recentCount===40, so a single
+  // activity crossing the boundary can't cause a discontinuous jump.
+  const halfLifeT = Math.max(0, Math.min(1, (recentCount - 30) / 20));
+  const halfLife = 180 - halfLifeT * 90;
   const minEffWeight = opts.minEffWeight ?? 8;
   const V = opts.verbose;
 
@@ -76,8 +96,8 @@ function estimateZones(
   const gapP60 = gapPct(0.60);
   const gapP85 = gapPct(0.85);
 
-  const points = allValid.filter(p => opts.dataDrivenBounds ? p.gap > 200 : p.gap < 391);
-  if (V) console.log(`  halfLife=${halfLife}  recentCount=${recentCount}  allValid=${allValid.length}  points=${points.length}`);
+  const points = allValid.filter(p => p.gap > 200);
+  if (V) console.log(`  halfLife=${halfLife.toFixed(0)}  recentCount=${recentCount}  allValid=${allValid.length}  points=${points.length}`);
   if (points.length < 40) { if (V) console.log(`  [NULL] points < 40 (${points.length})`); return null; }
 
   const binWidth = 15;
@@ -147,12 +167,53 @@ function estimateZones(
 
   const slopes = paceArr.slice(0, -1).map((p, i) => (hrArr[i] - hrArr[i + 1]) / (paceArr[i + 1] - p));
   const slopeMax = Math.max(...slopes);
-  let bp1 = 1;
-  // Start search at i=1: prevents placing LT2 at the fastest bucket (bp1=0),
-  // which causes LT1 to fall too close in HR space when fast-pace data is sparse.
-  for (let i = 1; i < slopes.length - 2; i++) {
-    if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
+  let bp1: number | null;
+  if (opts.anchor) {
+    // Historical window: bound how much slower LT2 pace plausibly was at this point
+    // in time vs. the live anchor. Piecewise-linear drift rate fit to the user's own
+    // stated bounds (≤10s/km slower at 1yr, ≤25s/km slower at 5yr), with margin.
+    const yearsAgo = (opts.anchor.asOf.getTime() - refTime) / (365.25 * 86400000);
+    const maxDriftSec = yearsAgo <= 1 ? 12 * yearsAgo : 12 + 4 * (yearsAgo - 1);
+    const maxPlausibleLt2Pace = opts.anchor.lt2PaceSecPerKm + maxDriftSec;
+    // Training has generally improved toward the live anchor — a historical point
+    // shouldn't be meaningfully FASTER than today, just slower by some bounded amount.
+    // Small slack allows for noise/minor fitness fluctuation, not a faster fitness peak.
+    const minPlausibleLt2Pace = opts.anchor.lt2PaceSecPerKm - 5;
+
+    // Require a genuinely dominant kink to exist at all — a smooth/ambiguous curve
+    // (no period with a clearly steeper transition than the rest) isn't reliable
+    // regardless of which bucket "wins" the relative 20%-of-max test. Calibrated
+    // against the live computation (slopeMax≈0.50) and a confirmed-good historical
+    // month (2021-11, slopeMax≈0.32) vs. a confirmed-ambiguous one (slopeMax≈0.20).
+    const MIN_ABS_SLOPE = 0.25;
+    if (slopeMax < MIN_ABS_SLOPE) {
+      if (V) console.log(`  [NULL] slopeMax(${slopeMax.toFixed(3)}) < ${MIN_ABS_SLOPE} — no dominant kink, curve too smooth/ambiguous to trust`);
+      return null;
+    }
+
+    // Among buckets whose own pace falls within the plausible range for this point
+    // in time, pick the one with the steepest qualifying slope, same significance
+    // test as the live case. No longer blindly skipping the fastest bucket — the
+    // plausibility window is the filter now, not bucket index.
+    const candidates: number[] = [];
+    for (let i = 0; i < slopes.length - 2; i++) {
+      if (paceArr[i] >= minPlausibleLt2Pace && paceArr[i] <= maxPlausibleLt2Pace && slopes[i] > 0.20 * slopeMax) candidates.push(i);
+    }
+    if (V) console.log(`  anchor: lt2Pace=${fmt(opts.anchor.lt2PaceSecPerKm)} yearsAgo=${yearsAgo.toFixed(2)} maxDrift=${maxDriftSec.toFixed(0)}s plausibleRange=[${fmt(minPlausibleLt2Pace)},${fmt(maxPlausibleLt2Pace)}]  candidates=[${candidates.join(",")}]`);
+    bp1 = candidates.length > 0
+      ? candidates.reduce((best, c) => slopes[c] > slopes[best] ? c : best)
+      : null; // no plausible breakpoint for this point in time — data too sparse/noisy to trust
+  } else {
+    // Live/current computation (the anchor source itself) — unchanged from the
+    // validated production behavior: skip the fastest bucket (i=0), since with
+    // no anchor to disambiguate, that bucket is the one most likely to be a
+    // sparse-data artifact rather than the true LT2.
+    bp1 = 1;
+    for (let i = 1; i < slopes.length - 2; i++) {
+      if (slopes[i] > 0.20 * slopeMax) { bp1 = i; break; }
+    }
   }
+  if (bp1 === null) { if (V) console.log(`  [NULL] no plausible bp1 candidate within drift bound`); return null; }
 
   let bestErr = Infinity, bp2 = Math.min(bp1 + 2, nb - 2);
   for (let j = bp1 + 1; j < nb - 1; j++) {
@@ -186,13 +247,15 @@ function estimateZones(
   if (lt2HR >= maxHR * 0.98)                           { if (V) console.log(`  [NULL] lt2HR(${lt2HR}) >= maxHR*0.98`); return null; }
   if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70)   { if (V) console.log(`  [NULL] HR range: lt1HR=${lt1HR} lt2HR=${lt2HR}`); return null; }
   if (lt2PaceSecPerKm >= lt1PaceSecPerKm)              { if (V) console.log(`  [NULL] lt2Pace >= lt1Pace`); return null; }
+  if (lt2PaceSecPerKm > gapP60) { if (V) console.log(`  [NULL] lt2Pace(${fmt(lt2PaceSecPerKm)}) > P60(${fmt(gapP60)})`); return null; }
+  if (lt1PaceSecPerKm > gapP85) { if (V) console.log(`  [NULL] lt1Pace(${fmt(lt1PaceSecPerKm)}) > P85(${fmt(gapP85)})`); return null; }
 
-  if (opts.dataDrivenBounds) {
-    if (lt2PaceSecPerKm > gapP60) { if (V) console.log(`  [NULL] lt2Pace(${fmt(lt2PaceSecPerKm)}) > P60(${fmt(gapP60)})`); return null; }
-    if (lt1PaceSecPerKm > gapP85) { if (V) console.log(`  [NULL] lt1Pace(${fmt(lt1PaceSecPerKm)}) > P85(${fmt(gapP85)})`); return null; }
-  } else {
-    if (lt1PaceSecPerKm < 240 || lt1PaceSecPerKm > 380) { if (V) console.log(`  [NULL] lt1Pace(${fmt(lt1PaceSecPerKm)}) outside [4:00–6:20]`); return null; }
-    if (lt2PaceSecPerKm < 200 || lt2PaceSecPerKm > 420) { if (V) console.log(`  [NULL] lt2Pace(${fmt(lt2PaceSecPerKm)}) outside [3:20–7:00]`); return null; }
+  // HR at LT1/LT2 doesn't drift far over time — secondary sanity check on top of the
+  // pace-drift bound above. Don't force a result; null is preferred over a guess.
+  const MAX_HR_DRIFT = 8;
+  if (opts.anchor) {
+    if (Math.abs(lt2HR - opts.anchor.lt2HR) > MAX_HR_DRIFT) { if (V) console.log(`  [NULL] lt2HR(${lt2HR}) too far from anchor(${opts.anchor.lt2HR})`); return null; }
+    if (Math.abs(lt1HR - opts.anchor.lt1HR) > MAX_HR_DRIFT) { if (V) console.log(`  [NULL] lt1HR(${lt1HR}) too far from anchor(${opts.anchor.lt1HR})`); return null; }
   }
 
   return { lt1HR, lt2HR, lt1PaceSecPerKm, lt2PaceSecPerKm, rSquared, bucketCount: buckets.length, lapCount: runs.length };
@@ -203,9 +266,10 @@ function fmt(s: number) { const m = Math.floor(s / 60); return `${m}:${String(Ma
 type ActFull = {
   name: string; sportType: string; startDate: Date; laps: unknown;
   isRace: boolean | null; averageSpeed: number | null; weatherTemp?: number | null;
+  averageHeartrate: number | null; distance: number; movingTime: number; totalElevationGain: number;
 };
 
-function buildLaps(acts: ActFull[], olFilter: ReturnType<typeof makeOlRaceFilter>) {
+function buildLaps(acts: ActFull[], olFilter: ReturnType<typeof makeOlFilter>) {
   return acts
     .filter(a =>
       olFilter(a.name, a.sportType, a.isRace ?? false, a.averageSpeed) &&
@@ -218,17 +282,32 @@ function buildLaps(acts: ActFull[], olFilter: ReturnType<typeof makeOlRaceFilter
         .map(l => ({
           avgHR: l.average_heartrate!, distanceM: l.distance, movingTimeSec: l.moving_time,
           totalElevationGain: l.total_elevation_gain ?? 0, startDate: a.startDate,
-          isRace: a.isRace ?? false, weatherTemp: (a as ActFull).weatherTemp ?? null,
+          isRace: a.isRace ?? false, weatherTemp: a.weatherTemp ?? null,
         }))
     );
 }
 
-function bootstrapOlThreshold(acts: ActFull[], maxHR: number, restHR: number, asOf?: Date): number {
-  const nameOnly = makeOlRaceFilter(Infinity);
+// Whole-activity rows (Bug 14 fix) — combined with buildLaps so the dataset
+// matches statResult in lib/fitness/cache.ts exactly (acts + laps), not the
+// narrower laps-only subset the trend computation used before.
+function buildActs(acts: ActFull[], olFilter: ReturnType<typeof makeOlFilter>) {
+  return acts
+    .filter(a =>
+      a.averageHeartrate && olFilter(a.name, a.sportType, a.isRace ?? false, a.averageSpeed) &&
+      a.distance >= 4000 && a.movingTime >= 900 &&
+      !WU_CD_RE.test(a.name)
+    )
+    .map(a => ({
+      avgHR: a.averageHeartrate!, distanceM: a.distance, movingTimeSec: a.movingTime,
+      totalElevationGain: a.totalElevationGain, startDate: a.startDate,
+      isRace: a.isRace ?? false, weatherTemp: a.weatherTemp ?? null,
+    }));
+}
+
+function bootstrapOlThreshold(acts: ActFull[], maxHR: number, restHR: number, gateToRaceOnly: boolean, asOf?: Date): number {
+  const nameOnly = makeOlFilter(Infinity, gateToRaceOnly);
   const phase1Laps = buildLaps(acts, nameOnly);
-  const prelim = estimateZones(phase1Laps, maxHR, restHR, {
-    windowDays: 90, minCount: 8, asOf,
-  });
+  const prelim = estimateZones(phase1Laps, maxHR, restHR, { asOf });
   if (!prelim) return 330;
   return Math.round(prelim.lt1PaceSecPerKm * 1.15);
 }
@@ -241,101 +320,110 @@ async function main() {
   const restHR = cache?.restHR ?? 43;
   console.log(`maxHR=${maxHR}  restHR=${restHR}`);
 
-  // Load ALL activities with laps for the maximum possible history
   const allActs = await prisma.activity.findMany({
     where: { userId: user.id, sportType: { contains: "run", mode: "insensitive" } },
-    select: { name: true, sportType: true, startDate: true, laps: true, isRace: true, averageSpeed: true, weatherTemp: true },
+    select: {
+      name: true, sportType: true, startDate: true, laps: true, isRace: true, averageSpeed: true,
+      weatherTemp: true, averageHeartrate: true, distance: true, movingTime: true, totalElevationGain: true,
+    },
     orderBy: { startDate: "asc" },
   }) as ActFull[];
 
-  console.log(`Total activities: ${allActs.length}\n`);
+  console.log(`Total running activities: ${allActs.length}\n`);
 
-  // ── Window configurations to compare ─────────────────────────────────────
-  // windowDays: null = all history up to windowEnd (same as live estimator, just asOf-shifted)
-  const CONFIGS: Array<{ label: string; windowDays: number | null; halfLifeDays?: number; minCount: number; minEffWeight?: number }> = [
-    { label: "ALL  HL-auto", windowDays: null, minCount: 8 },             // ← proposed new prod config
-    { label: "ALL  HL365  ", windowDays: null, halfLifeDays: 365, minEffWeight: 4, minCount: 8 },  // historical exploration
-    { label: "W90  HL-auto", windowDays:  90,  minCount: 8 },
-    { label: "W180 HL-auto", windowDays: 180,  minCount: 8 },
+  // Validated config — matches estimateZonesFromActivities() in lib/fitness/zones.ts exactly.
+  const CONFIGS: Array<{ label: string; gateToRaceOnly: boolean; combined: boolean }> = [
+    { label: "Validated (combined, race-gated OL)", gateToRaceOnly: true, combined: true },
   ];
 
-  // ── Monthly rolling windows ───────────────────────────────────────────────
   const now = new Date();
-  const firstLapDate = allActs[0]?.startDate ?? subDays(now, 365);
+  const firstDate = allActs[0]?.startDate ?? subDays(now, 365);
   const windowEnds: Date[] = [];
   let d = new Date(now.getFullYear(), now.getMonth(), 1);
-  while (d >= addDays(firstLapDate, 90)) {
+  while (d >= addDays(firstDate, 90)) {
     windowEnds.unshift(new Date(d));
     d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
   }
 
   console.log(`Monthly windows: ${windowEnds.length}  (${format(windowEnds[0], "yyyy-MM")} → ${format(windowEnds.at(-1)!, "yyyy-MM")})\n`);
 
-  await diagnose(allActs, maxHR, restHR);
+  // Live anchor: the current, most data-rich computation (asOf=now, full history) — used
+  // to resolve breakpoint ambiguity in sparse historical windows. HR at LT1/LT2 drifts
+  // slowly over years even as pace improves, so this is a reliable prior.
+  const liveCfg = CONFIGS[0];
+  const liveOlThreshold = bootstrapOlThreshold(allActs, maxHR, restHR, liveCfg.gateToRaceOnly, now);
+  const liveOlFilter = makeOlFilter(liveOlThreshold, liveCfg.gateToRaceOnly);
+  const liveDataset = [...buildActs(allActs, liveOlFilter), ...buildLaps(allActs, liveOlFilter)];
+  const liveResult = estimateZones(liveDataset, maxHR, restHR, { asOf: now });
+  if (!liveResult) throw new Error("Live anchor computation returned null — cannot proceed");
+  console.log(`Live anchor: LT1=${liveResult.lt1HR}bpm@${fmt(liveResult.lt1PaceSecPerKm)}/km  LT2=${liveResult.lt2HR}bpm@${fmt(liveResult.lt2PaceSecPerKm)}/km  R²=${liveResult.rSquared}\n`);
+  const anchor = {
+    lt1HR: liveResult.lt1HR, lt2HR: liveResult.lt2HR,
+    lt1PaceSecPerKm: liveResult.lt1PaceSecPerKm, lt2PaceSecPerKm: liveResult.lt2PaceSecPerKm,
+    asOf: now,
+  };
 
-  // ── Collect ALL HL-auto results for smoothing comparison ─────────────────
-  console.log(`${"Month".padEnd(8)}  ${"Config".padEnd(14)}  LT2          LT1          R²     Laps   OL_thr`);
-  console.log("-".repeat(80));
+  console.log(`${"Month".padEnd(8)}  ${"Config".padEnd(36)}  LT2          LT1          R²     n     OL_thr`);
+  console.log("-".repeat(100));
 
   type TrendPoint = { month: string; lt2Sec: number; lt1Sec: number };
-  const allHlResults: TrendPoint[] = [];
+  const trendsByConfig: Record<string, TrendPoint[]> = {};
+  for (const cfg of CONFIGS) trendsByConfig[cfg.label] = [];
 
   for (const windowEnd of windowEnds) {
     const month = format(windowEnd, "yyyy-MM");
+    const actsUpToWindow = allActs.filter(a => a.startDate <= windowEnd);
     let any = false;
 
-    // Per-window OL bootstrap: threshold is computed from acts up to windowEnd
-    // with asOf=windowEnd, so historical windows get historically-appropriate thresholds.
-    const actsUpToWindow = allActs.filter(a => a.startDate <= windowEnd);
-    const windowOlThreshold = bootstrapOlThreshold(actsUpToWindow, maxHR, restHR, windowEnd);
-    const windowOlFilter = makeOlRaceFilter(windowOlThreshold);
-    const windowAllLaps = buildLaps(actsUpToWindow, windowOlFilter);
-
     for (const cfg of CONFIGS) {
-      const windowLaps = cfg.windowDays === null
-        ? windowAllLaps
-        : windowAllLaps.filter(l => l.startDate >= subDays(windowEnd, cfg.windowDays!));
-      if (windowLaps.length < 40) continue;
+      const windowOlThreshold = bootstrapOlThreshold(actsUpToWindow, maxHR, restHR, cfg.gateToRaceOnly, windowEnd);
+      const windowOlFilter = makeOlFilter(windowOlThreshold, cfg.gateToRaceOnly);
+      const windowLaps = buildLaps(actsUpToWindow, windowOlFilter);
+      const windowActs = cfg.combined ? buildActs(actsUpToWindow, windowOlFilter) : [];
+      const dataset = [...windowActs, ...windowLaps];
 
-      const result = estimateZones(windowLaps, maxHR, restHR, {
-        windowDays: cfg.windowDays ?? 9999,
-        halfLifeDays: cfg.halfLifeDays,
-        minCount: cfg.minCount,
-        minEffWeight: cfg.minEffWeight,
-        asOf: windowEnd,
-      });
-
+      const verbose = process.env.DEBUG_MONTH === month;
+      if (verbose) console.log(`\n[DEBUG ${month} / ${cfg.label}] laps=${windowLaps.length} acts=${windowActs.length}`);
+      const isCurrentMonth = windowEnd === windowEnds.at(-1);
+      const result = estimateZones(dataset, maxHR, restHR, { asOf: windowEnd, verbose, anchor: isCurrentMonth ? undefined : anchor });
       if (result) {
         any = true;
         console.log(
-          `${month}    ${cfg.label}  LT2=${fmt(result.lt2PaceSecPerKm)}/km  LT1=${fmt(result.lt1PaceSecPerKm)}/km  R²=${result.rSquared.toFixed(2)}  n=${windowLaps.length}  ol=${fmt(windowOlThreshold)}`
+          `${month}    ${cfg.label}  LT2=${fmt(result.lt2PaceSecPerKm)}/km  LT1=${fmt(result.lt1PaceSecPerKm)}/km  R²=${result.rSquared.toFixed(2)}  n=${String(dataset.length).padStart(4)}  ol=${fmt(windowOlThreshold)}`
         );
-        if (cfg.label === "ALL  HL-auto") {
-          allHlResults.push({ month, lt2Sec: result.lt2PaceSecPerKm, lt1Sec: result.lt1PaceSecPerKm });
-        }
+        trendsByConfig[cfg.label].push({ month, lt2Sec: result.lt2PaceSecPerKm, lt1Sec: result.lt1PaceSecPerKm });
       } else if (any) {
-        // Only print null lines for months where at least one config already succeeded
         console.log(`${month}    ${cfg.label}  — (null)`);
       }
     }
     if (any) console.log();
   }
 
-  // ── Smoothing comparison ─────────────────────────────────────────────────
-  const smoothed = smoothTrend(allHlResults);
-  console.log("\n\n═══ ALL HL-auto: raw vs smoothed ═══\n");
-  console.log(`${"Month".padEnd(8)}  ${"Raw LT2".padEnd(10)}  ${"Sm LT2".padEnd(8)}  ${"Raw LT1".padEnd(10)}  ${"Sm LT1".padEnd(8)}  Notes`);
-  console.log("-".repeat(72));
-  for (let i = 0; i < allHlResults.length; i++) {
-    const r = allHlResults[i];
-    const s = smoothed[i];
-    const d2 = Math.round(r.lt2Sec - s.lt2Sec);
-    const d1 = Math.round(r.lt1Sec - s.lt1Sec);
-    const notes = [
-      d2 !== 0 ? `LT2${d2 > 0 ? "+" : ""}${d2}s` : "",
-      d1 !== 0 ? `LT1${d1 > 0 ? "+" : ""}${d1}s` : "",
-    ].filter(Boolean).join("  ");
-    console.log(`${r.month}    ${fmt(r.lt2Sec)}/km    ${fmt(s.lt2Sec)}/km  ${fmt(r.lt1Sec)}/km    ${fmt(s.lt1Sec)}/km  ${notes}`);
+  for (const cfg of CONFIGS) {
+    const smoothed = smoothTrend(trendsByConfig[cfg.label]);
+    console.log(`\n\n═══ ${cfg.label}: raw vs smoothed ═══\n`);
+    console.log(`${"Month".padEnd(8)}  ${"Raw LT2".padEnd(10)}  ${"Sm LT2".padEnd(8)}  ${"Raw LT1".padEnd(10)}  ${"Sm LT1".padEnd(8)}  Notes`);
+    console.log("-".repeat(72));
+    const raw = trendsByConfig[cfg.label];
+    for (let i = 0; i < raw.length; i++) {
+      const r = raw[i];
+      const s = smoothed[i];
+      const d2 = Math.round(r.lt2Sec - s.lt2Sec);
+      const d1 = Math.round(r.lt1Sec - s.lt1Sec);
+      const notes = [
+        d2 !== 0 ? `LT2${d2 > 0 ? "+" : ""}${d2}s` : "",
+        d1 !== 0 ? `LT1${d1 > 0 ? "+" : ""}${d1}s` : "",
+      ].filter(Boolean).join("  ");
+      console.log(`${r.month}    ${fmt(r.lt2Sec)}/km    ${fmt(s.lt2Sec)}/km  ${fmt(r.lt1Sec)}/km    ${fmt(s.lt1Sec)}/km  ${notes}`);
+    }
+  }
+
+  console.log("\n\n═══ Final (current month) comparison ═══\n");
+  for (const cfg of CONFIGS) {
+    const trend = trendsByConfig[cfg.label];
+    const last = trend.at(-1);
+    if (last) console.log(`${cfg.label}: LT2=${fmt(last.lt2Sec)}/km  LT1=${fmt(last.lt1Sec)}/km`);
+    else console.log(`${cfg.label}: no result`);
   }
 }
 
@@ -349,8 +437,6 @@ function smoothTrend(points: Array<{ month: string; lt2Sec: number; lt1Sec: numb
   if (points.length < 2) return points;
   const result = points.map(p => ({ ...p }));
 
-  // Pass 1: remove isolated outliers — a point ≥15s different from BOTH neighbors,
-  // but only when both neighbors are exactly 1 month away (no gap).
   const OUTLIER_THRESHOLD = 15;
   for (let i = 1; i < result.length - 1; i++) {
     if (monthDiff(result[i - 1].month, result[i].month) !== 1) continue;
@@ -367,38 +453,21 @@ function smoothTrend(points: Array<{ month: string; lt2Sec: number; lt1Sec: numb
     }
   }
 
-  // Pass 2: cap rate of change — no more than 20s/km improvement per month.
-  // Only applied between consecutive months (gap = 1). Larger gaps allow any improvement.
-  const MAX_IMPROVEMENT_PER_MONTH = 20;
+  // Symmetric rate cap (Bug 9 fix) — caps both improvement AND degradation at
+  // 20s/km per month, not just improvement.
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const MAX_CHANGE_PER_MONTH = 20;
   for (let i = 1; i < result.length; i++) {
     if (monthDiff(result[i - 1].month, result[i].month) !== 1) continue;
-    if (result[i].lt2Sec < result[i - 1].lt2Sec - MAX_IMPROVEMENT_PER_MONTH) {
-      const cap = result[i - 1].lt2Sec - MAX_IMPROVEMENT_PER_MONTH;
-      const lt1Cap = result[i - 1].lt1Sec - MAX_IMPROVEMENT_PER_MONTH * (result[i].lt1Sec / result[i].lt2Sec);
-      result[i] = { ...result[i], lt2Sec: cap, lt1Sec: lt1Cap };
+    const prevLt2 = result[i - 1].lt2Sec;
+    const cappedLt2 = clamp(result[i].lt2Sec, prevLt2 - MAX_CHANGE_PER_MONTH, prevLt2 + MAX_CHANGE_PER_MONTH);
+    if (cappedLt2 !== result[i].lt2Sec) {
+      const ratio = result[i].lt1Sec / result[i].lt2Sec;
+      result[i] = { ...result[i], lt2Sec: cappedLt2, lt1Sec: cappedLt2 * ratio };
     }
   }
 
   return result;
-}
-
-async function diagnose(allActs: ActFull[], maxHR: number, restHR: number) {
-  const diagMonths = ["2020-08", "2021-02"];
-  console.log("\n\n═══ DIAGNOSTICS for historical months ═══\n");
-  for (const monthStr of diagMonths) {
-    const windowEnd = new Date(monthStr + "-01");
-    const actsUpTo = allActs.filter(a => a.startDate <= windowEnd);
-    const olThreshold = bootstrapOlThreshold(actsUpTo, maxHR, restHR, windowEnd);
-    const olFilter = makeOlRaceFilter(olThreshold);
-    const windowLaps = buildLaps(actsUpTo, olFilter);
-    const actsInWindow = actsUpTo.filter(a => olFilter(a.name, a.sportType, a.isRace ?? false, a.averageSpeed) && !WU_CD_RE.test(a.name));
-    console.log(`── ${monthStr}  (${actsUpTo.length} acts, ${actsInWindow.length} eligible acts, ${windowLaps.length} laps, OL threshold: ${fmt(olThreshold)}/km) ──`);
-    console.log(`   ALL HL-auto:`);
-    estimateZones(windowLaps, maxHR, restHR, { windowDays: 9999, minCount: 8, asOf: windowEnd, verbose: true });
-    console.log(`   ALL HL365 minEW=4:`);
-    estimateZones(windowLaps, maxHR, restHR, { windowDays: 9999, halfLifeDays: 365, minEffWeight: 4, minCount: 8, asOf: windowEnd, verbose: true });
-    console.log();
-  }
 }
 
 main().finally(() => prisma.$disconnect());
