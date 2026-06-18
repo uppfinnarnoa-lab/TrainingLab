@@ -3184,6 +3184,27 @@ Not fixed (lower priority, left for a future session): no rate limiting on `garm
 
 **Verification:** `pnpm build --no-lint` passes.
 
+**Bug — Settings → AI Coach: switching provider away from Groq appeared to do nothing.**
+
+Tested live against the actual `/api/settings/ai` endpoint (real session, real DB, all 4 providers) rather than guessing: the save → DB → read → dispatch chain was already 100% correct — switching to each provider and sending a chat message correctly hit that provider's real API (confirmed via each provider's distinct error format when given a fake key: Anthropic's `invalid x-api-key`, Google's `API_KEY_INVALID`, NVIDIA NIM's 404). Root cause was UX, not a backend bug: clicking a provider button only updates local React state — the separate "Save settings" button (shared with API keys/budgets) has to be clicked too for it to persist. User confirmed they never clicked Save for this field and don't want to have to.
+
+**Fix:** `app/(dashboard)/settings/ai-settings.tsx` — provider buttons now self-save immediately via `PATCH /api/settings/ai` (`selectProvider()`), mirroring the existing pattern in `strava-connect.tsx`'s `handleSyncMode()`. Optimistic UI update with rollback + inline error message if the PATCH fails. The shared "Save settings" button still also sends `provider` (harmless redundancy) for the API-key/budget fields that still require it.
+
+**Bug — Garmin "Sync now" reports success but Recovery tab in Stats stays empty.**
+
+Investigated without DB/production access, using `docs/planning/archive/GARMIN_AUTH_REWORK_PLAN.md`'s own changelog: the Garmin auth flow had its **first-ever successful connection** today (2026-06-18), so there was essentially zero historical wellness data to show regardless. Two compounding issues found while reading `lib/garmin/sync.ts`: (1) `syncGarminDaily()` only ever syncs a single day (defaults to `new Date()`) — there was no way to backfill history, unlike Strava's dedicated backfill routes; (2) `safe()` swallows every Garmin API fetch failure silently with no return signal, so "Sync now" reported a green checkmark even on a run that fetched zero real fields (e.g. an expired/broken Garmin session).
+
+**Fix:**
+
+- `lib/garmin/sync.ts`: `syncGarminDaily()` now returns `Promise<boolean>` (`true` if at least one real field was fetched for that date) instead of `Promise<void>`, computed from whether `updateRecord` ended up non-empty.
+- `app/api/garmin/sync/route.ts`: returns `{ ok: true, gotData }`; `garmin-connect.tsx`'s "Sync now" button now shows a distinct "⚠ no data yet" state (amber) instead of a plain ✓ when the sync ran but found nothing — no more false-positive success signal.
+- `app/api/garmin/backfill/route.ts` (new): loops `syncGarminDaily()` backward over the last N days (default 90, capped at 365) sequentially with a 300ms pacing delay between days — Garmin's unofficial API is bot-detection-sensitive per the auth rework doc, so this avoids bursting it. Rate-limited to 3 calls/hour per user (`lib/rate-limit.ts`). Returns `{ synced, empty, failed }` day counts.
+- `garmin-connect.tsx`: added a "Backfill last 90 days" button next to "Sync now", reporting the synced/empty/failed breakdown back to the user instead of a single ambiguous checkmark.
+
+Verified live end-to-end against the real dev server (real NextAuth session via curl, throwaway test users cleaned up after): provider round-trip confirmed across all 4 providers; backfill endpoint confirmed to loop the correct day count, count synced/empty/failed correctly, and rate-limit at 3 calls/hour.
+
+**Verification:** `pnpm build --no-lint` passes. `pnpm exec tsc --noEmit` clean.
+
 **Bug 13 — Stats page info-icon tooltips flickered open/closed continuously on hover, with a completely stationary cursor.**
 
 Verified hands-on in a browser with DOM-event instrumentation (not guessed): `mouseenter`/`mouseleave` fired in a tight ~50ms loop on the trigger button for as long as the mouse stayed over it. Root cause: `components/stats/metric-tooltip.tsx`'s `MetricTooltip` renders a full-viewport `<div className="fixed inset-0 z-[9998]" onClick={hide} />` backdrop (added to support tap-to-close on mobile) *every time* the tooltip is shown — including when shown by hover. That backdrop sits on top of the trigger button itself, stealing the hover target away from it: `mouseleave` fires → `hide()` → backdrop removed → button re-exposed under the still-stationary cursor → `mouseenter` fires → `show()` → backdrop reappears → repeat indefinitely. A high-frequency `requestAnimationFrame` position sample confirmed the icon itself never moved a single pixel — ruling out a layout/position-instability explanation.

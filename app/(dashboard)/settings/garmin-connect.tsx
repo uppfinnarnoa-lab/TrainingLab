@@ -50,9 +50,11 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   const [isConnected, setIsConnected] = useState(connected);
   const [name,        setName]        = useState(displayName);
   const [syncing,     setSyncing]     = useState(false);
-  const [syncResult,  setSyncResult]  = useState<"ok" | "error" | null>(null);
+  const [syncResult,  setSyncResult]  = useState<"ok" | "empty" | "error" | null>(null);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg,  setBackfillMsg] = useState<string | null>(null);
 
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [ticketInput,    setTicketInput]    = useState("");
@@ -100,10 +102,29 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   async function syncNow() {
     setSyncing(true);
     setSyncResult(null);
-    const res = await fetch("/api/garmin/sync", { method: "POST" });
+    const res  = await fetch("/api/garmin/sync", { method: "POST" });
+    const data = await res.json().catch(() => ({})) as { gotData?: boolean };
     setSyncing(false);
-    setSyncResult(res.ok ? "ok" : "error");
-    setTimeout(() => setSyncResult(null), 4000);
+    setSyncResult(!res.ok ? "error" : data.gotData ? "ok" : "empty");
+    setTimeout(() => setSyncResult(null), 5000);
+  }
+
+  async function backfillDays(days: number) {
+    setBackfilling(true);
+    setBackfillMsg(null);
+    const res  = await fetch("/api/garmin/backfill", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ days }),
+    }).catch(() => null);
+    setBackfilling(false);
+    if (!res?.ok) {
+      const data = await res?.json().catch(() => ({})) as { error?: string };
+      setBackfillMsg(data?.error === "rate_limited" ? "Too many backfills — try again later." : "Backfill failed — check console.");
+      return;
+    }
+    const data = await res.json() as { synced: number; empty: number; failed: number };
+    setBackfillMsg(`Backfilled ${days} days — ${data.synced} with data, ${data.empty} empty, ${data.failed} failed.`);
   }
 
   async function connectManual() {
@@ -160,7 +181,16 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
             {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Sync now
             {syncResult === "ok"    && <span className="text-accent ml-1">✓</span>}
+            {syncResult === "empty" && <span className="text-amber-400 ml-1">⚠ no data yet</span>}
             {syncResult === "error" && <span className="text-red-400 ml-1">✗</span>}
+          </button>
+          <button
+            onClick={() => backfillDays(90)}
+            disabled={backfilling}
+            className="inline-flex items-center gap-2 rounded-xl bg-surface border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-surface-2 disabled:opacity-40 transition"
+          >
+            {backfilling ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Backfill last 90 days
           </button>
           <button
             onClick={disconnect}
@@ -171,6 +201,7 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
             Disconnect
           </button>
         </div>
+        {backfillMsg && <p className="text-xs text-muted">{backfillMsg}</p>}
       </div>
     );
   }

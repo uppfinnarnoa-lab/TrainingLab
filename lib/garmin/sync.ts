@@ -11,16 +11,17 @@ function safe(promise: Promise<unknown>): Promise<unknown> {
   return promise.catch(() => null);
 }
 
-export async function syncGarminDaily(userId: string, date: Date = new Date()): Promise<void> {
+/** Returns true if at least one real (non-null) field was fetched from Garmin for this date. */
+export async function syncGarminDaily(userId: string, date: Date = new Date()): Promise<boolean> {
   const account = await prisma.garminAccount.findUnique({ where: { userId } });
-  if (!account) return;
+  if (!account) return false;
 
   const dn      = account.displayName;
   const dateStr = format(date, "yyyy-MM-dd");
 
   if (!dn) {
     console.warn(`[garmin] No displayName for user ${userId} — reconnect Garmin in Settings`);
-    return;
+    return false;
   }
 
   const [summaryRaw, sleepRaw, hrvRaw, readinessRaw, spo2Raw] = await Promise.all([
@@ -93,6 +94,8 @@ export async function syncGarminDaily(userId: string, date: Date = new Date()): 
     create: { userId, date, ...record },
     update: updateRecord,
   });
+
+  return Object.keys(updateRecord).length > 0;
 }
 
 function toInt(v: unknown): number | null {

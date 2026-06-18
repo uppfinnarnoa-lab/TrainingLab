@@ -46,8 +46,26 @@ export function AISettingsSection({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [providerError, setProviderError] = useState("");
 
   const spendPct = monthlyBudget > 0 ? Math.min((currentSpend / monthlyBudget) * 100, 100) : 0;
+
+  async function selectProvider(id: string) {
+    const previous = activeProvider;
+    setActiveProvider(id);
+    setProviderError("");
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: id }),
+      });
+      if (!res.ok) throw new Error("failed");
+    } catch {
+      setActiveProvider(previous);
+      setProviderError("Failed to switch provider. Try again.");
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -108,7 +126,7 @@ export function AISettingsSection({
           ].map(({ id, label, sub }) => (
             <button
               key={id}
-              onClick={() => setActiveProvider(id)}
+              onClick={() => selectProvider(id)}
               className={cn(
                 "flex-1 min-w-[100px] rounded-xl border px-4 py-3 text-left transition",
                 activeProvider === id
@@ -123,6 +141,7 @@ export function AISettingsSection({
             </button>
           ))}
         </div>
+        {providerError && <p className="mt-2 text-xs text-error">{providerError}</p>}
       </div>
 
       {/* Collapsible provider comparison */}

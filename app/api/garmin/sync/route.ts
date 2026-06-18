@@ -7,8 +7,8 @@ export async function POST() {
   if (!session?.user?.id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   try {
-    await syncGarminDaily(session.user.id);
-    return NextResponse.json({ ok: true });
+    const gotData = await syncGarminDaily(session.user.id);
+    return NextResponse.json({ ok: true, gotData });
   } catch (e) {
     console.error("Garmin sync error:", e);
     return NextResponse.json({ error: "sync_failed" }, { status: 500 });
