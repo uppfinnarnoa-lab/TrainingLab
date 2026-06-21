@@ -47,9 +47,10 @@ export async function POST(req: Request) {
   });
 
   // Strava doesn't sign POST event payloads, so the shared secret is baked into the
-  // callback_url itself — Strava preserves query params on every event delivery, not
-  // just the GET handshake. The webhook route checks this against `stravaWebhookToken`.
-  const secureCallbackUrl = `${callbackUrl}${callbackUrl.includes("?") ? "&" : "?"}secret=${verifyToken}`;
+  // callback_url itself as a path segment (not a query param — Strava appends its own
+  // hub.* query params on the GET validation, which risks colliding with one already
+  // there). The webhook route checks this path segment against `stravaWebhookToken`.
+  const secureCallbackUrl = `${callbackUrl.replace(/\/$/, "")}/${verifyToken}`;
 
   const body = new URLSearchParams({
     client_id:     creds.stravaClientId,

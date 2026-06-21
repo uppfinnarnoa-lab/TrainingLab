@@ -29,12 +29,16 @@ export async function POST(req: NextRequest) {
       create: {
         userId,
         displayName,
+        oauth1Token:  encrypt(token),
+        oauth1Secret: encrypt(secret),
         accessToken:  encrypt(tokens.accessToken),
         refreshToken: encrypt(tokens.refreshToken),
         expiresAt:    tokens.expiresAt,
       },
       update: {
         displayName,
+        oauth1Token:  encrypt(token),
+        oauth1Secret: encrypt(secret),
         accessToken:  encrypt(tokens.accessToken),
         refreshToken: encrypt(tokens.refreshToken),
         expiresAt:    tokens.expiresAt,

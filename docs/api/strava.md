@@ -50,13 +50,23 @@ Trigger activity sync from Strava.
 
 ---
 
-## GET /api/strava/webhook
+## GET /api/strava/webhook/[secret]
 
 Strava webhook verification endpoint. Called by Strava when registering a subscription.
 
+Strava doesn't sign POST event payloads, so the shared secret lives in the URL **path**
+(`[secret]`), not a query param — Strava appends its own `hub.*` params to whatever
+`callback_url` was registered, and a query-string secret risks colliding with that append
+if Strava doesn't insert the `&` correctly (confirmed live: it doesn't — a literal extra
+`?` makes `hub.mode` unparseable and the GET handshake fail). A path segment can't collide
+with query params at all.
+
+**Path param:**
+- `secret` — must match the live `AppConfig.stravaWebhookToken` (or `STRAVA_WEBHOOK_VERIFY_TOKEN` env var fallback)
+
 **Query params:**
 - `hub.mode` — must equal `"subscribe"`
-- `hub.verify_token` — must match `STRAVA_WEBHOOK_VERIFY_TOKEN` env var
+- `hub.verify_token` — must also match the same token
 - `hub.challenge` — arbitrary string Strava sends; echoed back in response
 
 **Response (200):**
@@ -64,15 +74,15 @@ Strava webhook verification endpoint. Called by Strava when registering a subscr
 { "hub.challenge": "<value from query>" }
 ```
 
-**Response (403):** Returned if `hub.mode` ≠ `subscribe` or `hub.verify_token` doesn't match.
+**Response (403):** Returned if `hub.mode` ≠ `subscribe`, the path secret doesn't match, or `hub.verify_token` doesn't match.
 
 ---
 
-## POST /api/strava/webhook
+## POST /api/strava/webhook/[secret]
 
 Receives real-time activity events from Strava after a webhook subscription is active.
 
-**Auth:** None (validated by Strava; no session cookie). Events only fire after subscription is registered.
+**Auth:** Path `secret` must match the live `stravaWebhookToken` (no session cookie — Strava can't authenticate any other way).
 
 **Request body (Strava event):**
 ```json
@@ -93,16 +103,9 @@ Receives real-time activity events from Strava after a webhook subscription is a
 - `athlete` events are ignored.
 - If no `StravaAccount` matches `owner_id`, request is silently dropped.
 
-**Activation (one-time, after deploy to public domain):**
-```bash
-curl -X POST https://www.strava.com/api/v3/push_subscriptions \
-  -F client_id=YOUR_CLIENT_ID \
-  -F client_secret=YOUR_CLIENT_SECRET \
-  -F callback_url=https://yourdomain.com/api/strava/webhook \
-  -F verify_token=YOUR_VERIFY_TOKEN
-```
+**Activation:** done through the Settings UI ("Register with Strava" button → `POST /api/strava/webhook-subscription`), which generates the secret, saves it to `AppConfig.stravaWebhookToken`, and registers `callback_url=https://yourdomain.com/api/strava/webhook/<secret>` with Strava automatically. No manual `curl` needed.
 
-**Required env var:** `STRAVA_WEBHOOK_VERIFY_TOKEN` — any secret string, set in `.env.local`.
+**Required env var:** `STRAVA_WEBHOOK_VERIFY_TOKEN` — fallback only, used if no `AppConfig` row has a token set.
 
 ---
 

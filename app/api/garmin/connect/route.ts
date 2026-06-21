@@ -52,12 +52,16 @@ export async function POST(req: NextRequest) {
     create: {
       userId,
       displayName:  tokens.displayName,
+      oauth1Token:  encrypt(tokens.oauth1Token),
+      oauth1Secret: encrypt(tokens.oauth1Secret),
       accessToken:  encrypt(tokens.accessToken),
       refreshToken: encrypt(tokens.refreshToken),
       expiresAt:    tokens.expiresAt,
     },
     update: {
       displayName:  tokens.displayName,
+      oauth1Token:  encrypt(tokens.oauth1Token),
+      oauth1Secret: encrypt(tokens.oauth1Secret),
       accessToken:  encrypt(tokens.accessToken),
       refreshToken: encrypt(tokens.refreshToken),
       expiresAt:    tokens.expiresAt,

@@ -3,11 +3,11 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { encrypt, safeDecrypt } from "@/lib/encrypt";
-import { refreshGarminTokens } from "./auth";
+import { reexchangeOAuth2 } from "./auth";
 
 const CONNECT_API = "https://connectapi.garmin.com";
 
-/** Returns a valid Bearer token for userId, refreshing it if it's within 60 s of expiry. */
+/** Returns a valid Bearer token for userId, re-exchanging it if it's within 60 s of expiry. */
 export async function getGarminToken(userId: string): Promise<string> {
   const account = await prisma.garminAccount.findUnique({ where: { userId } });
   if (!account) throw new Error("GARMIN_NOT_CONNECTED");
@@ -18,18 +18,19 @@ export async function getGarminToken(userId: string): Promise<string> {
   // Return current token if it still has > 60 s left
   if (account.expiresAt > new Date(Date.now() + 60_000)) return accessToken;
 
-  // Refresh
-  const refreshToken = safeDecrypt(account.refreshToken);
-  if (!refreshToken) throw new Error("Failed to decrypt Garmin refresh token");
+  // Garmin has no OAuth2 refresh_token grant — re-exchange the long-lived OAuth1
+  // token/secret pair for a fresh access token instead (see reexchangeOAuth2).
+  const oauth1Token  = safeDecrypt(account.oauth1Token);
+  const oauth1Secret = safeDecrypt(account.oauth1Secret);
+  if (!oauth1Token || !oauth1Secret) throw new Error("GARMIN_REAUTH_REQUIRED");
 
-  const tokens = await refreshGarminTokens(refreshToken);
+  const tokens = await reexchangeOAuth2(oauth1Token, oauth1Secret);
 
   await prisma.garminAccount.update({
     where: { userId },
     data: {
-      accessToken:  encrypt(tokens.accessToken),
-      refreshToken: encrypt(tokens.refreshToken),
-      expiresAt:    tokens.expiresAt,
+      accessToken: encrypt(tokens.accessToken),
+      expiresAt:   tokens.expiresAt,
     },
   });
 

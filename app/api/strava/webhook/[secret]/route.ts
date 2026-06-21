@@ -1,16 +1,21 @@
 /**
  * Strava Webhook — Event Subscriptions API
  *
- * GET  /api/strava/webhook  — Strava validation challenge (called once at subscription time)
- * POST /api/strava/webhook  — Incoming push events (activity create/update/delete)
+ * GET  /api/strava/webhook/<secret>  — Strava validation challenge (called once at subscription time)
+ * POST /api/strava/webhook/<secret>  — Incoming push events (activity create/update/delete)
  *
  * Strava does not sign POST event payloads (unlike Stripe/GitHub webhooks), so the
- * callback_url itself must carry a shared secret as a query param — Strava preserves
- * the registered query string on every subsequent event delivery, not just the GET
- * handshake. Register (and re-register if rotating the secret) with:
+ * shared secret lives in the URL *path* rather than a query string — Strava appends
+ * its own hub.* params to whatever callback_url was registered, and a query-string
+ * secret risks colliding with that append if Strava doesn't insert the "&" correctly
+ * (confirmed: a literal extra "?" instead of "&" makes hub.mode unparseable and the
+ * GET handshake fail with exactly the "does not return 200" error Strava reports).
+ * A path segment can't collide with query params at all, so it's used here instead.
+ *
+ * Register (and re-register if rotating the secret) with:
  *   curl -X POST https://www.strava.com/api/v3/push_subscriptions \
  *     -d "client_id=..." -d "client_secret=..." \
- *     -d "callback_url=https://yourdomain.com/api/strava/webhook?secret=STRAVA_WEBHOOK_VERIFY_TOKEN" \
+ *     -d "callback_url=https://yourdomain.com/api/strava/webhook/STRAVA_WEBHOOK_VERIFY_TOKEN" \
  *     -d "verify_token=STRAVA_WEBHOOK_VERIFY_TOKEN"
  */
 
@@ -31,8 +36,11 @@ async function getValidWebhookToken(): Promise<string | undefined> {
   return config?.stravaWebhookToken ?? process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
 }
 
+type RouteParams = { params: Promise<{ secret: string }> };
+
 // GET — Strava sends this to verify the endpoint during subscription setup
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest, { params }: RouteParams) {
+  const { secret } = await params;
   const { searchParams } = new URL(req.url);
   const mode      = searchParams.get("hub.mode");
   const token     = searchParams.get("hub.verify_token");
@@ -44,8 +52,8 @@ export async function GET(req: NextRequest) {
   }
 
   const validToken = await getValidWebhookToken();
-  if (!validToken || token !== validToken) {
-    console.warn(`[strava/webhook] GET validation token mismatch — received="${token}" expected="${validToken}"`);
+  if (!validToken || secret !== validToken || token !== validToken) {
+    console.warn(`[strava/webhook] GET validation mismatch — path secret="${secret}" hub.verify_token="${token}" expected="${validToken}"`);
     return new Response("Forbidden", { status: 403 });
   }
 
@@ -63,9 +71,8 @@ interface StravaEvent {
 }
 
 // POST — incoming event (must respond 200 within 2 s; processing is async)
-export async function POST(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const secret = searchParams.get("secret");
+export async function POST(req: NextRequest, { params }: RouteParams) {
+  const { secret } = await params;
   const validToken = await getValidWebhookToken();
   if (!validToken || secret !== validToken) return new Response("Forbidden", { status: 403 });
 

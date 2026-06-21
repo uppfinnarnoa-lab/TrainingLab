@@ -89,8 +89,10 @@ model GarminAccount {
   id           String   @id @default(cuid())
   userId       String   @unique
   displayName  String?  // Garmin Connect username — needed for Connect API path params
+  oauth1Token  String?  // AES-256-GCM encrypted — long-lived (~6mo); re-exchanged for a fresh OAuth2 access token when it expires (Garmin has no standard refresh_token grant)
+  oauth1Secret String?  // AES-256-GCM encrypted — paired with oauth1Token for the re-exchange signature
   accessToken  String   // AES-256-GCM encrypted OAuth2 Bearer token
-  refreshToken String   // AES-256-GCM encrypted OAuth2 refresh token
+  refreshToken String   // AES-256-GCM encrypted — returned by Garmin's exchange endpoint but not redeemable via any known endpoint; kept, unused for refresh
   expiresAt    DateTime // access token expiry
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

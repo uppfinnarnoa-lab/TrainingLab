@@ -440,12 +440,13 @@ export interface GarminTokens {
 /** Authenticate with Garmin Connect using email/password.
  *  Tries the new mobile JSON API first (June 2026 flow), falls back to the
  *  older /sso/embed HTML form if the mobile endpoint is unavailable.
- *  Returns OAuth2 tokens and the Garmin display name.
+ *  Returns OAuth2 tokens, the OAuth1 token/secret pair (needed later to re-exchange
+ *  for a fresh access token — see reexchangeOAuth2), and the Garmin display name.
  *  Email/password are used only for this call — never returned or stored. */
 export async function loginWithGarmin(
   email: string,
   password: string,
-): Promise<GarminTokens & { displayName: string | null }> {
+): Promise<GarminTokens & { oauth1Token: string; oauth1Secret: string; displayName: string | null }> {
   let ticket: string;
 
   // Strategy 1: Mobile JSON API (new flow, June 2026)
@@ -485,7 +486,7 @@ export async function loginWithGarmin(
   const tokens                       = await oauth1ToOAuth2(token, secret, jar2, mfaToken);
   const displayName                  = await fetchDisplayName(tokens.accessToken);
 
-  return { ...tokens, displayName };
+  return { ...tokens, oauth1Token: token, oauth1Secret: secret, displayName };
 }
 
 /** Fetch the Garmin SSO page and report what we find — used by /api/garmin/diagnose. */
@@ -537,27 +538,15 @@ export async function diagnoseSsoPage(): Promise<{
   };
 }
 
-/** Refresh an expired OAuth2 access token using the refresh token. */
-export async function refreshGarminTokens(refreshToken: string): Promise<GarminTokens> {
-  const auth = Buffer.from(`${CONSUMER_KEY}:${CONSUMER_SECRET}`).toString("base64");
-
-  const res = await fetch(`${CONNECT_API}/oauth-service/oauth/token`, {
-    method:  "POST",
-    headers: {
-      Authorization:  `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type:    "refresh_token",
-      refresh_token: refreshToken,
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Garmin token refresh failed: ${res.status}`);
-  const data = await res.json() as Record<string, unknown>;
-  return {
-    accessToken:  data.access_token as string,
-    refreshToken: (data.refresh_token as string | undefined) ?? refreshToken,
-    expiresAt:    new Date(Date.now() + ((data.expires_in as number | undefined) ?? 3600) * 1000),
-  };
+/**
+ * Get a fresh OAuth2 access token using the long-lived OAuth1 token/secret pair.
+ *
+ * Garmin has no standard OAuth2 refresh_token grant (confirmed live: POST to
+ * /oauth-service/oauth/token returns 405) — per garth (the reference implementation
+ * for this unofficial API), refreshing an expired access token means re-running the
+ * same OAuth1-signed exchange used at initial login, not redeeming a refresh token.
+ */
+export async function reexchangeOAuth2(oauth1Token: string, oauth1Secret: string): Promise<GarminTokens> {
+  const jar = new CookieJar();
+  return oauth1ToOAuth2(oauth1Token, oauth1Secret, jar);
 }
