@@ -50,11 +50,13 @@ export async function GET() {
   });
 }
 
+// Strava's documented DELETE format takes client_id/client_secret as *query params*
+// on the URL, not a request body — confirmed live this was the actual bug: sending them
+// as a body made the call return a "successful"-looking response without deleting
+// anything (the subscription was still there on every check, even after a 20s poll wait).
 async function deleteStravaSubscription(subscriptionId: number, clientId: string, clientSecret: string): Promise<boolean> {
-  const res = await fetch(`${STRAVA_PUSH_API}/${subscriptionId}`, {
-    method: "DELETE",
-    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret }),
-  });
+  const url = `${STRAVA_PUSH_API}/${subscriptionId}?client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}`;
+  const res = await fetch(url, { method: "DELETE" });
   return res.ok || res.status === 404;
 }
 
@@ -126,11 +128,16 @@ export async function POST(req: Request) {
     console.warn(`[strava/webhook-subscription] delete of ${staleId} ${deleted ? "succeeded" : "failed"}`);
     if (!deleted) break;
 
+    // The real bug here turned out to be deleteStravaSubscription() sending credentials as a
+    // request body instead of query params (Strava silently no-ops + returns 404 rather than
+    // actually deleting) — now fixed, so this should normally clear on the first check. Kept
+    // as a short safety-net poll rather than removed outright, in case of genuine propagation
+    // delay on Strava's side.
     let gone = false;
-    for (let poll = 0; poll < 10; poll++) {
-      await new Promise(r => setTimeout(r, 2000));
+    for (let poll = 0; poll < 5; poll++) {
+      await new Promise(r => setTimeout(r, 1000));
       const stillThereId: number | null = await fetchStravaSubscriptionId(creds.stravaClientId, creds.stravaClientSecret).catch((): number => staleId);
-      console.warn(`[strava/webhook-subscription] poll ${poll + 1}/10 after delete — subscription id now: ${stillThereId}`);
+      console.warn(`[strava/webhook-subscription] poll ${poll + 1}/5 after delete — subscription id now: ${stillThereId}`);
       if (stillThereId !== staleId) { gone = true; break; }
     }
     if (!gone) {
@@ -174,18 +181,9 @@ export async function DELETE() {
   }
   if (!subscriptionId) return Response.json({ error: "No active subscription" }, { status: 404 });
 
-  const res = await fetch(`${STRAVA_PUSH_API}/${subscriptionId}`, {
-    method: "DELETE",
-    body: new URLSearchParams({
-      client_id:     creds.stravaClientId ?? "",
-      client_secret: creds.stravaClientSecret ?? "",
-    }),
-  });
-
-  // 204 = success, 404 = already gone — both are fine
-  if (!res.ok && res.status !== 404) {
-    const data = await res.json().catch(() => ({}));
-    return Response.json({ error: "Failed to delete subscription", details: data }, { status: res.status });
+  const deleted = await deleteStravaSubscription(subscriptionId, creds.stravaClientId ?? "", creds.stravaClientSecret ?? "");
+  if (!deleted) {
+    return Response.json({ error: "Failed to delete subscription" }, { status: 502 });
   }
 
   await prisma.appConfig.update({
