@@ -99,10 +99,15 @@ export async function POST(req: Request) {
 
   // Strava only allows one subscription per client_id — if one already exists (e.g. from
   // an earlier callback_url scheme, or a partial registration our DB never recorded),
-  // delete it and retry instead of making the user hunt for it manually. Up to 3 attempts
-  // with a short delay — Strava's delete may not be immediately consistent with its own
-  // "does a subscription exist" check on the very next request.
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // delete it and retry instead of making the user hunt for it manually.
+  //
+  // Confirmed live this isn't a one-shot race: deleteStravaSubscription() reported success,
+  // but Strava's own "does a subscription exist" check immediately after still found the
+  // exact same id, every time, for 3 straight attempts with a fixed 1.5s delay — Strava's
+  // delete is not immediately consistent. So instead of guessing a longer fixed delay, poll
+  // fetchStravaSubscriptionId() after the delete until Strava itself confirms the id is gone
+  // (or give up after ~20s) before attempting to recreate.
+  for (let attempt = 0; attempt < 2; attempt++) {
     const alreadyExists = !res.ok && Array.isArray(data?.errors) && data.errors.some((e: { code?: string }) => e.code === "already exists");
     if (!alreadyExists) break;
 
@@ -121,7 +126,17 @@ export async function POST(req: Request) {
     console.warn(`[strava/webhook-subscription] delete of ${staleId} ${deleted ? "succeeded" : "failed"}`);
     if (!deleted) break;
 
-    await new Promise(r => setTimeout(r, 1500));
+    let gone = false;
+    for (let poll = 0; poll < 10; poll++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const stillThereId: number | null = await fetchStravaSubscriptionId(creds.stravaClientId, creds.stravaClientSecret).catch((): number => staleId);
+      console.warn(`[strava/webhook-subscription] poll ${poll + 1}/10 after delete — subscription id now: ${stillThereId}`);
+      if (stillThereId !== staleId) { gone = true; break; }
+    }
+    if (!gone) {
+      console.warn("[strava/webhook-subscription] gave up waiting for Strava's delete to propagate — retrying anyway");
+    }
+
     res  = await fetch(STRAVA_PUSH_API, { method: "POST", body });
     data = await res.json();
     console.warn(`[strava/webhook-subscription] retry POST after delete: ${res.status} ${JSON.stringify(data).slice(0, 200)}`);

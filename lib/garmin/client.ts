@@ -51,5 +51,10 @@ export async function garminConnectFetch(
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`Garmin Connect API error: ${res.status} ${path}`);
-  return res.json();
+
+  // Some endpoints (e.g. hrv-service for a date with no recorded HRV) return 200 with an
+  // empty body — res.json() throws "Unexpected end of JSON input" on that, even though it's
+  // a legitimate "no data for this date" response, not an error.
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
