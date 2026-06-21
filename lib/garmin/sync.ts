@@ -45,12 +45,18 @@ export async function syncGarminDaily(userId: string, date: Date = new Date()): 
     }
   }
 
+  // hrv/readiness/spo2 take the date as a URL *path* segment, not a query param — confirmed
+  // against python-garminconnect (the reference implementation): garmin_connect_hrv_url +
+  // "/{cdate}", garmin_connect_training_readiness_url + "/{cdate}", garmin_connect_daily_spo2_url
+  // + "/{cdate}" (and spo2's base path itself was also wrong — daily/spo2, not
+  // user/daily-wellness/spo2/details). Unlike summary/sleep, none of these three use displayName
+  // in the path at all.
   const [summaryRaw, sleepRaw, hrvRaw, readinessRaw, spo2Raw] = await Promise.all([
     safe(garminConnectFetch(userId, `/usersummary-service/usersummary/daily/${dn}`, { calendarDate: dateStr }), "summary"),
     safe(garminConnectFetch(userId, `/wellness-service/wellness/dailySleepData/${dn}`, { date: dateStr, nonSleepBufferMinutes: "60" }), "sleep"),
-    safe(garminConnectFetch(userId, `/hrv-service/hrv/${dn}`, { startDate: dateStr, endDate: dateStr }), "hrv"),
-    safe(garminConnectFetch(userId, `/metrics-service/metrics/trainingreadiness`, { startDate: dateStr }), "readiness"),
-    safe(garminConnectFetch(userId, `/wellness-service/wellness/user/daily-wellness/spo2/details`, { startDate: dateStr, endDate: dateStr }), "spo2"),
+    safe(garminConnectFetch(userId, `/hrv-service/hrv/${dateStr}`), "hrv"),
+    safe(garminConnectFetch(userId, `/metrics-service/metrics/trainingreadiness/${dateStr}`), "readiness"),
+    safe(garminConnectFetch(userId, `/wellness-service/wellness/daily/spo2/${dateStr}`), "spo2"),
   ]);
 
   const summary   = (summaryRaw as AnyObj | null)  ?? {};

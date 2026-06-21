@@ -3342,4 +3342,21 @@ Both reported live from production (`training.helgars.se`), neither reproducible
 
 ---
 
+**Session 2026-06-21e — Garmin hrv/readiness/spo2 404s root-caused against the reference implementation's actual source code; Strava self-heal hardened with retries + logging since it still failed once more.**
+
+**Garmin — 3 of 5 daily wellness fields were 404ing even though the account connection itself now works** (PM2 logs showed `summary` and `sleep` succeeding, `hrv`/`readiness`/`spo2` all 404). Fetched `python-garminconnect`'s actual source (the reference implementation) rather than guessing again: all three use the date as a URL **path** segment, not a query param — and none of them put `displayName` in the path at all (unlike `summary`/`sleep`, which do use it). Our code had the date as a query param (`startDate`/`endDate`) on all three, and used `${dn}` in the URL for `hrv` where it doesn't belong. `spo2`'s base path was also just wrong (`/wellness-service/wellness/user/daily-wellness/spo2/details` → confirmed correct path is `/wellness-service/wellness/daily/spo2`).
+
+**Fix (`lib/garmin/sync.ts`):**
+- `hrv`: `/hrv-service/hrv/${dn}?startDate=&endDate=` → `/hrv-service/hrv/${dateStr}`
+- `readiness`: `/metrics-service/metrics/trainingreadiness?startDate=` → `/metrics-service/metrics/trainingreadiness/${dateStr}`
+- `spo2`: `/wellness-service/wellness/user/daily-wellness/spo2/details?startDate=&endDate=` → `/wellness-service/wellness/daily/spo2/${dateStr}`
+
+Not re-verified live from here (needs the user's next sync) — confirmed only against the reference implementation's source, not a real response body, since dev has no real Garmin account connected.
+
+**Strava — still "subscription: already exists" after the self-heal fix from the previous session.** Without a fresh error detail to go on, hardened the self-heal logic defensively rather than guessing a single new root cause: `app/api/strava/webhook-subscription/route.ts`'s POST now retries the delete-stale-then-recreate cycle up to 3 times with a 1.5 s delay between delete and retry (covers eventual-consistency lag on Strava's side if the previous single-shot retry fired before the delete had fully taken effect), and logs every step (`[strava/webhook-subscription] ...` — stale id found, delete result, retry status/body) so the *next* failure, if any, is diagnosable straight from `pm2 logs` without needing another screenshot round-trip.
+
+**Verification:** `pnpm build --no-lint` and `pnpm exec tsc --noEmit` pass. Neither fix re-verified against the real, live external API from here — Garmin needs the user's account (dev has none connected), Strava needs real app credentials (dev's are placeholder/invalid, confirmed earlier this saga via a direct 401 from Strava's API).
+
+---
+
 *Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification, statistical-threshold card now mirrors applied zones + create-branch field fix, duplicate HR-zone-distribution title disambiguated, info-tooltip hover-flicker fix, LT trend now uses combined activities+laps data matching the real estimator, OL-filter all-activities change tried and reverted after real-data validation showed it discards legitimate easy training, live calibration and rolling trend unified into one shared estimateZonesFromActivities() function, breakpoint-detection fastest-bucket heuristic fixed + gap-aware median-filter smoothing + lt1/lt2 ratio-consistency fix, confidence/reliability tooltips added to both statistical-zones card and LT/AT trend chart)*

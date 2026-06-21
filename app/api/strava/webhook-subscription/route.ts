@@ -99,15 +99,32 @@ export async function POST(req: Request) {
 
   // Strava only allows one subscription per client_id — if one already exists (e.g. from
   // an earlier callback_url scheme, or a partial registration our DB never recorded),
-  // delete it and retry once instead of making the user hunt for it manually.
-  const alreadyExists = !res.ok && Array.isArray(data?.errors) && data.errors.some((e: { code?: string }) => e.code === "already exists");
-  if (alreadyExists) {
-    const staleId = await fetchStravaSubscriptionId(creds.stravaClientId, creds.stravaClientSecret).catch(() => null);
-    if (staleId) {
-      await deleteStravaSubscription(staleId, creds.stravaClientId, creds.stravaClientSecret).catch(() => false);
-      res  = await fetch(STRAVA_PUSH_API, { method: "POST", body });
-      data = await res.json();
-    }
+  // delete it and retry instead of making the user hunt for it manually. Up to 3 attempts
+  // with a short delay — Strava's delete may not be immediately consistent with its own
+  // "does a subscription exist" check on the very next request.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const alreadyExists = !res.ok && Array.isArray(data?.errors) && data.errors.some((e: { code?: string }) => e.code === "already exists");
+    if (!alreadyExists) break;
+
+    console.warn(`[strava/webhook-subscription] registration attempt ${attempt + 1} got "already exists" — looking up the stale subscription`);
+    const staleId = await fetchStravaSubscriptionId(creds.stravaClientId, creds.stravaClientSecret).catch(e => {
+      console.error("[strava/webhook-subscription] fetchStravaSubscriptionId failed:", e instanceof Error ? e.message : e);
+      return null;
+    });
+    console.warn(`[strava/webhook-subscription] stale subscription id from Strava: ${staleId}`);
+    if (!staleId) break;
+
+    const deleted = await deleteStravaSubscription(staleId, creds.stravaClientId, creds.stravaClientSecret).catch(e => {
+      console.error("[strava/webhook-subscription] deleteStravaSubscription threw:", e instanceof Error ? e.message : e);
+      return false;
+    });
+    console.warn(`[strava/webhook-subscription] delete of ${staleId} ${deleted ? "succeeded" : "failed"}`);
+    if (!deleted) break;
+
+    await new Promise(r => setTimeout(r, 1500));
+    res  = await fetch(STRAVA_PUSH_API, { method: "POST", body });
+    data = await res.json();
+    console.warn(`[strava/webhook-subscription] retry POST after delete: ${res.status} ${JSON.stringify(data).slice(0, 200)}`);
   }
 
   if (!res.ok) {
