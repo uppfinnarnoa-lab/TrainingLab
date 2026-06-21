@@ -3381,4 +3381,14 @@ The stale subscription (351763) was deleted directly against Strava's API as a o
 
 ---
 
+**Session 2026-06-22c — Garmin backfill failing with zero log output: the request itself was too slow, not anything inside it.**
+
+User reported the generic "Backfill failed — check console." message with no `[garmin]` log lines at all. The math explains it: 90 sequential days × (300ms pacing + real Garmin API latency for 5 parallel calls) lands around 70-90s, well past nginx's default `proxy_read_timeout` (~60s) — the proxy kills the connection mid-run, the browser's `fetch()` rejects with a generic network error (hence the fallback UI message), and nothing in our own code ever actually failed (hence zero log lines — success doesn't log anything in this code).
+
+**Fix:** `app/api/garmin/backfill/route.ts` no longer runs the loop inside the request/response cycle. The POST handler now fires the loop in the background (`void runBackfill(...)`, not awaited — safe here since this is a persistent PM2/`next start` process, not a serverless function that gets frozen after responding) and returns `{ok: true, started: true}` immediately. `runBackfill()` logs progress every 10 days plus a final summary, all visible via `pm2 logs`. `garmin-connect.tsx` updated to show "started in the background, check back shortly" instead of waiting for a final synced/empty/failed count it will never receive.
+
+**Verification:** `pnpm build --no-lint` and `pnpm exec tsc --noEmit` pass. Not yet re-verified live (needs the user's next backfill attempt + a `pm2 logs` check a few minutes later).
+
+---
+
 *Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification, statistical-threshold card now mirrors applied zones + create-branch field fix, duplicate HR-zone-distribution title disambiguated, info-tooltip hover-flicker fix, LT trend now uses combined activities+laps data matching the real estimator, OL-filter all-activities change tried and reverted after real-data validation showed it discards legitimate easy training, live calibration and rolling trend unified into one shared estimateZonesFromActivities() function, breakpoint-detection fastest-bucket heuristic fixed + gap-aware median-filter smoothing + lt1/lt2 ratio-consistency fix, confidence/reliability tooltips added to both statistical-zones card and LT/AT trend chart)*

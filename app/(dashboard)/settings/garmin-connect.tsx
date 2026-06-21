@@ -123,8 +123,7 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
       setBackfillMsg(data?.error === "rate_limited" ? "Too many backfills — try again later." : "Backfill failed — check console.");
       return;
     }
-    const data = await res.json() as { synced: number; empty: number; failed: number };
-    setBackfillMsg(`Backfilled ${days} days — ${data.synced} with data, ${data.empty} empty, ${data.failed} failed.`);
+    setBackfillMsg(`Backfill of ${days} days started in the background — this takes a few minutes. Check the Recovery tab in Stats shortly, or watch server logs for progress.`);
   }
 
   async function connectManual() {
