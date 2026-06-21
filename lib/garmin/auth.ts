@@ -301,8 +301,11 @@ async function oauth1ToOAuth2(
 
 export async function fetchDisplayName(accessToken: string): Promise<string | null> {
   try {
+    // /userprofile-service/userprofile/personal-information returns userInfo/biometricProfile —
+    // no displayName field. socialProfile is the endpoint that actually has it (confirmed live,
+    // matches python-garminconnect's get_full_name()/displayName lookup).
     const res = await fetch(
-      `${CONNECT_API}/userprofile-service/userprofile/personal-information`,
+      `${CONNECT_API}/userprofile-service/socialProfile`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!res.ok) {
