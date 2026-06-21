@@ -305,10 +305,16 @@ export async function fetchDisplayName(accessToken: string): Promise<string | nu
       `${CONNECT_API}/userprofile-service/userprofile/personal-information`,
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[garmin] fetchDisplayName failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
     const data = await res.json() as Record<string, unknown>;
-    return (data.displayName as string | undefined) ?? (data.userName as string | undefined) ?? null;
-  } catch {
+    const name = (data.displayName as string | undefined) ?? (data.userName as string | undefined) ?? null;
+    if (!name) console.error("[garmin] fetchDisplayName: response had no displayName/userName field", JSON.stringify(data).slice(0, 300));
+    return name;
+  } catch (e) {
+    console.error("[garmin] fetchDisplayName threw:", e instanceof Error ? e.message : e);
     return null;
   }
 }

@@ -21,7 +21,13 @@ import { backfillWeather } from "@/lib/weather/backfill";
 import { backfillRunner } from "@/lib/strava/backfill-runner";
 
 async function getValidWebhookToken(): Promise<string | undefined> {
-  const config = await prisma.appConfig.findFirst({ select: { stravaWebhookToken: true } });
+  // Only one Strava push subscription can ever be active app-wide, so the row that
+  // currently holds a non-null token is "the" one — not just whichever row happens to
+  // sort first (matters once there's more than one User/AppConfig row in the table).
+  const config = await prisma.appConfig.findFirst({
+    where:  { stravaWebhookToken: { not: null } },
+    select: { stravaWebhookToken: true },
+  });
   return config?.stravaWebhookToken ?? process.env.STRAVA_WEBHOOK_VERIFY_TOKEN;
 }
 
@@ -32,10 +38,16 @@ export async function GET(req: NextRequest) {
   const token     = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  if (mode !== "subscribe") return new Response("Forbidden", { status: 403 });
+  if (mode !== "subscribe") {
+    console.warn(`[strava/webhook] GET validation: unexpected hub.mode=${mode}`);
+    return new Response("Forbidden", { status: 403 });
+  }
 
   const validToken = await getValidWebhookToken();
-  if (!validToken || token !== validToken) return new Response("Forbidden", { status: 403 });
+  if (!validToken || token !== validToken) {
+    console.warn(`[strava/webhook] GET validation token mismatch — received="${token}" expected="${validToken}"`);
+    return new Response("Forbidden", { status: 403 });
+  }
 
   return Response.json({ "hub.challenge": challenge });
 }

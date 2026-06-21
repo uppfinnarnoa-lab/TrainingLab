@@ -2,7 +2,8 @@
 // Uses unofficial Connect API endpoints; same data available as garminconnect Python library.
 
 import { prisma } from "@/lib/db/prisma";
-import { garminConnectFetch } from "./client";
+import { garminConnectFetch, getGarminToken } from "./client";
+import { fetchDisplayName } from "./auth";
 import { format } from "date-fns";
 
 type AnyObj = Record<string, unknown>;
@@ -19,12 +20,29 @@ export async function syncGarminDaily(userId: string, date: Date = new Date()): 
   const account = await prisma.garminAccount.findUnique({ where: { userId } });
   if (!account) return false;
 
-  const dn      = account.displayName;
+  let dn        = account.displayName;
   const dateStr = format(date, "yyyy-MM-dd");
 
+  // displayName is normally captured once at connect time (exchange-ticket/connect routes).
+  // If that one-off fetch failed silently, the access/refresh tokens are still valid — self-heal
+  // by retrying it here instead of forcing the user to disconnect and reconnect.
   if (!dn) {
-    console.warn(`[garmin] No displayName for user ${userId} — reconnect Garmin in Settings`);
-    return false;
+    console.warn(`[garmin] No displayName cached for user ${userId} — attempting to recover it`);
+    const token = await getGarminToken(userId).catch(e => {
+      console.error("[garmin] getGarminToken failed while recovering displayName:", e instanceof Error ? e.message : e);
+      return null;
+    });
+    if (token) {
+      dn = await fetchDisplayName(token);
+      if (dn) {
+        await prisma.garminAccount.update({ where: { userId }, data: { displayName: dn } });
+        console.log(`[garmin] Recovered displayName for user ${userId}: ${dn}`);
+      }
+    }
+    if (!dn) {
+      console.warn(`[garmin] Still no displayName for user ${userId} — reconnect Garmin in Settings`);
+      return false;
+    }
   }
 
   const [summaryRaw, sleepRaw, hrvRaw, readinessRaw, spo2Raw] = await Promise.all([
