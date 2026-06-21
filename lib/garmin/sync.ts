@@ -7,8 +7,11 @@ import { format } from "date-fns";
 
 type AnyObj = Record<string, unknown>;
 
-function safe(promise: Promise<unknown>): Promise<unknown> {
-  return promise.catch(() => null);
+function safe(promise: Promise<unknown>, label: string): Promise<unknown> {
+  return promise.catch(e => {
+    console.error(`[garmin] ${label} fetch failed:`, e instanceof Error ? e.message : e);
+    return null;
+  });
 }
 
 /** Returns true if at least one real (non-null) field was fetched from Garmin for this date. */
@@ -25,11 +28,11 @@ export async function syncGarminDaily(userId: string, date: Date = new Date()): 
   }
 
   const [summaryRaw, sleepRaw, hrvRaw, readinessRaw, spo2Raw] = await Promise.all([
-    safe(garminConnectFetch(userId, `/usersummary-service/usersummary/daily/${dn}`, { calendarDate: dateStr })),
-    safe(garminConnectFetch(userId, `/wellness-service/wellness/dailySleepData/${dn}`, { date: dateStr, nonSleepBufferMinutes: "60" })),
-    safe(garminConnectFetch(userId, `/hrv-service/hrv/${dn}`, { startDate: dateStr, endDate: dateStr })),
-    safe(garminConnectFetch(userId, `/metrics-service/metrics/trainingreadiness`, { startDate: dateStr })),
-    safe(garminConnectFetch(userId, `/wellness-service/wellness/user/daily-wellness/spo2/details`, { startDate: dateStr, endDate: dateStr })),
+    safe(garminConnectFetch(userId, `/usersummary-service/usersummary/daily/${dn}`, { calendarDate: dateStr }), "summary"),
+    safe(garminConnectFetch(userId, `/wellness-service/wellness/dailySleepData/${dn}`, { date: dateStr, nonSleepBufferMinutes: "60" }), "sleep"),
+    safe(garminConnectFetch(userId, `/hrv-service/hrv/${dn}`, { startDate: dateStr, endDate: dateStr }), "hrv"),
+    safe(garminConnectFetch(userId, `/metrics-service/metrics/trainingreadiness`, { startDate: dateStr }), "readiness"),
+    safe(garminConnectFetch(userId, `/wellness-service/wellness/user/daily-wellness/spo2/details`, { startDate: dateStr, endDate: dateStr }), "spo2"),
   ]);
 
   const summary   = (summaryRaw as AnyObj | null)  ?? {};

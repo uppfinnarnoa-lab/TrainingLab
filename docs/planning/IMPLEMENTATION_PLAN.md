@@ -3275,4 +3275,17 @@ After Bug 16 shipped, the user pointed out 2021-11 still showed LT2=4:45/km when
 
 ---
 
+**Session 2026-06-21 — Diagnostics for two production failures: Strava webhook registration "Bad Request", Garmin backfill 0/90 days with data.**
+
+Both reported live from production (`training.helgars.se`), neither reproducible locally (no real Strava/Garmin production credentials available from this dev machine, and no SSH access to read PM2 logs or query the production DB directly — see CLAUDE.md). Added diagnostics rather than guessing a fix blind:
+
+- **Strava webhook "Bad Request":** `app/api/strava/webhook-subscription/route.ts`'s POST handler already forwards Strava's full error body as `details` in its response, but `strava-connect.tsx`'s `handleRegisterWebhook()` only ever displayed the generic top-level `message` ("Bad Request"), discarding the field-level `errors` array (e.g. `{field: "callback_url", code: "not verifiable"}`) that would actually explain the failure. Fixed to render `field: code` pairs from `details.errors` alongside the message. Leading hypothesis (unconfirmed): the `?secret=` query param baked into `callback_url` (added in the 2026-06-18 webhook-secret fix) may not survive Strava's validation round-trip the way assumed — the next registration attempt's detailed error will confirm or rule this out.
+- **Garmin backfill empty:** `lib/garmin/sync.ts`'s `safe()` wrapper swallowed every Garmin Connect API failure with zero logging — confirmed by the user's "Backfilled 90 days — 0 with data, 90 empty, 0 failed" result, which is consistent with every one of the 5 per-day Garmin fetches (summary/sleep/hrv/readiness/spo2) failing silently (most likely an expired/invalid token, but unconfirmed). `safe()` now takes a label and logs `[garmin] <label> fetch failed: <message>` on every failure — checking `pm2 logs traininglab` after the next "Sync now" will reveal the actual underlying error (e.g. `GARMIN_NOT_CONNECTED`, a decrypt failure, or a 401/403 from `connectapi.garmin.com`).
+
+**Not yet fixed** — both require one more round-trip with the user (redeploy, retry, report back the new detailed error / log lines) before a confident, evidence-based fix can be made instead of a speculative one.
+
+**Verification:** `pnpm build --no-lint` and `pnpm exec tsc --noEmit` pass.
+
+---
+
 *Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification, statistical-threshold card now mirrors applied zones + create-branch field fix, duplicate HR-zone-distribution title disambiguated, info-tooltip hover-flicker fix, LT trend now uses combined activities+laps data matching the real estimator, OL-filter all-activities change tried and reverted after real-data validation showed it discards legitimate easy training, live calibration and rolling trend unified into one shared estimateZonesFromActivities() function, breakpoint-detection fastest-bucket heuristic fixed + gap-aware median-filter smoothing + lt1/lt2 ratio-consistency fix, confidence/reliability tooltips added to both statistical-zones card and LT/AT trend chart)*

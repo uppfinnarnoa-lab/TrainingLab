@@ -231,8 +231,13 @@ export function StravaConnectSection({
     }).catch(() => null);
     setWebhookLoading(false);
     if (!res?.ok) {
-      const data = await res?.json().catch(() => ({}));
-      setWebhookError(data?.error ?? "Registration failed — check console");
+      const data = await res?.json().catch(() => ({})) as { error?: string; details?: { errors?: { resource?: string; field?: string; code?: string }[] } };
+      const fieldErrors = data?.details?.errors
+        ?.map(e => `${e.field ?? e.resource ?? "?"}: ${e.code ?? "?"}`)
+        .join(", ");
+      setWebhookError(
+        fieldErrors ? `${data?.error ?? "Error"} — ${fieldErrors}` : (data?.error ?? "Registration failed — check console")
+      );
       return;
     }
     setWebhookActive(true);
