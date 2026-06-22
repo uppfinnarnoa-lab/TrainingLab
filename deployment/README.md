@@ -171,7 +171,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/helgars.se/privkey.pem;
 
     # SSE streaming — buffering must be disabled for these endpoints
-    location ~ ^/api/(coach/chat|strava/backfill-history|strava/backfill-weather) {
+    location ~ ^/api/(coach/chat|strava/backfill-history|strava/backfill-weather|strava/backfill-splits|strava/backfill-descriptions|garmin/backfill) {
         proxy_pass          http://localhost:3000;
         proxy_http_version  1.1;
         proxy_buffering     off;

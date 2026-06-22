@@ -3405,4 +3405,16 @@ The previous session's fire-and-forget background job fixed the nginx-timeout pr
 
 ---
 
+**Session 2026-06-22e — Garmin backfill's SSE progress bar appeared to hang on first deploy ("started but no log output") — root cause was the nginx config, not the app code.**
+
+`deployment/README.md`'s nginx server block has an explicit regex `location` matching SSE-streaming endpoints to disable `proxy_buffering` and extend `proxy_read_timeout` to 3600s — without that, nginx buffers the *entire* response and only flushes it to the browser once the upstream connection closes (or the default ~60s `proxy_read_timeout` kills it first), which is indistinguishable from "hung" on the client. That regex only listed `coach/chat`, `strava/backfill-history`, and `strava/backfill-weather` — `garmin/backfill` didn't exist yet when it was written, so new requests fell through to the generic `location /` block with default buffering/timeout. Also found two more existing endpoints with the identical gap while auditing this (`strava/backfill-splits`, `strava/backfill-descriptions` — both stream `text/event-stream` but were never added to the regex either).
+
+**Fix:** `deployment/README.md`'s regex now includes all five: `coach/chat|strava/backfill-history|strava/backfill-weather|strava/backfill-splits|strava/backfill-descriptions|garmin/backfill`. This is documentation only — the user's *live* `/etc/nginx/sites-available/traininglab.conf` needs the same regex edit applied manually and `nginx -t && systemctl reload nginx`, since nginx config isn't deployed via this repo.
+
+Confirmed live by the user in the meantime that the Garmin backfill progress bar does eventually start and progress correctly (reached 167/730 in one observed run) even without the nginx fix — likely nginx's buffer filled and started flushing partway through rather than holding the whole response. The nginx fix is still correct and should be applied so this doesn't intermittently hang or get killed by the default timeout on a full 2-year run.
+
+**Verification:** doc-only change, no build/typecheck needed.
+
+---
+
 *Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification, statistical-threshold card now mirrors applied zones + create-branch field fix, duplicate HR-zone-distribution title disambiguated, info-tooltip hover-flicker fix, LT trend now uses combined activities+laps data matching the real estimator, OL-filter all-activities change tried and reverted after real-data validation showed it discards legitimate easy training, live calibration and rolling trend unified into one shared estimateZonesFromActivities() function, breakpoint-detection fastest-bucket heuristic fixed + gap-aware median-filter smoothing + lt1/lt2 ratio-consistency fix, confidence/reliability tooltips added to both statistical-zones card and LT/AT trend chart)*
