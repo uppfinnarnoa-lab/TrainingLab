@@ -3391,4 +3391,18 @@ User reported the generic "Backfill failed — check console." message with no `
 
 ---
 
+**Session 2026-06-22d — Garmin backfill: added a real progress bar (SSE-streamed, matching the existing Strava weather-backfill pattern) and extended the range from 90 days to 2 years.**
+
+The previous session's fire-and-forget background job fixed the nginx-timeout problem but left the user with zero visibility into progress — exactly what was asked for here. Replaced it with the same SSE-streaming pattern already used by `app/api/strava/backfill-weather/route.ts`: the response stays open and pushes a `progress` event after every day, which both gives a live progress bar *and* properly fixes the original timeout issue (each chunk resets nginx's `proxy_read_timeout`, so the connection survives indefinitely as long as chunks keep flowing — no need to rely on a background job with no client feedback).
+
+**Changes:**
+- `app/api/garmin/backfill/route.ts`: rewritten as an SSE stream (`start` → `progress` per day → `done`), days cap raised from 365→730 (2 years), default raised from 90→730.
+- `garmin-connect.tsx`: `backfillDays()` now consumes the SSE stream the same way `handleWeatherBackfill()` does; added a `backfillProgress` state and a progress bar (same markup/styling as the existing weather-backfill progress bar). Button relabeled "Backfill last 2 years", calls `backfillDays(730)`.
+
+**Verified locally end-to-end** (not just typechecked): ran the actual SSE endpoint against a real authenticated session on `pnpm dev` — confirmed the exact event sequence (`start` → 10× `progress` → `done`) for a 10-day test run, and confirmed the existing 3/hour rate limit still triggers correctly (429 on the 4th call within the window). Real Garmin API behavior over a full 2-year range not verified from here (no real Garmin account in dev) — only the streaming/progress mechanics, which are independent of what Garmin's API actually returns per day.
+
+**Verification:** `pnpm build --no-lint` and `pnpm exec tsc --noEmit` pass.
+
+---
+
 *Last updated: 2026-06-18 (coach chat streaming/thinking-indicator fix + tool fetch timeouts, large-screen layout fix, planner desktop drag-and-drop: PointerSensor restore + native/dnd-kit conflict removed from WorkoutPill + display:contents collision-detection fix, laps/splits chart outlier+offset scaling fix, rolling calendar fills available height, statistical-threshold-estimation cache-overwrite fix, LT-trend halfLife cliff-edge smoothing + symmetric rate cap, lap-aware zone-time classification, statistical-threshold card now mirrors applied zones + create-branch field fix, duplicate HR-zone-distribution title disambiguated, info-tooltip hover-flicker fix, LT trend now uses combined activities+laps data matching the real estimator, OL-filter all-activities change tried and reverted after real-data validation showed it discards legitimate easy training, live calibration and rolling trend unified into one shared estimateZonesFromActivities() function, breakpoint-detection fastest-bucket heuristic fixed + gap-aware median-filter smoothing + lt1/lt2 ratio-consistency fix, confidence/reliability tooltips added to both statistical-zones card and LT/AT trend chart)*

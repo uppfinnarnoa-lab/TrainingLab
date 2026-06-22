@@ -55,6 +55,7 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   const [error,       setError]       = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillMsg,  setBackfillMsg] = useState<string | null>(null);
+  const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [ticketInput,    setTicketInput]    = useState("");
@@ -112,18 +113,56 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
   async function backfillDays(days: number) {
     setBackfilling(true);
     setBackfillMsg(null);
-    const res  = await fetch("/api/garmin/backfill", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ days }),
-    }).catch(() => null);
-    setBackfilling(false);
-    if (!res?.ok) {
-      const data = await res?.json().catch(() => ({})) as { error?: string };
-      setBackfillMsg(data?.error === "rate_limited" ? "Too many backfills — try again later." : "Backfill failed — check console.");
+    setBackfillProgress(null);
+
+    let res: Response;
+    try {
+      res = await fetch("/api/garmin/backfill", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ days }),
+      });
+    } catch {
+      setBackfillMsg("Error — could not connect to server");
+      setBackfilling(false);
       return;
     }
-    setBackfillMsg(`Backfill of ${days} days started in the background — this takes a few minutes. Check the Recovery tab in Stats shortly, or watch server logs for progress.`);
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      setBackfillMsg(data?.error === "rate_limited" ? "Too many backfills — try again later." : "Backfill failed — check console.");
+      setBackfilling(false);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const dec    = new TextDecoder();
+    let buffer   = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += dec.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const d = JSON.parse(line.slice(6)) as { type: string; done?: number; total: number; synced?: number; empty?: number; failed?: number };
+            if (d.type === "start") {
+              setBackfillProgress({ done: 0, total: d.total });
+            } else if (d.type === "progress") {
+              setBackfillProgress({ done: d.done ?? 0, total: d.total });
+            } else if (d.type === "done") {
+              setBackfillProgress({ done: d.total, total: d.total });
+              setBackfillMsg(`✓ Backfilled ${d.total} days — ${d.synced} with data, ${d.empty} empty, ${d.failed} failed.`);
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+    } finally {
+      setBackfilling(false);
+    }
   }
 
   async function connectManual() {
@@ -184,12 +223,12 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
             {syncResult === "error" && <span className="text-red-400 ml-1">✗</span>}
           </button>
           <button
-            onClick={() => backfillDays(90)}
+            onClick={() => backfillDays(730)}
             disabled={backfilling}
             className="inline-flex items-center gap-2 rounded-xl bg-surface border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-surface-2 disabled:opacity-40 transition"
           >
             {backfilling ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            Backfill last 90 days
+            Backfill last 2 years
           </button>
           <button
             onClick={disconnect}
@@ -199,6 +238,15 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
             <Unplug size={14} />
             Disconnect
           </button>
+          {backfillProgress && backfillProgress.total > 0 && (
+            <div className="flex-1 min-w-[140px]">
+              <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                <div className="h-full rounded-full bg-accent transition-all"
+                  style={{ width: `${Math.round((backfillProgress.done / backfillProgress.total) * 100)}%` }} />
+              </div>
+              <p className="text-[10px] text-muted mt-0.5">{backfillProgress.done} / {backfillProgress.total}</p>
+            </div>
+          )}
         </div>
         {backfillMsg && <p className="text-xs text-muted">{backfillMsg}</p>}
       </div>
