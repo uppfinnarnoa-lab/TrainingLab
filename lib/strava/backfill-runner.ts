@@ -1,4 +1,5 @@
 import { runHistoricalBackfill, type BackfillEvent, type Signal } from "./backfill";
+import { updateVO2maxAndPaces } from "@/lib/fitness/cache";
 
 export type JobStatus = "idle" | "running" | "paused" | "rate_limit" | "daily_limit" | "done";
 
@@ -79,6 +80,11 @@ class BackfillRunner {
           job.status = "idle"; job.done = event.done; job.total = event.total; job.errors = event.errors; delete job.waitMs;
         } else if (event.type === "done") {
           job.status = "done"; job.done = event.done; job.total = event.total; job.errors = event.errors; delete job.waitMs;
+          // Backfilled laps/splits just landed in the DB — refresh the AUTO-path metrics
+          // (VO2max, paces, LT/AT pace trend) so they reflect the new data without waiting
+          // for the next sync. Does NOT touch statZonesJson/HR zones — those stay
+          // calibration-button-only by design (see lib/fitness/cache.ts).
+          updateVO2maxAndPaces(userId).catch(() => {});
         }
         this.emit(userId, event);
       },

@@ -319,7 +319,10 @@ export function estimateZonesFromStatisticalAnalysis(
   maxHR: number,
   restHR: number,
   asOf?: Date,
+  debug = false,
 ): StatisticalZoneResult | null {
+  const log = (...args: unknown[]) => { if (debug) console.log("[zones:debug]", ...args); };
+
   // ── 1. Filter and compute GAP ──────────────────────────────────────────
   const MIN_DIST = 800;          // allows 1km lap splits from activities
   const MIN_DURATION_SEC = 180;  // 3 min — laps are pre-warmed from the surrounding run
@@ -375,6 +378,7 @@ export function estimateZonesFromStatisticalAnalysis(
   // effective-weight MIN_EFF_WEIGHT=8 threshold, so no hardcoded gap upper bound is needed.
   const points = allValid.filter(p => p.weight > 0.01);
 
+  log(`allValid=${allValid.length} points(weight>0.01)=${points.length} (need >=40)`);
   if (points.length < 40) return null;
 
   const binWidth = 15; // fixed 15 s/km bins
@@ -409,6 +413,7 @@ export function estimateZonesFromStatisticalAnalysis(
   // Enforce non-increasing HR with increasing pace via pool-adjacent-violators.
   // Noise inversions between adjacent buckets corrupt R² and misplace breakpoints.
   const mono = poolAdjacentViolators(buckets);
+  log(`rawBuckets=${buckets.length} monoBuckets=${mono.length} (need >=6)`);
   if (mono.length < 6) return null;
 
   // ── 4. Slope-based LT2 detection + bp2 regression ─────────────────────
@@ -432,6 +437,7 @@ export function estimateZonesFromStatisticalAnalysis(
   // data (scripts/rolling-lt-test.ts): the live computation and well-supported sparse
   // historical windows both have slopeMax well above this; genuinely ambiguous windows
   // (smooth decline, no real kink) sit clearly below it.
+  log(`slopeMax=${slopeMax.toFixed(3)} (need >=0.25)`);
   if (slopeMax < 0.25) return null;
 
   // Scan from the FASTEST bucket — but require a much stronger signal there
@@ -467,6 +473,7 @@ export function estimateZonesFromStatisticalAnalysis(
   const totalVar = hrArr.reduce((s, v, i) => s + bucketWeights[i] * (v - meanHR) ** 2, 0);
   const rSquared = Math.max(0, Math.round((1 - bestLSErr / totalVar) * 100) / 100);
 
+  log(`rSquared=${rSquared} (need >=0.62)`);
   if (rSquared < 0.62) return null;
 
   // LT2: slope-detected breakpoint bp1 (fastest significant HR-drop point)
@@ -491,16 +498,17 @@ export function estimateZonesFromStatisticalAnalysis(
   }
 
   // Sanity: universal physiology — apply equally to all athletes
-  if (lt1HR >= lt2HR - 5) return null;       // minimum 5 bpm separation
-  if (lt2HR >= maxHR * 0.98) return null;
-  if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70) return null;
-  if (lt2PaceSecPerKm >= lt1PaceSecPerKm) return null;
+  log(`lt1HR=${lt1HR} lt2HR=${lt2HR} maxHR=${maxHR} lt1Pace=${lt1PaceSecPerKm} lt2Pace=${lt2PaceSecPerKm} gapP60=${gapP60} gapP85=${gapP85}`);
+  if (lt1HR >= lt2HR - 5) { log("FAIL: lt1HR >= lt2HR - 5"); return null; }       // minimum 5 bpm separation
+  if (lt2HR >= maxHR * 0.98) { log("FAIL: lt2HR >= maxHR*0.98"); return null; }
+  if (lt1HR < maxHR * 0.60 || lt2HR < maxHR * 0.70) { log("FAIL: lt1HR < maxHR*0.60 || lt2HR < maxHR*0.70"); return null; }
+  if (lt2PaceSecPerKm >= lt1PaceSecPerKm) { log("FAIL: lt2Pace >= lt1Pace"); return null; }
   // Pace sanity: data-driven — threshold paces must be in the faster minority of training.
   // LT2 (threshold effort) must be faster than 60% of training laps;
   // LT1 (aerobic effort) must be faster than 85% of training laps.
   // These percentiles auto-scale to any athlete's fitness level.
-  if (lt2PaceSecPerKm > gapP60) return null;
-  if (lt1PaceSecPerKm > gapP85) return null;
+  if (lt2PaceSecPerKm > gapP60) { log("FAIL: lt2Pace slower than gapP60"); return null; }
+  if (lt1PaceSecPerKm > gapP85) { log("FAIL: lt1Pace slower than gapP85"); return null; }
 
   // ── 5. Build non-uniform zones ─────────────────────────────────────────
   const z2width = Math.max(8, Math.round(lt1HR * 0.07)); // same formula as buildHRZonesFromLT
@@ -518,8 +526,9 @@ export function estimateZonesFromStatisticalAnalysis(
   };
 
   // Final guard: if zones are still invalid for any reason, discard
-  if (!ensureValidZones(zones)) return null;
+  if (!ensureValidZones(zones)) { log("FAIL: ensureValidZones rejected the built zones"); return null; }
 
+  log(`SUCCESS: lt1HR=${lt1HR} lt2HR=${lt2HR} rSquared=${rSquared} buckets=${buckets.length}`);
   return { lt1HR, lt2HR, lt1PaceSecPerKm, lt2PaceSecPerKm, rSquared, bucketCount: buckets.length, zones };
 }
 
@@ -626,9 +635,12 @@ export function estimateZonesFromActivities(
   maxHR: number,
   restHR: number,
   asOf?: Date,
+  debug = false,
 ): StatisticalZoneResult | null {
+  if (debug) console.log(`[zones:debug] estimateZonesFromActivities: ${activities.length} candidate activities, maxHR=${maxHR} restHR=${restHR}`);
   const phase1Laps = buildLapRunsForZones(activities, nameOnlyOlFilter);
-  const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR, asOf);
+  if (debug) console.log(`[zones:debug] phase1 lap-rows=${phase1Laps.length} (from activities with a non-empty .laps array)`);
+  const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR, asOf, debug);
   const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
 
   const olFilter = (a: ActivityForZoneEstimation) =>
@@ -637,7 +649,8 @@ export function estimateZonesFromActivities(
 
   const runs = buildWholeActRunsForZones(activities, olFilter);
   const lapRuns = buildLapRunsForZones(activities, olFilter);
-  return estimateZonesFromStatisticalAnalysis([...runs, ...lapRuns], maxHR, restHR, asOf);
+  if (debug) console.log(`[zones:debug] final pass: whole-activity rows=${runs.length} lap rows=${lapRuns.length}`);
+  return estimateZonesFromStatisticalAnalysis([...runs, ...lapRuns], maxHR, restHR, asOf, debug);
 }
 
 function segErr(paces: number[], hrs: number[], from: number, to: number, weights?: number[]): number {

@@ -1130,7 +1130,7 @@ function StatisticalZonesCard({ sz }: { sz: StatisticalZoneResult | null }) {
       </div>
       {!sz ? (
         <div className="p-4">
-          <p className="text-xs text-muted py-4 text-center">No lap data yet — run a Strava backfill first.</p>
+          <p className="text-xs text-muted py-4 text-center">No lap data yet — run a Strava backfill, then click &quot;Apply zones&quot; above.</p>
         </div>
       ) : (
         <>

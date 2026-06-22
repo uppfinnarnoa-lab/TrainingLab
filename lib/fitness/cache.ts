@@ -559,7 +559,7 @@ export async function updateHRZones(userId: string) {
   // never diverge: this is what "Apply zones" actually applies).
   const statResult = estimateZonesFromActivities(
     (acts as (ActLight & { laps?: unknown })[]).filter(a => /run|trail/i.test(a.sportType)),
-    maxHR, restHR,
+    maxHR, restHR, undefined, true, // debug=true — this is the manual "Apply zones" call, logs are infrequent
   );
   let zonesMethod: "statistical" | "race-pbs" | "fallback" | "manual" = "fallback";
   let rSquared: number | undefined;
