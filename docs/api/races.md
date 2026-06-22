@@ -63,7 +63,29 @@ Find running activities within ±3 days of a date for activity linking.
 ]
 ```
 
-**Filtering:** Only `Run`, `TrailRun`, `VirtualRun` sport types. Max 10 results.
+**Filtering:** Excludes activities named as warm-up/cool-down (`warm*`, `cool*`, `WU*`, `CD*`, `uppvärmning*`, `nedvarvning*`, prefix match, case-insensitive). Max 20 results.
+
+---
+
+## POST /api/races/auto-link
+
+Attempt to automatically link unlinked race records to a matching Strava activity.
+
+**Auth:** Required
+
+**Request:** No body.
+
+**Response (200):**
+```json
+{
+  "linked": 3,
+  "updates": [
+    { "id": "cuid", "stravaActivityId": "123456789" }
+  ]
+}
+```
+
+**Side effects:** For each `RaceRecord` with `stravaActivityId: null`, looks for activities within ±1 day of the race date and within ±20% of `distanceM`; if exactly one candidate matches, sets `RaceRecord.stravaActivityId`. Records with zero or multiple candidates are left unlinked (no ambiguity resolution).
 
 ---
 

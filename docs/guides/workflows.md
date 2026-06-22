@@ -27,10 +27,7 @@ pnpm dev
 # Type check
 pnpm tsc --noEmit
 
-# Database migrations
-pnpm prisma migrate dev --name <migration-name>
-
-# Push schema without migration (dev only)
+# Apply schema changes (this project has no migration files — db push only, in dev and prod alike)
 pnpm prisma db push
 
 # Open Prisma Studio (DB browser)
@@ -56,36 +53,22 @@ GOOGLE_AI_API_KEY        # optional default; users can set own key in UI
 ANTHROPIC_API_KEY        # optional default; users can set own key in UI
 ```
 
-## Production Deployment (Ubuntu + Apache)
+## Production Deployment (Ubuntu + nginx)
+
+See [`deployment/README.md`](../../deployment/README.md) for the full setup guide and update procedure — don't duplicate it here. Routine update after pushing to main:
 
 ```bash
-# Build
-pnpm build
-
-# Start/restart with PM2
-pm2 restart traininglab
-# or first time:
-pm2 start ecosystem.config.js
-
-# View logs
-pm2 logs traininglab
-
-# DB migrations in production
-pnpm prisma migrate deploy
+cd /var/www/traininglab && git pull --ff-only && pnpm exec next build --no-lint && pm2 reload traininglab --update-env
 ```
 
-Apache virtual host config is in `GlobalDoc/` and deployment guide in `IMPLEMENTATION_PLAN.md §9`.
-SSL via Let's Encrypt (`certbot`). Streaming AI responses require `SetEnv proxy-sendchunked 1` in Apache config.
-
 ## Adding a New API Endpoint
-1. Write the I/O doc in `docs/api/<name>.md` first (see `GlobalDoc/documentation-rules.md`)
+1. Write the I/O doc in `docs/api/<name>.md` first (see [`documentation-rules.md`](documentation-rules.md))
 2. Implement in `app/api/<path>/route.ts`
-3. Add to `MEMORY.md` / relevant GlobalDoc if it changes the architecture
 
 ## Adding a New DB Model or Field
 1. Edit `prisma/schema.prisma`
-2. Run `pnpm prisma migrate dev --name <name>`
-3. Update `GlobalDoc/architecture.md` schema table if the model is significant
+2. Run `pnpm prisma db push` (no migration files in this project — see `deployment/README.md` §14 for schema safety rules)
+3. Update [`docs/architecture/overview.md`](../architecture/overview.md) schema table if the model is significant
 4. Update any I/O docs in `docs/schemas/` that reference the model
 
 ## Updating the AI Context

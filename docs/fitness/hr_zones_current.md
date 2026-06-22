@@ -12,9 +12,9 @@ Detta dokument beskriver kort och koncist hur pulszonerna (HR-zoner) beräknas i
     4. Standardvärde (50 bpm) om inget annat finns.
 *   **Maxpuls (Max HR)**: Hämtas i prioritetsordning från:
     1. Användarens manuella profil (Inställningar) – vinner alltid.
-    2. Estimat från tävlingspass (80:e percentilen av maxHR från lopp).
-    3. Statistiskt maxHR från hårda träningspass (70:e percentilen av maxHR på hårda pass, rensat från spikar).
-    4. Estimat från tröskelpass (genomsnittlig tröskelpuls dividerat med 0.88).
+    2. Estimat från tävlingspass (80:e percentilen av maxHR från lopp + 5 bpm marginal, cap 210 bpm; kräver ≥2 lopp).
+    3. Statistiskt maxHR från hårda löp/trail-pass (80:e percentilen av maxHR på pass med snittpuls > 78 % av observerat max; kräver ≥5 pass).
+    4. Estimat från tröskelpass (85:e percentilen av snittpulsen på tröskelpass, dividerat med 0.88; kräver ≥3 pass).
     5. Estimat från övriga aktiviteter (85:e percentilen av maxHR på vanliga pass, hård-cappat vid 190 bpm för att rensa sensorfel).
 
 ---
@@ -29,7 +29,7 @@ Systemet försöker beräkna de fysiologiska tröskelvärdena **LT1** (aerob tr�
     *   5K-tempo × 1.135 (om inget 10K/HM finns)
     *   Annars Riegel-extrapolering till 10K-tempo × 1.065.
 2.  **LT1-tempo** sätts till 10 % långsammare än LT2-tempo (`LT2-tempo * 1.10`).
-3.  **Puls vid trösklarna** beräknas genom att konvertera tempona (LT1/LT2) till puls via en linjär regression (HR vs. Pace) baserad på historisk löpdata. Om regressionen saknas används procentuella fallback-värden (LT1 = 78% av maxHR, LT2 = 88% av maxHR).
+3.  **Puls vid trösklarna** beräknas från fasta fysiologiska procentsatser av maxpuls (Seiler 2010): LT1 ≈ 82–83 % av maxpuls, LT2 ≈ 88 % av maxpuls. Pulsen härleds inte från tempo-regression — HR-pace-regression extrapolerad till tröskeltempo överskattar pulsen kraftigt (95–97 % av maxpuls).
 
 ### Metod B: Statistisk piecewise-regression (Träningspass)
 Kräver minst 8 olika tempogrupper med minst 10 pass i varje:
@@ -38,7 +38,7 @@ Kräver minst 8 olika tempogrupper med minst 10 pass i varje:
 3.  En piecewise linjär regression görs för att hitta två brytpunkter (inflection points) i kurvan där pulsresponsen ändras fysiologiskt:
     *   **Brytpunkt 1** = LT1 (Aerob tröskel)
     *   **Brytpunkt 2** = LT2 (Laktattröskel)
-4.  Kräver godkänt förklaringsvärde (R² ≥ 0.72) och rimliga pulsvärden för att tillämpas.
+4.  Kräver godkänt förklaringsvärde (R² ≥ 0.62) och rimliga pulsvärden (minst 8 bpm separation mellan LT1/LT2, LT1 ≥ 60 % av maxpuls, LT2 ≥ 70 %) för att tillämpas. Se `docs/fitness/hr-zone-statistical-estimation.md` för den fullständiga algoritmbeskrivningen (bucket-vikter, brytpunktssökning, etc).
 
 ---
 
@@ -55,6 +55,6 @@ När LT1 och LT2 har beräknats (antingen via tävlingar eller statistik) skapas
 
 ### Fallback (Procentuell)
 Om tröskelberäkningarna ger ogiltiga eller icke-stigande pulsvärden faller systemet tillbaka på fasta procentsatser av maxpuls:
-*   LT1 = 80 % av maxpuls
+*   LT1 = 83 % av maxpuls
 *   LT2 = 89 % av maxpuls
 *   Zonerna beräknas därefter med samma formler som ovan.

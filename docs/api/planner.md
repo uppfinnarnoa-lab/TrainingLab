@@ -29,11 +29,12 @@ Create a planned workout.
   "targetDuration":   "number (seconds) | null",
   "targetIntensity":  "easy | moderate | quality | null",
   "color":            "#rrggbb | null",
-  "templateId":       "cuid | null"
+  "templateId":       "cuid | null",
+  "typeId":           "cuid | null"  // WorkoutType — must belong to the authenticated user
 }
 ```
 
-**Response (201):** Full `PlannedWorkout` object with nested template.
+**Response (201):** Full `PlannedWorkout` object with nested template and type.
 
 ---
 
@@ -153,11 +154,12 @@ Create a sport category or workout type.
 **Request (sport):**
 ```json
 {
-  "kind":  "sport",
-  "name":  "string",
-  "color": "#rrggbb",
-  "icon":  "string",
-  "order": "number (optional)"
+  "kind":             "sport",
+  "name":             "string",
+  "color":            "#rrggbb",
+  "icon":             "string",
+  "order":            "number (optional)",
+  "isRunningRelated":  "boolean (optional)"
 }
 ```
 
@@ -173,3 +175,63 @@ Create a sport category or workout type.
 ```
 
 **Response (201):** Created `SportCategory` or `WorkoutType`.
+
+---
+
+## GET /api/planner/blocks
+
+Fetch all training blocks (base/build/peak/taper periodization periods) for the user.
+
+**Auth:** Required
+
+**Response (200):** Array of `TrainingBlock`, ordered by `startDate` asc. `startDate`/`endDate` serialized as `YYYY-MM-DD`.
+
+---
+
+## POST /api/planner/blocks
+
+Create a training block.
+
+**Auth:** Required
+
+**Request:**
+```json
+{
+  "name":             "string",
+  "blockType":        "base | build | peak | taper | custom | race",
+  "color":            "#rrggbb",
+  "startDate":        "YYYY-MM-DD",
+  "endDate":          "YYYY-MM-DD",
+  "notes":            "string | null",
+  "targetKmPerWeek":  "number | null",
+  "targetIntensity":  "string | null",
+  "targetRaceId":     "cuid | null"
+}
+```
+
+**Response (201):** Created `TrainingBlock`.
+
+---
+
+## PATCH /api/planner/blocks/[id]
+
+Update a training block (all fields optional, plus `archived`).
+
+**Auth:** Required
+
+**Request:** Same shape as POST, all fields optional, plus:
+```json
+{ "archived": "boolean (optional)" }
+```
+
+**Response (200):** Updated `TrainingBlock`.
+
+**Response (error):** `{ "error": "not_found" }` — 404, doesn't exist or wrong user. `{ "error": "invalid" }` — 400.
+
+---
+
+## DELETE /api/planner/blocks/[id]
+
+Delete a training block.
+
+**Auth:** Required. **Response (200):** `{ "ok": true }`. **Response (404):** `{ "error": "not_found" }` if not owned.

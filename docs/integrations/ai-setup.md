@@ -57,7 +57,7 @@ Context caching aktiveras automatiskt när du använder betaltjänsten. Training
 
 ---
 
-## Priser (Gemini 2.0 Flash, betaltier)
+## Priser (Gemini 2.5 Flash, betaltier — verifiera aktuella priser på ai.google.dev/pricing)
 
 | Operation | Pris per 1M tokens |
 |---|---|

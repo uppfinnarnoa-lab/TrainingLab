@@ -1,15 +1,16 @@
 # TrainingLab
 
-Personal AI-powered endurance training platform — Strava + Garmin + Claude/Gemini AI coach.
+Personal AI-powered endurance training platform — Strava + Garmin + Claude/Gemini/NVIDIA/Groq AI coach.
 
 ## Features
 
 - **Activity sync** — Full Strava history, hourly incremental sync
 - **Statistics** — VO2max, VDOT, ATL/CTL/TSB, ACWR, HR zones, race predictions, polarisation score, AEI trend
 - **Training Planner** — Calendar, templates, training blocks, week summaries with predicted distance
-- **AI Coach** — Claude/Gemini with full training context, tool use (creates workouts, reads activities, updates profile)
+- **AI Coach** — Claude/Gemini/NVIDIA/Groq with full training context, tool use (creates workouts, reads activities, updates profile)
 - **Races & PBs** — Manual PB tracking with Strava activity linking
 - **Garmin integration** — HRV, sleep, resting HR
+- **Multi-user** — Closed invite system: users register, admin approves in Settings → Users, full per-user data isolation
 
 ---
 
@@ -50,8 +51,8 @@ pnpm prisma generate         # generate Prisma client
 ### 4. Create your user
 
 ```bash
-node scripts/seed-user.mjs
-# or: SEED_EMAIL=you@example.com SEED_PASSWORD=secret node scripts/seed-user.mjs
+npx tsx scripts/seed-user.ts
+# or: SEED_EMAIL=you@example.com SEED_PASSWORD=secret SEED_NAME="Your Name" npx tsx scripts/seed-user.ts
 ```
 
 ### 5. Start the app
@@ -77,12 +78,12 @@ Settings → Strava → Setup guide → Connect → Sync activities.
 
 ## Production Deploy
 
-See [`docs/guides/deployment.md`](docs/guides/deployment.md) for the full Ubuntu + Apache + PM2 + Let's Encrypt guide.
+See [`deployment/README.md`](deployment/README.md) for the full Ubuntu + nginx + PM2 + Let's Encrypt + multi-user setup guide.
 
-Quick deploy after pushing to main:
+Routine updates (no dependency/schema changes) after pushing to main:
 
 ```bash
-ssh yourserver "/var/www/traininglab/deploy.sh"
+cd /var/www/traininglab && git pull --ff-only && pnpm exec next build --no-lint && pm2 reload traininglab --update-env
 ```
 
 ---
@@ -91,10 +92,10 @@ ssh yourserver "/var/www/traininglab/deploy.sh"
 
 | File | Description |
 |---|---|
-| [`docs/guides/deployment.md`](docs/guides/deployment.md) | Ubuntu server setup + deploy script |
+| [`deployment/README.md`](deployment/README.md) | Ubuntu server setup, multi-user, deploy + update procedure |
 | [`docs/guides/workflows.md`](docs/guides/workflows.md) | Development workflows |
-| [`docs/planning/IMPLEMENTATION_PLAN.md`](docs/planning/IMPLEMENTATION_PLAN.md) | Feature status + implementation notes |
-| [`docs/planning/FUTURE_PLANS.md`](docs/planning/FUTURE_PLANS.md) | Upcoming features backlog |
+| [`docs/planning/IMPLEMENTATION_PLAN.md`](docs/planning/IMPLEMENTATION_PLAN.md) | Feature status + session-by-session implementation notes |
+| [`docs/planning/`](docs/planning/) | Active research, bug audits, and feature plans in progress |
 | [`docs/fitness/`](docs/fitness/) | VO2max models, HR zone research |
 | [`docs/api/`](docs/api/) | API endpoint reference |
 
@@ -109,6 +110,6 @@ ssh yourserver "/var/www/traininglab/deploy.sh"
 | Auth | NextAuth.js v5 |
 | Styling | Tailwind CSS + shadcn/ui |
 | Charts | Recharts |
-| AI | Claude Sonnet 4.6 / Gemini 2.5 Flash |
+| AI | Claude Sonnet 4.6 / Gemini 2.5 Flash / NVIDIA NIM / Groq |
 | Process manager | PM2 |
-| Reverse proxy | Apache |
+| Reverse proxy | nginx |

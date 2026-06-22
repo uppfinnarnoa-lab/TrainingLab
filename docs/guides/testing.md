@@ -51,7 +51,7 @@ The `DATABASE_URL` already matches docker-compose — leave it as-is.
 ## Step 3 — Set up the database
 
 ```bash
-pnpm db:migrate     # runs all migrations
+pnpm db:push        # applies the schema (no migration files in this project)
 pnpm db:generate    # generates Prisma client types
 ```
 
@@ -127,6 +127,10 @@ Initial sync of 10 years of activities takes 2–5 minutes (rate limited to 200 
 2. In the app: **Settings → AI Coach → Claude API key** → paste key → Save
 3. Set a monthly budget (default $5)
 
+### Option C/D: NVIDIA NIM or Groq (advanced, OpenAI-compatible)
+
+Same flow — pick the provider in Settings → AI Coach, paste the matching API key. See `docs/integrations/strava.md` "NVIDIA NIM" / "Groq" sections for the default models used.
+
 ---
 
 ## Step 8 — (Optional) Import the training plan
@@ -194,7 +198,7 @@ Work through each section to verify everything works:
 
 ### Settings (`/settings`)
 - [ ] Strava section shows "Connected" + sync stats after connecting
-- [ ] AI section: provider toggle (Claude / Gemini) works
+- [ ] AI section: provider toggle (Claude / Gemini / NVIDIA / Groq) works
 - [ ] Athlete Profile form: save weight, height, etc. → reload confirms saved
 - [ ] After saving athlete profile, coach context mentions name/goal
 
@@ -220,7 +224,7 @@ After running `npx tsx scripts/import-training-plan.ts`:
 | AI chat shows "No API key" | Add key in Settings → AI Coach |
 | Stats page shows all zeros | Sync Strava first (Settings → Sync new activities) |
 | Planner calendar blank | Normal if no planned workouts — click a day to add one |
-| `pnpm db:migrate` fails | Check `DATABASE_URL` in `.env.local` matches `docker-compose.yml` |
+| `pnpm db:push` fails | Check `DATABASE_URL` in `.env.local` matches `docker-compose.yml` |
 | TypeScript errors after `pnpm db:generate` | Run `pnpm tsc --noEmit` to check — all should be clean |
 
 ---
@@ -230,7 +234,7 @@ After running `npx tsx scripts/import-training-plan.ts`:
 ```bash
 docker-compose down -v    # stops DB and deletes all data
 docker-compose up -d      # fresh DB
-pnpm db:migrate
+pnpm db:push
 pnpm db:generate
 npx tsx scripts/seed-user.ts
 ```
@@ -239,33 +243,4 @@ npx tsx scripts/seed-user.ts
 
 ## Running in production (Ubuntu)
 
-See `IMPLEMENTATION_PLAN.md §9` for the full Apache + PM2 deployment guide.
-
-Quick start on a fresh Ubuntu server:
-```bash
-# Install Node 20
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs postgresql
-
-# Install pnpm and PM2
-npm install -g pnpm pm2
-
-# Set up PostgreSQL (replace passwords)
-sudo -u postgres psql -c "CREATE DATABASE traininglab;"
-sudo -u postgres psql -c "CREATE USER traininglab WITH PASSWORD 'yourpassword';"
-sudo -u postgres psql -c "GRANT ALL ON DATABASE traininglab TO traininglab;"
-
-# Clone and set up
-git clone git@github.com:uppfinnarnoa-lab/TrainingLab.git /var/www/traininglab
-cd /var/www/traininglab
-cp .env.local.example .env.local   # fill in production values
-pnpm install
-pnpm db:migrate
-pnpm db:generate
-pnpm build
-
-# Start with PM2
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup
-```
+See [`deployment/README.md`](../../deployment/README.md) for the full nginx + PM2 + multi-user deployment guide — this is the single source of truth for production setup, don't follow a separate procedure here.

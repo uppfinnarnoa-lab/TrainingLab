@@ -1,13 +1,13 @@
 # TrainingLab
 
-Personal AI-powered training platform. Connects Strava activity data + Garmin physiological data with an AI coach. Single user, self-hosted on Ubuntu/nginx. See `IMPLEMENTATION_PLAN.md` for full feature spec.
+Personal AI-powered training platform. Connects Strava activity data + Garmin physiological data with an AI coach. Self-hosted on Ubuntu/nginx — multi-user (closed invite system: users register, admin approves in Settings → Users), with per-user data isolation. See `docs/planning/IMPLEMENTATION_PLAN.md` for full feature spec.
 
 ## Stack
 - **Framework**: Next.js 15 (App Router, TypeScript)
 - **Database**: PostgreSQL + Prisma ORM
 - **Auth**: NextAuth.js v5
 - **Styling**: Tailwind CSS + shadcn/ui
-- **AI**: Claude API + Gemini Flash (switchable per user setting)
+- **AI**: Claude API, Gemini Flash, NVIDIA NIM, or Groq (switchable per user setting)
 - **Package manager**: pnpm
 
 ## Session Start — Always
@@ -83,12 +83,13 @@ All project documentation lives in `docs/`. Determine which files apply to your 
 | [docs/guides/workflows.md](docs/guides/workflows.md) | Running, building, or deploying the app |
 | [deployment/README.md](deployment/README.md) | Deploying to production (Ubuntu/nginx/helgars.se) |
 | [docs/guides/documentation-rules.md](docs/guides/documentation-rules.md) | Adding any endpoint, schema change, or cross-module function |
-| [docs/planning/MASTER_PLAN.md](docs/planning/MASTER_PLAN.md) | Current research, bug audit, and implementation plans |
+| [docs/schemas/ai-context.md](docs/schemas/ai-context.md) | Any work touching what gets sent to the AI coach |
+| [docs/planning/](docs/planning/) | Current research, bug audits, and in-progress feature plans (dated docs; moved to `docs/planning/archive/` once resolved) |
 | [docs/fitness/](docs/fitness/) | VO2max models, HR zone research, analytics roadmap |
 
 ## Hard Rules
 - All newly created markdown files that are improvement analyses, implementation plans, bug audits, or research documents **must** be placed in `docs/planning/` — not in `docs/fitness/` or project root
-- Write I/O docs in `docs/` **before** implementing endpoints — see `GlobalDoc/documentation-rules.md`
+- Write I/O docs in `docs/` **before** implementing endpoints — see `docs/guides/documentation-rules.md`
 - AI context is always summarized — never send raw bulk activity data to the model
 - Strava is the sole source for activities (descriptions are AI context); Garmin only for HRV/sleep
 - Sport types and workout types are user-defined — never hardcode them in logic or UI

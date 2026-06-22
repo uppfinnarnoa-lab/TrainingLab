@@ -9,20 +9,20 @@ Open-Meteo ──► backfill ──► Activity.weather* fields
 
 Browser ◄──► Next.js App Router (SSR + API routes) ◄──► PostgreSQL (Prisma)
                         │
-                    Apache (reverse proxy, SSL)
+                    nginx (reverse proxy, SSL, SSE passthrough)
                         │
                     PM2 (port 3000)
 ```
 
 ## Build Status
-Phases 1–6 complete. All routes type-checked clean. Two bug audits passed.
+Multi-user (registration + admin approval + per-user data isolation) is live. See `docs/planning/IMPLEMENTATION_PLAN.md` for the running session-by-session log of everything built since — that log, not a phase count, is the current source of truth for build status.
 
 ## Key Schema Tables
 Full schema with all fields is in `prisma/schema.prisma`. All user-owned models have `onDelete: Cascade`. Summary:
 
 | Table | Purpose |
 |---|---|
-| `User` | Single user initially; schema supports multi-user |
+| `User` | Multi-user — `status` (`pending`/`active`), `isAdmin`; new registrations require admin approval |
 | `StravaAccount` | OAuth tokens, lastSyncAt |
 | `Activity` | All Strava activities incl. name, description, HR, splits, weather fields |
 | `GarminAccount` | Garmin OAuth tokens |
@@ -42,13 +42,15 @@ Full schema with all fields is in `prisma/schema.prisma`. All user-owned models 
 | Route | Description |
 |---|---|
 | `/login` | Email/password login |
+| `/register` | New user signup — creates a `pending` account, blocked until admin approves |
+| `/pending` | Shown to logged-in users awaiting admin approval |
 | `/` | Dashboard — overview cards, recent activity |
 | `/activities` | Activity list with sport filter + pagination |
 | `/stats` | 5-tab statistics: Overview, Volume, Load, Zones, Fitness |
 | `/planner` | Training calendar + template library + block banner |
 | `/coach` | AI chat (Claude or Gemini), streaming, cost tracking |
 | `/races` | PB tracker per distance, timeline chart, manual entry |
-| `/settings` | Strava/Garmin connect, AI keys, athlete profile |
+| `/settings` | Strava/Garmin connect, AI keys, athlete profile, sports/types, goals, account; admins also see a Users panel to approve/revoke accounts |
 
 ## File Structure (key paths)
 ```
@@ -77,8 +79,8 @@ lib/
   fitness/             VO2max, ATL/CTL/TSB, zones, plan-analysis
   db/prisma.ts         Prisma singleton
 
-GlobalDoc/             Project knowledge for Claude (this folder)
-docs/                  I/O truth documents for all API endpoints
+docs/                  I/O truth documents for all API endpoints, integrations, architecture
+deployment/            nginx/PM2/Ubuntu deploy guide, deploy.sh, ecosystem.config.js
 prisma/schema.prisma   Authoritative DB schema
 ```
 

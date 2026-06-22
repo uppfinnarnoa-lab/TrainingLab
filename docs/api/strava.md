@@ -22,7 +22,10 @@ Trigger activity sync from Strava.
 
 **Request:**
 ```json
-{ "full": "boolean (default: false)" }
+{
+  "full":   "boolean (default: false)",
+  "resync": "boolean (default: false)"  // manual smart resync of the last 3 days, takes priority over full/since
+}
 ```
 
 **Response (200):**
@@ -34,6 +37,12 @@ Trigger activity sync from Strava.
 }
 ```
 
+**Response (rate limited, still 200):**
+```json
+{ "error": "Strava daily limit reached — try again tomorrow.", "synced": 12 }
+{ "error": "Strava rate limit reached — try again in 15 minutes.", "synced": 12 }
+```
+
 **Error responses:**
 ```json
 { "error": "strava_not_connected" }   // 400 — no StravaAccount for user
@@ -41,10 +50,11 @@ Trigger activity sync from Strava.
 ```
 
 **Side effects:**
-- Upserts `Activity` rows from Strava (paginated, 200/page).
-- `full: true` → fetches all history; `full: false` → fetches since `lastSyncAt`.
+- `resync: true` → calls `resyncRecentActivities(userId, 3)`, re-fetching the last 3 days regardless of `lastSyncAt` (catches edits/deletes Strava's webhook may have missed).
+- Otherwise upserts `Activity` rows from Strava (paginated, 200/page): `full: true` → fetches all history; `full: false` → fetches since `lastSyncAt`.
 - Updates `StravaAccount.lastSyncAt` and `totalSynced` on success.
 - Respects Strava rate limit (200 req/15 min). Backs off with 1s delay per page.
+- Fires `updateVO2maxAndPaces` and `backfillWeather(userId, 50)` in the background (not awaited) after a successful sync.
 
 **Fields synced per activity:** id, name, description, sportType, startDate, distance, movingTime, elapsedTime, elevationGain, averageSpeed, maxSpeed, averageCadence, averageWatts, averageHeartrate, maxHeartrate, sufferScore, perceivedExertion, workoutType, isRace, mapPolyline, splitsMetric, laps, bestEfforts, startLat, startLng.
 
@@ -127,3 +137,61 @@ Backfills Open-Meteo historical weather for activities that have GPS coordinates
 - Calls Open-Meteo archive API per activity with 300ms delay between requests.
 - Writes `weatherTemp`, `weatherWind`, `weatherPrecip`, `weatherCode` to each updated activity.
 - Activities without coordinates are not processed (indoor/treadmill runs).
+
+---
+
+## GET/POST /api/strava/backfill-splits
+
+Backfills per-activity detail (description, splits, laps, best efforts, suffer score) for activities not yet detail-fetched (`splitDetailFetched: false`).
+
+**Auth:** Required
+
+**Long-running SSE streaming endpoint** — nginx disables proxy buffering for this path (see `deployment/README.md`) so progress events reach the client immediately.
+
+**GET — progress check:**
+**Response (200):** `{ "total": 500, "missing": 42, "done": false }`
+
+**POST — run backfill:**
+- Default (no `?stream=true`): processes one batch (`?batch=N`, default 30, max 50) and returns `{ "done": boolean, "updated": number, "errors": number, "remaining": number, "total": number }`.
+- `?stream=true`: SSE stream of all pending activities, respecting Strava's rate limit (170 req/15min burst, 5.1s delay between requests). Events: `{"type":"start","total":N}`, `{"type":"progress","updated":N,"total":N,"errors":N}`, `{"type":"rate_limit","waitMs":N,"updated":N,"total":N}`, `{"type":"done","updated":N,"errors":N,"total":N}`, `{"type":"error","message":"..."}`.
+
+**Side effects:** Per activity, fetches `/activities/:stravaId` from Strava and writes `description`, `splitsMetric`, `bestEfforts`, `laps`, `sufferScore`, `splitDetailFetched: true`.
+
+---
+
+## GET/POST /api/strava/backfill-descriptions
+
+Backfills descriptions (and the same detail fields as backfill-splits) for activities with `description: null`.
+
+**Auth:** Required
+
+**Long-running SSE streaming endpoint** — same nginx no-buffering treatment as backfill-splits (see `deployment/README.md`).
+
+**GET — progress check:**
+**Response (200):** `{ "total": 500, "missing": 12, "done": false }`
+
+**POST — run backfill:** Same shape and SSE event types as `/api/strava/backfill-splits` (default batch of 30/up to 50 without `?stream=true`; full SSE stream with rate-limit handling when `?stream=true`).
+
+**Side effects:** Per activity, fetches `/activities/:stravaId` from Strava and writes `description`, `splitsMetric`, `bestEfforts`, `laps`, `sufferScore`, `splitDetailFetched: true`.
+
+---
+
+## GET/PATCH/POST /api/strava/backfill-history
+
+Runs the historical activity backfill job (fetches full Strava history in the background, resumable across rate limits/restarts).
+
+**Auth:** Required
+
+**Long-running SSE streaming endpoint** — same nginx no-buffering treatment as the other backfill endpoints (see `deployment/README.md`).
+
+**GET:** Returns current job status from `backfillRunner` (in-memory, no DB query) — `{ "status": "idle" | "running" | "paused" | "waiting" | "done", ... }`.
+
+**PATCH:**
+```json
+{ "action": "pause" | "resume" | "stop" }
+```
+**Response (200):** Updated job status.
+
+**POST:** Starts the backfill (or attaches to an already-running job) and returns an SSE stream of `BackfillEvent`s. If a job is already active, the new connection receives a `{"type":"status",...}` snapshot first, then live events. Stream closes on `{"type":"done"}` or `{"type":"stopped"}`.
+
+**Side effects:** Drives `backfillRunner` (in-process singleton, keyed by `userId`), which paginates through the user's full Strava history and fetches per-activity detail, persisting progress so it can resume after a rate limit or process restart.

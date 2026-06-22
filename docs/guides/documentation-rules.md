@@ -6,9 +6,14 @@ All docs in `docs/` are **source-of-truth documents** — authoritative, not sup
 ## Folder Structure
 ```
 docs/
-  api/         I/O specs for every HTTP endpoint
-  schemas/     Object shapes (Activity, WorkoutSection, AI context, etc.)
-  integrations/ Per-integration data contracts (Strava fields used, Garmin fields, etc.)
+  api/           I/O specs for every HTTP endpoint
+  schemas/       Object shapes (Activity, WorkoutSection, AI context, etc.)
+  integrations/  Per-integration data contracts (Strava fields used, Garmin fields, AI providers, etc.)
+  architecture/  Data flow, schema overview, file structure, pages
+  fitness/       VO2max/HR-zone research and the current-state algorithm reference
+  guides/        Dev workflows, local testing, this file
+  planning/      Active research, bug audits, and feature plans; archive/ once resolved
+  security/      Point-in-time security audits; archive/ once resolved (no living doc expected here)
 ```
 
 ## When to Write a Doc
