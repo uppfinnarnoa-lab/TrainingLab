@@ -160,6 +160,25 @@ pm2 startup   # run the sudo command it prints
 
 ## 9. nginx Server Block
 
+`server_tokens off;` goes in the `http {}` block of the main config (applies site-wide) — add it to `/etc/nginx/nginx.conf` if not already present:
+
+```bash
+grep -q "server_tokens off" /etc/nginx/nginx.conf || sudo sed -i '/http {/a \    server_tokens off;' /etc/nginx/nginx.conf
+```
+
+The `location /` block needs a `map` for `Connection: upgrade`, defined once in `http {}` context — check it isn't already defined by another site (e.g. `theodal.helgars.se`) before adding:
+
+```bash
+grep -r "connection_upgrade" /etc/nginx/ || sudo tee /etc/nginx/conf.d/connection-upgrade.conf <<'EOF'
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+EOF
+```
+
+Without this map, `proxy_set_header Connection 'upgrade'` is sent unconditionally — even for plain HTTP requests that never asked to upgrade. That confuses keep-alive/chunked-response handling between nginx and the Node upstream and is the cause of `HEAD` requests hanging indefinitely (verified: hangs through nginx, returns instantly against the Next.js server directly).
+
 Create `/etc/nginx/sites-available/traininglab.conf`. Replace cert paths with what Step 1 showed.
 
 ```nginx
@@ -185,7 +204,7 @@ server {
         proxy_pass          http://localhost:3000;
         proxy_http_version  1.1;
         proxy_set_header    Upgrade $http_upgrade;
-        proxy_set_header    Connection 'upgrade';
+        proxy_set_header    Connection $connection_upgrade;
         proxy_set_header    Host $host;
         proxy_cache_bypass  $http_upgrade;
     }
@@ -193,10 +212,30 @@ server {
 ```
 
 Enable and reload:
+
 ```bash
 sudo ln -s /etc/nginx/sites-available/traininglab.conf /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+### Applying this to an already-deployed server (one-time fix)
+
+nginx config isn't tracked in git — it lives only on the server, so this needs a manual SSH step once (no `git pull` will apply it):
+
+```bash
+grep -q "server_tokens off" /etc/nginx/nginx.conf || sudo sed -i '/http {/a \    server_tokens off;' /etc/nginx/nginx.conf
+
+grep -r "connection_upgrade" /etc/nginx/ || sudo tee /etc/nginx/conf.d/connection-upgrade.conf <<'EOF'
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+EOF
+
+sudo sed -i "s/proxy_set_header    Connection 'upgrade';/proxy_set_header    Connection \$connection_upgrade;/" /etc/nginx/sites-available/traininglab.conf
+
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ---

@@ -8,8 +8,9 @@ import { NextRequest, NextResponse } from "next/server";
 export async function GET(req: NextRequest) {
   const ticket = req.nextUrl.searchParams.get("ticket");
   const error  = req.nextUrl.searchParams.get("error");
+  const nonce  = req.headers.get("x-nonce") ?? "";
 
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script nonce="${nonce}">
 try {
   var msg = ${ticket ? `{garminTicket:${JSON.stringify(ticket)}}` : `{garminError:${JSON.stringify(error ?? "no_ticket")}}`};
   // Works both when opened as a popup (opener) and embedded as iframe (parent)

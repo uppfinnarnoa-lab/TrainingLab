@@ -2,6 +2,8 @@ import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+const isDev = process.env.NODE_ENV === "development";
+
 export default auth((req) => {
   const { nextUrl, auth: session } = req as NextRequest & { auth: typeof req.auth };
 
@@ -28,7 +30,20 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
-  return NextResponse.next();
+  // Per-request nonce lets script-src drop 'unsafe-inline' (forwarded via request
+  // header so Route Handlers, e.g. garmin/ticket-receiver, can nonce their own inline scripts).
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const scriptSrc = isDev
+    ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval'`
+    : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
+  const csp = `default-src 'self'; ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.anthropic.com https://generativelanguage.googleapis.com; frame-src 'self'; frame-ancestors 'none';`;
+
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
 });
 
 export const config = {
