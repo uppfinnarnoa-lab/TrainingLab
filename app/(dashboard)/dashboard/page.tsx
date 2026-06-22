@@ -6,6 +6,7 @@ import { DashboardCards } from "./dashboard-cards";
 import { prisma } from "@/lib/db/prisma";
 import { startOfWeek, startOfMonth, startOfYear, subDays } from "date-fns";
 import { generateInsights } from "@/lib/fitness/insights";
+import { computeHrvBaseline, computeRestingHRBaseline, computeReadinessScore, readinessLabel } from "@/lib/garmin/insights";
 import { formatDuration } from "@/lib/utils";
 import { format } from "date-fns";
 
@@ -61,7 +62,7 @@ export default async function DashboardPage() {
     weekData, monthData, ytdData,
     runWeek, runMonth, runYtd,
     prev4w, runLyYtd, allLyYtd, runLyFull, allLyFull,
-    todayPlanned, latestGarmin, garmin7d,
+    todayPlanned, latestGarmin, garminHistory,
     athleteProfile, trainingGoals,
   ] = await Promise.all([
     prisma.activity.count({ where: { userId } }),
@@ -88,10 +89,9 @@ export default async function DashboardPage() {
       select: { date: true, hrvNightly: true, sleepScore: true, sleepDuration: true, restingHR: true, bodyBattery: true, stressAvg: true, trainingReadiness: true, spo2Avg: true },
     }),
     prisma.garminDailySummary.findMany({
-      where: { userId, date: { gte: subDays(now, 14) } },
-      orderBy: { date: "desc" },
-      take: 10,
-      select: { date: true, hrvNightly: true },
+      where: { userId, date: { gte: subDays(now, 67) } }, // 60-day HRV/restHR baseline + 7-day rolling window
+      orderBy: { date: "asc" },
+      select: { date: true, hrvNightly: true, restingHR: true },
     }),
     prisma.athleteProfile.findUnique({
       where: { userId },
@@ -126,12 +126,20 @@ export default async function DashboardPage() {
   const onPaceKm = runOnPaceKm;
   const lyYtdKm  = runLyYtdKm;
 
-  // Readiness score
-  const hrv7dValues = (garmin7d as { date: Date; hrvNightly: number | null }[])
-    .map(g => g.hrvNightly)
-    .filter((v): v is number => v != null);
+  // Readiness score — shared with the Stats "Recovery" tab (lib/garmin/insights.ts)
   const showReadiness = fitnessCache != null || latestGarmin != null;
-  const readiness = showReadiness ? computeReadiness(todayLoad.tsb, latestGarmin, hrv7dValues) : null;
+  const hrvBaseline = computeHrvBaseline(garminHistory, now);
+  const restHRBaseline = computeRestingHRBaseline(garminHistory, now);
+  const readinessResult = showReadiness ? computeReadinessScore({
+    hrvRolling7dAvg:   hrvBaseline.rolling7dAvg,
+    hrvBaseline60dAvg: hrvBaseline.baseline60dAvg,
+    tsb:               todayLoad.tsb,
+    sleepScore:        latestGarmin?.sleepScore ?? null,
+    restHRDeltaBpm:    restHRBaseline.deltaBpm,
+  }, latestGarmin?.trainingReadiness ?? null) : null;
+  const readiness = readinessResult?.score != null
+    ? { score: readinessResult.score, ...readinessLabel(readinessResult.score) }
+    : null;
 
   // Annual goals
   const annualGoalsRaw = athleteProfile?.annualGoals as Record<string, Record<string, number>> | null;
@@ -431,56 +439,6 @@ export default async function DashboardPage() {
       )}
     </div>
   );
-}
-
-function computeReadiness(
-  tsb: number,
-  latestGarmin: { hrvNightly?: number | null; sleepScore?: number | null; restingHR?: number | null; trainingReadiness?: number | null; stressAvg?: number | null } | null,
-  hrv7d: number[]
-): { score: number; color: string; label: string } {
-  // If Garmin's own training readiness score is available, blend it in (40% weight)
-  // and use our own signals for the remaining 60%.
-  const garminReadiness = latestGarmin?.trainingReadiness ?? null;
-
-  let score = 50;
-
-  // TSB (30% weight — 20% when Garmin readiness available)
-  if (tsb > 10)       score += 15;
-  else if (tsb > 0)   score += 8;
-  else if (tsb < -25) score -= 20;
-  else if (tsb < -10) score -= 10;
-
-  // HRV trend (40% weight — 25% when Garmin readiness available)
-  if (latestGarmin?.hrvNightly && hrv7d.length >= 3) {
-    const baseline = hrv7d.slice(1).reduce((a, b) => a + b, 0) / Math.max(hrv7d.slice(1).length, 1);
-    if (baseline > 0) {
-      const trendPct = (latestGarmin.hrvNightly - baseline) / baseline * 100;
-      if (trendPct > 5)        score += 20;
-      else if (trendPct > 0)   score += 8;
-      else if (trendPct < -15) score -= 25;
-      else if (trendPct < -7)  score -= 12;
-    }
-  }
-
-  // Sleep score (20% weight)
-  if (latestGarmin?.sleepScore != null) {
-    score += (latestGarmin.sleepScore - 60) / 5;
-  }
-
-  // Stress penalty (high stress = lower readiness)
-  if (latestGarmin?.stressAvg != null && latestGarmin.stressAvg > 60) {
-    score -= Math.round((latestGarmin.stressAvg - 60) / 4);
-  }
-
-  // Blend in Garmin's own training readiness (40% pull toward Garmin's value)
-  if (garminReadiness != null) {
-    score = Math.round(score * 0.6 + garminReadiness * 0.4);
-  }
-
-  score = Math.min(100, Math.max(0, Math.round(score)));
-  const color = score >= 70 ? "#6EE7B7" : score >= 45 ? "#FBBF24" : "#F87171";
-  const label = score >= 70 ? "Ready" : score >= 45 ? "Moderate" : "Recover";
-  return { score, color, label };
 }
 
 function ACWRCard({ acwr }: { acwr: number }) {

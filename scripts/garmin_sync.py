@@ -134,7 +134,7 @@ def fetch_day(client: Garmin, day: date) -> dict:
     # ── HRV ──────────────────────────────────────────────────────────────────
     hrv_raw = safe_call(client.get_hrv_data, d) or {}
     hrv_summary = hrv_raw.get("hrvSummary") or {}
-    out["hrvNightly"] = hrv_summary.get("lastNight")   # RMSSD ms
+    out["hrvNightly"] = hrv_summary.get("lastNightAvg")   # RMSSD ms
 
     status = (hrv_summary.get("status") or "").upper()
     out["hrvBalance"] = (

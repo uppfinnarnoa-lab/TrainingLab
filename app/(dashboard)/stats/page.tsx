@@ -7,6 +7,7 @@ import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces
 import { computeTSS, buildLoadCurve, computeACWR } from "@/lib/fitness/training-load";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace } from "@/lib/fitness/vo2max";
 import { RACE_DISTANCES } from "@/lib/fitness/paces";
+import { computeHrvBaseline, computeRestingHRBaseline, computeReadinessScore, type HrvBaseline } from "@/lib/garmin/insights";
 import { subDays, format, startOfWeek, startOfYear } from "date-fns";
 
 type A = {
@@ -177,6 +178,10 @@ export default async function StatsPage() {
       if (den > 0.01) tempSensitivity = Math.round(num / den * 5 * 10) / 10;
     }
   }
+
+  // ── Garmin HRV baseline + resting HR baseline — always fresh, feeds the readiness score ──
+  const hrvBaseline = computeHrvBaseline(garminRecent, now);
+  const restHRBaseline = computeRestingHRBaseline(garminRecent, now);
 
   if (cacheReady && fitnessCache) {
     // ── FAST PATH: read everything from cache ─────────────────────────────
@@ -349,24 +354,9 @@ export default async function StatsPage() {
       ? extraViz.easyPaceTrend
       : computeEasyPaceTrend(recentForCurve as EasyPaceAct[], hrZones.z3[0]);
 
-    // ── Cadence trend (1A) — fast path ──────────────────────────────────────
+    // ── Cadence/stride vs pace (1A) — fast path ─────────────────────────────
     type CurveActExt = { movingTime: number; averageHeartrate: number | null; startDate: Date; startDateLocal: Date; sportType: string | null; averageSpeed: number | null; averageCadence: number | null; trainingLoad: number | null };
-    const fpCadenceWeekMap = new Map<string, { spmSum: number; strideSum: number; n: number }>();
-    for (const act of recentForCurve as CurveActExt[]) {
-      if (!act.sportType || !/run/i.test(act.sportType)) continue;
-      if (!act.averageCadence || act.averageCadence < 50) continue;
-      if (!act.averageSpeed || act.averageSpeed < 1) continue;
-      const wk = format(startOfWeek(act.startDateLocal, { weekStartsOn: 1 }), "yyyy-MM-dd");
-      if (!fpCadenceWeekMap.has(wk)) fpCadenceWeekMap.set(wk, { spmSum: 0, strideSum: 0, n: 0 });
-      const entry = fpCadenceWeekMap.get(wk)!;
-      const spm = act.averageCadence * 2;
-      const strideM = act.averageSpeed / (act.averageCadence * 2 / 60);
-      entry.spmSum += spm; entry.strideSum += strideM; entry.n++;
-    }
-    const fpCadenceByWeek = [...fpCadenceWeekMap.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-26)
-      .map(([week, d]) => ({ week, spm: Math.round(d.spmSum / d.n), strideM: +(d.strideSum / d.n).toFixed(2) }));
+    const fpCadenceScatter = computeCadenceScatter(recentForCurve as CurveActExt[], now);
 
     // ── Efficiency Factor trend (2A) — fast path ────────────────────────────
     const fpLt1HRForEF = fitnessCache?.decouplingLt1HR ?? (fitnessCache?.maxHR ? fitnessCache.maxHR * 0.76 : null);
@@ -426,8 +416,8 @@ export default async function StatsPage() {
       overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraVizFresh,
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
       fpEasyPaceTrend, statZonesLapsCached,
-      fpCadenceByWeek, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length,
-      garminWellness);
+      fpCadenceScatter, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length,
+      garminWellness, hrvBaseline, restHRBaseline);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────
@@ -824,23 +814,8 @@ export default async function StatsPage() {
 
   const easyPaceTrend = computeEasyPaceTrend(activities as EasyPaceAct[], computedHrZones.z3[0]);
 
-  // ── Cadence trend (1A) — slow path ──────────────────────────────────────
-  const cadenceWeekMap = new Map<string, { spmSum: number; strideSum: number; n: number }>();
-  for (const act of activities as A[]) {
-    if (!/run/i.test(act.sportType)) continue;
-    if (!act.averageCadence || act.averageCadence < 50) continue;
-    if (!act.averageSpeed || act.averageSpeed < 1) continue;
-    const wk = format(startOfWeek(act.startDateLocal, { weekStartsOn: 1 }), "yyyy-MM-dd");
-    if (!cadenceWeekMap.has(wk)) cadenceWeekMap.set(wk, { spmSum: 0, strideSum: 0, n: 0 });
-    const entry = cadenceWeekMap.get(wk)!;
-    const spm = act.averageCadence * 2;
-    const strideM = act.averageSpeed / (act.averageCadence * 2 / 60);
-    entry.spmSum += spm; entry.strideSum += strideM; entry.n++;
-  }
-  const cadenceByWeek = [...cadenceWeekMap.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-26)
-    .map(([week, d]) => ({ week, spm: Math.round(d.spmSum / d.n), strideM: +(d.strideSum / d.n).toFixed(2) }));
+  // ── Cadence/stride vs pace (1A) — slow path ─────────────────────────────
+  const cadenceScatter = computeCadenceScatter(activities as A[], now);
 
   // ── Efficiency Factor trend (2A) — slow path ────────────────────────────
   const lt1HRForEF = fitnessCache?.decouplingLt1HR ?? (fitnessCache?.maxHR ? fitnessCache.maxHR * 0.76 : null);
@@ -915,8 +890,8 @@ export default async function StatsPage() {
     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear, ltPaceTrend: existingLtPaceTrend as { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[] },
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
     easyPaceTrend, statZonesLapsCached,
-    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDays.length,
-    garminWellness);
+    cadenceScatter, efByWeek, monotony, strain, avgRecoveryDays, recoveryDays.length,
+    garminWellness, hrvBaseline, restHRBaseline);
 }
 
 // Shared render — used by both fast and slow paths
@@ -964,14 +939,25 @@ function renderStats(
   weatherStats?: WeatherStats,
   easyPaceTrend?: EasyPacePoint[],
   statZonesLaps?: import("@/lib/fitness/zones").StatisticalZoneResult | null,
-  cadenceByWeek?: { week: string; spm: number; strideM: number }[],
+  cadenceScatter?: CadenceScatterPoint[],
   efByWeek?: { week: string; ef: number }[],
   monotony?: number | null,
   strain?: number | null,
   avgRecoveryDays?: number | null,
   recoveryDaysCount?: number,
   garminWellness?: GarminWellnessPoint[],
+  hrvBaseline?: HrvBaseline,
+  restHRBaseline?: { latest: number | null; baseline30dAvg: number | null; deltaBpm: number | null },
 ) {
+  const latestGarminPoint = garminWellness?.at(-1) ?? null;
+  const readiness = computeReadinessScore({
+    hrvRolling7dAvg:   hrvBaseline?.rolling7dAvg ?? null,
+    hrvBaseline60dAvg: hrvBaseline?.baseline60dAvg ?? null,
+    tsb:               todayLoad.tsb,
+    sleepScore:        latestGarminPoint?.sleepScore ?? null,
+    restHRDeltaBpm:    restHRBaseline?.deltaBpm ?? null,
+  }, latestGarminPoint?.trainingReadiness ?? null);
+
   return (
     <div className="space-y-2">
       <div>
@@ -1004,13 +990,15 @@ function renderStats(
         weatherStats={weatherStats ?? null}
         easyPaceTrend={easyPaceTrend ?? []}
         statZonesLaps={statZonesLaps ?? null}
-        cadenceByWeek={cadenceByWeek ?? []}
+        cadenceScatter={cadenceScatter ?? []}
         efByWeek={efByWeek ?? []}
         monotony={monotony ?? null}
         strain={strain ?? null}
         avgRecoveryDays={avgRecoveryDays ?? null}
         recoveryDaysCount={recoveryDaysCount ?? 0}
         garminWellness={garminWellness ?? []}
+        readiness={readiness}
+        hrvBaseline={hrvBaseline ?? null}
       />
       </StatsErrorBoundary>
     </div>
@@ -1029,12 +1017,15 @@ function buildOverview(_: OverviewResult): OverviewResult { return _; } // just 
 
 
 export interface WeatherBand { label: string; count: number; avgPaceSecPerKm: number | null }
+export interface WeatherScatterPoint { x: number; paceDeltaSec: number }
 export interface WeatherStats {
   byTemp: WeatherBand[];
   byWind: WeatherBand[];
   byPrecip: WeatherBand[];
   hrNormByTemp: WeatherBand[];
   coldSensitivity: number | null;
+  tempScatter: WeatherScatterPoint[];
+  windScatter: WeatherScatterPoint[];
 }
 
 type WeatherAct = {
@@ -1070,7 +1061,7 @@ function computeWeatherStats(acts: WeatherAct[], maxHR: number): WeatherStats {
   );
 
   if (clean.length < 10) {
-    return { byTemp: [], byWind: [], byPrecip: [], hrNormByTemp: [], coldSensitivity: null };
+    return { byTemp: [], byWind: [], byPrecip: [], hrNormByTemp: [], coldSensitivity: null, tempScatter: [], windScatter: [] };
   }
 
   const sorted = [...clean].sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
@@ -1165,6 +1156,20 @@ function computeWeatherStats(acts: WeatherAct[], maxHR: number): WeatherStats {
     }
   }
 
+  // Raw scatter points (relative pace = adjustedPace − overall median, in s/km) for the
+  // continuous temp/wind-vs-pace charts — same control filters as the binned bands above,
+  // so the scatter and the annotated sensitivity slopes describe the same controlled dataset.
+  function buildScatter(
+    getValue: (a: WeatherAct) => number | null,
+    controlFilter: (a: WeatherAct) => boolean,
+  ): WeatherScatterPoint[] {
+    return sorted.flatMap((a, i) => {
+      const v = getValue(a);
+      if (v == null || !controlFilter(a)) return [];
+      return [{ x: v, paceDeltaSec: Math.round((adjustedPaces[i] - overallMedian) * 10) / 10 }];
+    });
+  }
+
   return {
     byTemp: computeBands(TEMP_BANDS, a => a.weatherTemp,
       a => a.weatherWind == null || a.weatherWind < 20),
@@ -1175,6 +1180,8 @@ function computeWeatherStats(acts: WeatherAct[], maxHR: number): WeatherStats {
       a => a.weatherTemp != null && a.weatherTemp >= 0 && a.weatherTemp < 25),
     hrNormByTemp,
     coldSensitivity,
+    tempScatter: buildScatter(a => a.weatherTemp, a => a.weatherWind == null || a.weatherWind < 20),
+    windScatter: buildScatter(a => a.weatherWind, a => a.weatherTemp != null && a.weatherTemp >= 0 && a.weatherTemp < 25),
   };
 }
 
@@ -1240,6 +1247,35 @@ function computeEasyPaceTrend(acts: EasyPaceAct[], lt1HR: number): EasyPacePoint
     });
   }
   return result;
+}
+
+// ── Cadence/stride length vs. pace ────────────────────────────────────────────
+// Speed = Cadence × Stride Length is a mathematical identity, so cadence/stride drift
+// week-to-week mostly reflects which mix of paces was run that week, not technique change.
+// Plotting both against pace (the actual driving variable) instead of calendar time, split
+// into a recent vs. older period, shows whether the cadence-at-a-given-pace curve itself is
+// shifting — the physiologically meaningful signal.
+export type CadenceScatterPoint = { paceSecPerKm: number; spm: number; strideM: number; period: "recent" | "older" };
+
+type CadenceAct = { sportType: string | null; averageSpeed: number | null; averageCadence: number | null; startDate: Date };
+
+function computeCadenceScatter(acts: CadenceAct[], now: Date): CadenceScatterPoint[] {
+  const points: CadenceScatterPoint[] = [];
+  for (const act of acts) {
+    if (!act.sportType || !/run/i.test(act.sportType)) continue;
+    if (!act.averageCadence || act.averageCadence < 50) continue;
+    if (!act.averageSpeed || act.averageSpeed < 1) continue;
+    const daysAgo = (now.getTime() - act.startDate.getTime()) / 86400_000;
+    if (daysAgo > 112 || daysAgo < 0) continue; // 16 weeks — matches other recency windows
+    const spm = act.averageCadence * 2;
+    points.push({
+      paceSecPerKm: Math.round(1000 / act.averageSpeed),
+      spm: Math.round(spm),
+      strideM: Math.round((act.averageSpeed / (spm / 60)) * 100) / 100,
+      period: daysAgo <= 56 ? "recent" : "older",
+    });
+  }
+  return points;
 }
 
 function normalizeSport(t: string): string {

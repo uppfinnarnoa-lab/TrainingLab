@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { RefreshCw, Loader2 } from "lucide-react";
 import {
-  LineChart, Line, ComposedChart,
+  LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import Link from "next/link";
@@ -18,6 +18,8 @@ import { SleepTrendChart } from "@/components/charts/SleepTrendChart";
 import { HrvTrendChart } from "@/components/charts/HrvTrendChart";
 import { RestingHRTrendChart } from "@/components/charts/RestingHRTrendChart";
 import { GarminWellnessChart } from "@/components/charts/GarminWellnessChart";
+import { WeatherPaceScatterChart } from "@/components/charts/WeatherPaceScatterChart";
+import { CadenceStrideScatterChart } from "@/components/charts/CadenceStrideScatterChart";
 import { MetricTooltip } from "@/components/stats/metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
@@ -27,6 +29,7 @@ import { tsbLabel } from "@/lib/fitness/training-load";
 import type { HRZones, PaceZones, StatisticalZoneResult } from "@/lib/fitness/zones";
 import type { VO2maxEstimate } from "@/lib/fitness/vo2max";
 import type { WeatherStats, WeatherBand, EasyPacePoint, GarminWellnessPoint } from "@/app/(dashboard)/stats/page";
+import { readinessLabel, type ReadinessResult, type HrvBaseline } from "@/lib/garmin/insights";
 import { cn } from "@/lib/utils";
 
 interface SumData { km: number; timeSec: number; count: number }
@@ -70,13 +73,15 @@ interface Props {
   weatherStats: WeatherStats | null;
   easyPaceTrend: EasyPacePoint[];
   statZonesLaps: StatisticalZoneResult | null;
-  cadenceByWeek: { week: string; spm: number; strideM: number }[];
+  cadenceScatter: import("@/app/(dashboard)/stats/page").CadenceScatterPoint[];
   efByWeek: { week: string; ef: number }[];
   monotony: number | null;
   strain: number | null;
   avgRecoveryDays: number | null;
   recoveryDaysCount: number;
   garminWellness: GarminWellnessPoint[];
+  readiness: ReadinessResult;
+  hrvBaseline: HrvBaseline | null;
   extraViz: {
     heatmapData: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
@@ -102,7 +107,8 @@ export function StatsClient(props: Props) {
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZonesLaps, analytics, paceZoneSeconds,
     modelPredictions, modelVdots, extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend,
-    cadenceByWeek, efByWeek, monotony, strain, avgRecoveryDays, recoveryDaysCount, garminWellness } = props;
+    cadenceScatter, efByWeek, monotony, strain, avgRecoveryDays, recoveryDaysCount, garminWellness,
+    readiness, hrvBaseline } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -300,6 +306,8 @@ export function StatsClient(props: Props) {
             </p>
           ) : (
             <>
+              <ReadinessScoreCard readiness={readiness} hrvBaseline={hrvBaseline} />
+
               <SectionCard title="Sleep stages & score (16 weeks)" tips={[tooltips.sleepTrend]}>
                 <SleepTrendChart data={garminWellness} />
               </SectionCard>
@@ -480,32 +488,22 @@ export function StatsClient(props: Props) {
             }
           </SectionCard>
 
-          {/* Cadence + stride length trend (1A) */}
-          {cadenceByWeek.length > 0 && (
-            <SectionCard title="Cadence & stride length">
+          {/* Cadence + stride length vs. pace (1A) */}
+          {cadenceScatter.length > 0 && (
+            <SectionCard title="Cadence & stride length vs. pace">
               <div className="text-sm text-muted mb-3">
-                SPM (left) · Stride length m (right) — last 26 weeks
+                Hastighet = Kadens × Stegländ — visas mot pace, inte tid, eftersom veckovariation
+                annars bara speglar vilken blandning av pass som kördes den veckan.
               </div>
-              <ResponsiveContainer width="100%" height={160}>
-                <ComposedChart data={cadenceByWeek} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="week" tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false}
-                    interval={Math.max(0, Math.floor(cadenceByWeek.length / 8) - 1)}
-                    tickFormatter={(w: string) => w.slice(5)} />
-                  <YAxis yAxisId="spm" domain={['auto', 'auto']} width={36} tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="stride" orientation="right" domain={['auto', 'auto']} width={36} tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: number, name: string) => name === 'spm' ? [`${v} spm`, 'Cadence'] : [`${(v as number).toFixed(2)} m`, 'Stride length']}
-                    labelFormatter={(w: string) => `Vecka ${w}`}
-                  />
-                  <Line yAxisId="spm" type="monotone" dataKey="spm" stroke="#6EE7B7" dot={false} strokeWidth={2} />
-                  <Line yAxisId="stride" type="monotone" dataKey="strideM" stroke="#60A5FA" dot={false} strokeWidth={2} />
-                </ComposedChart>
-              </ResponsiveContainer>
-              <div className="flex gap-4 mt-2 text-xs text-muted">
-                <span><span className="inline-block w-3 h-0.5 bg-accent mr-1 align-middle" />Cadence (SPM)</span>
-                <span><span className="inline-block w-3 h-0.5 bg-blue-400 mr-1 align-middle" />Stride length (m)</span>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Kadens (spm)</p>
+                  <CadenceStrideScatterChart data={cadenceScatter} metric="spm" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Steglängd (m)</p>
+                  <CadenceStrideScatterChart data={cadenceScatter} metric="strideM" />
+                </div>
               </div>
             </SectionCard>
           )}
@@ -567,10 +565,78 @@ export function StatsClient(props: Props) {
   );
 }
 
+function ReadinessScoreCard({ readiness, hrvBaseline }: { readiness: ReadinessResult; hrvBaseline: HrvBaseline | null }) {
+  if (readiness.score == null) {
+    return (
+      <div className="rounded-xl bg-surface border border-border p-5 space-y-2">
+        <p className="text-sm font-semibold text-primary">Readiness</p>
+        <p className="text-xs text-muted py-4 text-center">
+          Not enough data yet — needs HRV, sleep, training load and resting HR history.
+        </p>
+      </div>
+    );
+  }
+
+  const { score, components } = readiness;
+  const { color, label } = readinessLabel(score);
+
+  const rows: { key: keyof typeof components; label: string }[] = [
+    { key: "hrv", label: "HRV vs. baseline" },
+    { key: "tsb", label: "Training stress balance" },
+    { key: "sleep", label: "Sleep score" },
+    { key: "restHR", label: "Resting HR vs. baseline" },
+  ];
+
+  return (
+    <div className="rounded-xl bg-surface border border-border p-5 space-y-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-semibold text-primary">Readiness</p>
+          <p className="text-[10px] text-muted mt-0.5">HRV 40% · TSB 30% · Sleep 20% · Resting HR 10%</p>
+        </div>
+        <div className="text-right">
+          <p className="text-3xl font-semibold font-mono" style={{ color }}>{score}</p>
+          <p className="text-xs font-medium" style={{ color }}>{label}</p>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {rows.map(r => {
+          const v = components[r.key];
+          return (
+            <div key={r.key} className="flex items-center gap-3">
+              <span className="text-xs text-muted w-44 shrink-0">{r.label}</span>
+              <div className="flex-1 relative h-2">
+                <div className="h-2 rounded-full bg-surface-2 w-full" />
+                {v != null && (
+                  <div className="absolute top-0 h-2 rounded-full" style={{ width: `${v}%`, backgroundColor: color, opacity: 0.6 }} />
+                )}
+              </div>
+              <span className="text-xs font-mono w-10 text-right shrink-0 text-muted">{v ?? "—"}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {hrvBaseline?.flag === "overreaching_risk" && (
+        <div className="rounded-lg border border-[#F87171]/40 bg-[#F87171]/10 px-3 py-2">
+          <p className="text-xs font-semibold" style={{ color: "#F87171" }}>HRV baseline drop — possible overreaching</p>
+          <p className="text-[10px] text-muted mt-0.5">
+            7-day HRV average is {Math.abs(hrvBaseline.baselineDropPct!)}% below your 60-day baseline. Consider prioritizing recovery.
+          </p>
+        </div>
+      )}
+      {hrvBaseline?.cv14d != null && (
+        <p className="text-[10px] text-muted">HRV variability (14-day CV): {hrvBaseline.cv14d}%</p>
+      )}
+    </div>
+  );
+}
+
 function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | null }) {
   const hasAnyData = weatherStats && (
-    weatherStats.byTemp.some(b => b.count > 0) ||
-    weatherStats.byWind.some(b => b.count > 0)
+    weatherStats.tempScatter.length > 0 ||
+    weatherStats.windScatter.length > 0
   );
   if (!hasAnyData) return (
     <div className="rounded-xl bg-surface border border-border p-5 space-y-5">
@@ -586,8 +652,6 @@ function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | nul
     return `${m}:${String(s).padStart(2, "0")}/km`;
   }
 
-  const tempBands  = weatherStats!.byTemp.filter(b => b.count > 0);
-  const windBands  = weatherStats!.byWind.filter(b => b.count > 0);
   const precipBands = (weatherStats!.byPrecip ?? []).filter(b => b.count > 0);
   const hrNormBands = (weatherStats!.hrNormByTemp ?? []).filter(b => b.count > 0);
 
@@ -637,8 +701,6 @@ function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | nul
     );
   }
 
-  const fastTemp = fastest(tempBands), slowTemp = slowest(tempBands);
-  const fastWind = fastest(windBands), slowWind = slowest(windBands);
   const fastPrecip = fastest(precipBands), slowPrecip = slowest(precipBands);
   const fastHR = fastest(hrNormBands), slowHR = slowest(hrNormBands);
 
@@ -663,13 +725,8 @@ function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | nul
         </div>
       )}
 
-      {tempBands.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted uppercase tracking-wide">Adjusted pace by temperature</p>
-          <div className="space-y-1.5">
-            {tempBands.map(band => <BandRow key={band.label} band={band} fast={fastTemp} slow={slowTemp} labelW="w-20" />)}
-          </div>
-        </div>
+      {weatherStats!.tempScatter.length >= 8 && (
+        <WeatherPaceScatterChart data={weatherStats!.tempScatter} xLabel="Temperatur" xUnit="°C" color="#FBBF24" />
       )}
 
       {hrNormBands.length >= 3 && (
@@ -682,13 +739,8 @@ function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | nul
         </div>
       )}
 
-      {windBands.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted uppercase tracking-wide">Adjusted pace by wind (km/h)</p>
-          <div className="space-y-1.5">
-            {windBands.map(band => <BandRow key={band.label} band={band} fast={fastWind} slow={slowWind} labelW="w-28" />)}
-          </div>
-        </div>
+      {weatherStats!.windScatter.length >= 8 && (
+        <WeatherPaceScatterChart data={weatherStats!.windScatter} xLabel="Vind" xUnit=" km/h" color="#60A5FA" />
       )}
 
       {precipBands.length >= 2 && (

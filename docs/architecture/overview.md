@@ -92,7 +92,7 @@ All metrics are derived from stored activity data and cached where expensive:
 - **ATL** — 7-day exponential weighted average of TSS
 - **CTL** — 42-day exponential weighted average of TSS
 - **TSB** — CTL − ATL
-- **Readiness score** — HRV 40% + TSB 30% + sleep 20% + resting HR trend 10%
+- **Readiness score** (`lib/garmin/insights.ts`) — HRV 40% + TSB 30% + sleep 20% + resting HR trend 10%, each normalized relative to the athlete's own baseline and re-weighted over whichever components have data; optionally blended 60/40 with Garmin's own `trainingReadiness` score when available. Shared by the dashboard's readiness pill and the Stats → Recovery tab's detail card.
 
 ## AI Context Architecture
 The coach never receives raw bulk data. `lib/ai/context-builder.ts` selects:

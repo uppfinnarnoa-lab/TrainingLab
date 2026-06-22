@@ -36,8 +36,8 @@ export async function POST(req: NextRequest) {
     try {
       const since = account.lastSyncAt ?? undefined;
       const result = await syncActivities(userId, { since });
-      updateVO2maxAndPaces(userId).catch(() => {});
-      backfillWeather(userId, 50).catch(() => {});
+      updateVO2maxAndPaces(userId).catch(e => console.error(`[cron] Fitness cache error for user ${userId}:`, e));
+      backfillWeather(userId, 50).catch(e => console.error(`[cron] Weather backfill error for user ${userId}:`, e));
       results.push({ userId, synced: result.synced });
     } catch (e) {
       results.push({ userId, error: String(e) });

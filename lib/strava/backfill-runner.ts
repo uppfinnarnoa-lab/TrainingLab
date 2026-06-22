@@ -84,7 +84,7 @@ class BackfillRunner {
           // (VO2max, paces, LT/AT pace trend) so they reflect the new data without waiting
           // for the next sync. Does NOT touch statZonesJson/HR zones — those stay
           // calibration-button-only by design (see lib/fitness/cache.ts).
-          updateVO2maxAndPaces(userId).catch(() => {});
+          updateVO2maxAndPaces(userId).catch(e => console.error(`[backfill] Fitness cache error for user ${userId}:`, e));
         }
         this.emit(userId, event);
       },

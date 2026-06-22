@@ -102,7 +102,7 @@ export async function syncGarminDaily(userId: string, date: Date = new Date()): 
     sleepLight:        toInt(sleepDTO.lightSleepSeconds),
     sleepRem:          toInt(sleepDTO.remSleepSeconds),
     sleepAwake:        toInt(sleepDTO.awakeSleepSeconds),
-    hrvNightly:        toFloat(hrvSumm.lastNight),
+    hrvNightly:        toFloat(hrvSumm.lastNightAvg),
     hrvBalance,
     trainingReadiness: toInt(readinessEntry.trainingReadinessScore ?? readinessEntry.score),
     spo2Avg:           toFloat(allDay.averageSPO2 ?? spo2.averageSPO2),
