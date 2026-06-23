@@ -1,7 +1,25 @@
 # Implementera gratis Kimi-modell som AI-coach-provider
 
-**Status:** Research klar, redo för implementation
+**Status:** SUPERSEDED 2026-06-24 — implementerad på ett enklare sätt än denna plan beskriver. Arkiverad oimplementerad som skriven; se notis nedan.
 **Skapad:** 2026-06-23
+
+---
+
+## ⚠️ Superseded 2026-06-24 — implementerad utan ny provider
+
+Denna plans research (§2) missade en väg: **Kimi K2.5 (nyare än K2/K2.6, 1T-param multimodal, 256K context) finns hostad direkt på NVIDIA NIM** — samma `https://integrate.api.nvidia.com/v1`-endpoint och samma `NVIDIA_API_KEY` som appens BEFINTLIGA NVIDIA-provider (`lib/ai/nvidia.ts`) redan använder för Llama/Mistral. NVIDIAs gratis-tier är numera (sedan kreditsystemet fasades ut tidigt 2025) en löpande hastighetsbegränsad gratis-nivå (40 RPM, inget kort, ingen daglig hård gräns) — inte en engångskredit-trial. Det betyder Kimi-tillgång kunde läggas till som **en enda ny rad i den redan existerande `NVIDIA_MODELS`-arrayen**, istället för att bygga en helt ny 5:e provider via OpenRouter (ny klient, nytt schema-fält, ny UI-sektion, ternary-kedjor i chat/calibrate-routes) som denna plan beskriver i §3.
+
+**Verifierat (webbsökning, inte gissat) 2026-06-24:**
+- Bas-URL: `https://integrate.api.nvidia.com/v1` (identisk med befintlig integration)
+- Modell-id: `moonshotai/kimi-k2.5`
+- Samma API-nyckel som övriga NVIDIA-modeller redan i appen
+- NVIDIAs gratis-tier: löpande 40 RPM, inget kort — **ingen daglig hård gräns**, till skillnad från OpenRouters Kimi `:free`-varianter (denna plans §5b flaggar själv 50 req/dag som ett verkligt problem för en aktiv coach-chatt)
+
+**Vad som faktiskt implementerades** (`lib/ai/nvidia.ts`, `app/(dashboard)/settings/ai-settings.tsx`, `docs/integrations/strava.md`, `prisma/schema.prisma`-kommentar): `moonshotai/kimi-k2.5` tillagd i `NVIDIA_MODELS` och satt som ny `NVIDIA_DEFAULT_MODEL`; jämförelsetabellens NVIDIA-rad uppdaterad. Se `docs/planning/IMPLEMENTATION_PLAN.md` för sessionsposten.
+
+**Kvar att göra om OpenRouter-vägen ändå blir relevant:** om Kimi K2.5 någon gång tas bort från NVIDIA NIM, eller om en användare specifikt vill ha K2.6:free (262K context) eller en modell NVIDIA inte hostar, är denna plans §3-§5b fortfarande en giltig, mer komplex väg dit — arkiveras här som referens, inte borttagen.
+
+---
 
 ## 1. Mål
 

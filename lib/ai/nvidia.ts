@@ -2,13 +2,14 @@ import OpenAI from "openai";
 import type { AIClient, AIMessage, StreamChunk } from "./client";
 
 export const NVIDIA_MODELS = [
-  { id: "nvidia/llama-3.1-nemotron-70b-instruct-hq", label: "Nemotron 70B (recommended)" },
+  { id: "moonshotai/kimi-k2.5",                      label: "Kimi K2.5 (recommended — 1T multimodal, 256K context)" },
+  { id: "nvidia/llama-3.1-nemotron-70b-instruct-hq", label: "Nemotron 70B" },
   { id: "meta/llama-3.3-70b-instruct",               label: "Llama 3.3 70B" },
   { id: "meta/llama-3.1-405b-instruct",              label: "Llama 3.1 405B (slow)" },
   { id: "mistralai/mistral-large-latest",            label: "Mistral Large" },
 ] as const;
 
-export const NVIDIA_DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct-hq";
+export const NVIDIA_DEFAULT_MODEL = "moonshotai/kimi-k2.5";
 
 export class NvidiaClient implements AIClient {
   readonly provider = "nvidia" as const;

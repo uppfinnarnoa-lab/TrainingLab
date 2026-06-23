@@ -24,6 +24,7 @@ model User {
 
   stravaAccount      StravaAccount?
   garminAccount      GarminAccount?
+  googleCalendarAccount GoogleCalendarAccount?
   garminDailies      GarminDailySummary[]
   activities         Activity[]
   plannedWorkouts    PlannedWorkout[]
@@ -98,6 +99,19 @@ model GarminAccount {
   refreshToken String   // AES-256-GCM encrypted — returned by Garmin's exchange endpoint but not redeemable via any known endpoint; kept, unused for refresh
   expiresAt    DateTime // access token expiry
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model GoogleCalendarAccount {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  accessToken    String    // AES-256-GCM encrypted
+  refreshToken   String    // AES-256-GCM encrypted — Google only re-issues this on first consent, kept across refreshes
+  expiresAt      DateTime
+  scope          String
+  calendarId     String    @default("primary")
+  lastSyncAt     DateTime?
+  needsReconnect Boolean   @default(false) // set when a refresh fails with invalid_grant — token revoked or (Testing-mode) expired
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model GarminDailySummary {
@@ -299,6 +313,7 @@ model PlannedWorkout {
   missedReason String?
   missedNote   String?
   markedAt     DateTime?
+  googleEventId String?  // linked Google Calendar event, see lib/google-calendar/sync.ts
 
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   template        WorkoutTemplate? @relation(fields: [templateId], references: [id])
@@ -380,7 +395,7 @@ model AISettings {
   claudeApiKey String?
   geminiApiKey String?
   nvidiaApiKey String?
-  nvidiaModel  String? // default: "nvidia/llama-3.1-nemotron-70b-instruct-hq"
+  nvidiaModel  String? // default: "moonshotai/kimi-k2.5"
   groqApiKey   String?
   groqModel    String? // default: "llama-3.3-70b-versatile"
   tavilyApiKey String? // AES-256-GCM encrypted — used by web_search tool
@@ -473,6 +488,8 @@ model AppConfig {
   stravaClientSecret  String?
   garminClientId      String?
   garminClientSecret  String?
+  googleClientId      String?
+  googleClientSecret  String?
   // Webhook & auto-sync
   stravaWebhookSubscriptionId  Int?     // set when Strava webhook subscription is active
   stravaWebhookToken           String?  // verify_token used when registering the subscription

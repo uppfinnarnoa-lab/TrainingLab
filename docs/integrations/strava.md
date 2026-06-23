@@ -49,7 +49,7 @@
 - **Docs**: `https://ai.google.dev/docs`
 
 ## NVIDIA NIM
-- **Model**: `nvidia/llama-3.1-nemotron-70b-instruct-hq` (default, OpenAI-compatible endpoint).
+- **Model**: `moonshotai/kimi-k2.5` (default — 1T-param multimodal, 256K context; same free, no-card, ongoing rate-limited tier as the other NVIDIA models, OpenAI-compatible endpoint). Other options: Nemotron 70B, Llama 3.3 70B, Llama 3.1 405B, Mistral Large.
 - **SDK**: `openai` SDK pointed at `https://integrate.api.nvidia.com/v1` (`lib/ai/nvidia.ts`).
 
 ## Groq
