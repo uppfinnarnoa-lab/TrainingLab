@@ -84,7 +84,7 @@ export const tooltips: Record<string, Tooltip> = {
   statZones: {
     title: "Statistical Threshold Estimation",
     what: "LT1/LT2 detected from the breakpoints in your pace-vs-HR curve, using all training data (laps + activities) you have.",
-    why: "This is the highest-confidence estimate available — it uses your full history, not a single rolling window — which is why R² here is usually higher than any single month in the LT/AT pace development chart below.",
+    why: "This is the highest-confidence estimate available — it uses your full history, not a single rolling window — which is why R² here is usually higher than any single month in the LT/AT pace development chart below. If your recent training has too little pace variety to find a breakpoint, this automatically reaches further back in your history instead of guessing — shown as method \"statistical-historical\" when that happens.",
     range: "R² ≥ 0.90: high confidence. 0.80–0.89: medium. Below 0.80: falls back to race-derived or fixed-percentage zones instead.",
   },
   ltPaceTrend: {

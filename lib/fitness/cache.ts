@@ -561,7 +561,7 @@ export async function updateHRZones(userId: string) {
     (acts as (ActLight & { laps?: unknown })[]).filter(a => /run|trail/i.test(a.sportType)),
     maxHR, restHR, undefined, true, // debug=true — this is the manual "Apply zones" call, logs are infrequent
   );
-  let zonesMethod: "statistical" | "race-pbs" | "fallback" | "manual" = "fallback";
+  let zonesMethod: "statistical" | "statistical-historical" | "race-pbs" | "fallback" | "manual" = "fallback";
   let rSquared: number | undefined;
   // Default to formula-based zones (standard percentages) when statistical is unavailable
   hrZones = buildHRZones(maxHR, restHR);
@@ -570,11 +570,14 @@ export async function updateHRZones(userId: string) {
 
   if (statResult && statResult.rSquared >= 0.80) {
     hrZones = statResult.zones;
-    zonesMethod = "statistical";
+    // "statistical-historical" = standard recency window found no usable structure, an
+    // escalated half-life did — flagged distinctly so the UI/AI coach knows this leans on
+    // older training data rather than current fitness (see estimateZonesFromActivities()).
+    zonesMethod = statResult.usedExtendedWindow ? "statistical-historical" : "statistical";
     rSquared = statResult.rSquared;
     calibLT1HR = statResult.lt1HR;
     calibLT2HR = statResult.lt2HR;
-    console.log(`[zones] Statistical analysis applied: LT1=${statResult.lt1HR}bpm LT2=${statResult.lt2HR}bpm R²=${statResult.rSquared} (${statResult.bucketCount} buckets)`);
+    console.log(`[zones] Statistical analysis applied (${zonesMethod}): LT1=${statResult.lt1HR}bpm LT2=${statResult.lt2HR}bpm R²=${statResult.rSquared} (${statResult.bucketCount} buckets)`);
   } else {
     if (statResult) rSquared = statResult.rSquared;
     console.log(`[zones] Statistical analysis insufficient (R²=${statResult?.rSquared ?? "n/a"}) — using formula defaults`);

@@ -290,6 +290,7 @@ export interface StatisticalZoneResult {
   rSquared: number;          // 0–1, confidence of the piecewise fit
   bucketCount: number;       // number of valid pace buckets used
   zones: HRZones;
+  usedExtendedWindow?: boolean; // true if the standard recency window failed and an escalated half-life was needed
 }
 
 interface BucketPoint { pace: number; medianHR: number; count: number; totalWeight: number }
@@ -320,6 +321,7 @@ export function estimateZonesFromStatisticalAnalysis(
   restHR: number,
   asOf?: Date,
   debug = false,
+  halfLifeOverrideDays?: number,
 ): StatisticalZoneResult | null {
   const log = (...args: unknown[]) => { if (debug) console.log("[zones:debug]", ...args); };
 
@@ -340,7 +342,8 @@ export function estimateZonesFromStatisticalAnalysis(
     return (refTime - r.startDate.getTime()) / 86_400_000 < 90;
   }).length;
   const halfLifeT = Math.max(0, Math.min(1, (recentCount - 30) / 20)); // 0 at <=30 runs, 1 at >=50
-  const halfLife = 180 - halfLifeT * 90;
+  const halfLife = halfLifeOverrideDays ?? (180 - halfLifeT * 90);
+  if (halfLifeOverrideDays) log(`halfLife override=${halfLifeOverrideDays}d (standard would be ${Math.round(180 - halfLifeT * 90)}d)`);
 
   // ── First pass: all valid raw points (no gap upper bound) ─────────────────
   // HR bounds are universal physiology; lower gap bound (200 s/km = 3:20/km) is a
@@ -630,6 +633,12 @@ function buildWholeActRunsForZones(acts: ActivityForZoneEstimation[], olFilter: 
  * testing showed it discards legitimate easy/recovery training (which is routinely slower
  * than 1.15× LT1 pace and is not OL) far more often than it catches a genuine OL leak.
  */
+// Escalation ladder for the recency half-life (days) when the standard window (90-180d,
+// auto-scaled by recent training volume) finds no usable pace/HR structure. Stepped rather
+// than jumping straight to full history, so the result still uses the most recent data that's
+// actually sufficient — each rung only kicks in if every shorter one already failed.
+const EXTENDED_HALFLIFE_LADDER_DAYS = [270, 365, 545, 730, 1095];
+
 export function estimateZonesFromActivities(
   activities: ActivityForZoneEstimation[],
   maxHR: number,
@@ -637,20 +646,34 @@ export function estimateZonesFromActivities(
   asOf?: Date,
   debug = false,
 ): StatisticalZoneResult | null {
-  if (debug) console.log(`[zones:debug] estimateZonesFromActivities: ${activities.length} candidate activities, maxHR=${maxHR} restHR=${restHR}`);
-  const phase1Laps = buildLapRunsForZones(activities, nameOnlyOlFilter);
-  if (debug) console.log(`[zones:debug] phase1 lap-rows=${phase1Laps.length} (from activities with a non-empty .laps array)`);
-  const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR, asOf, debug);
-  const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
+  const runPass = (halfLifeOverrideDays?: number): StatisticalZoneResult | null => {
+    if (debug) console.log(`[zones:debug] estimateZonesFromActivities: ${activities.length} candidate activities, maxHR=${maxHR} restHR=${restHR}${halfLifeOverrideDays ? ` halfLifeOverride=${halfLifeOverrideDays}d` : ""}`);
+    const phase1Laps = buildLapRunsForZones(activities, nameOnlyOlFilter);
+    if (debug) console.log(`[zones:debug] phase1 lap-rows=${phase1Laps.length} (from activities with a non-empty .laps array)`);
+    const phase1Result = estimateZonesFromStatisticalAnalysis(phase1Laps, maxHR, restHR, asOf, debug, halfLifeOverrideDays);
+    const olPaceThreshold = phase1Result ? Math.round(phase1Result.lt1PaceSecPerKm * 1.15) : 330;
 
-  const olFilter = (a: ActivityForZoneEstimation) =>
-    nameOnlyOlFilter(a) &&
-    (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < olPaceThreshold));
+    const olFilter = (a: ActivityForZoneEstimation) =>
+      nameOnlyOlFilter(a) &&
+      (!a.isRace || (a.averageSpeed != null && 1000 / a.averageSpeed < olPaceThreshold));
 
-  const runs = buildWholeActRunsForZones(activities, olFilter);
-  const lapRuns = buildLapRunsForZones(activities, olFilter);
-  if (debug) console.log(`[zones:debug] final pass: whole-activity rows=${runs.length} lap rows=${lapRuns.length}`);
-  return estimateZonesFromStatisticalAnalysis([...runs, ...lapRuns], maxHR, restHR, asOf, debug);
+    const runs = buildWholeActRunsForZones(activities, olFilter);
+    const lapRuns = buildLapRunsForZones(activities, olFilter);
+    if (debug) console.log(`[zones:debug] final pass: whole-activity rows=${runs.length} lap rows=${lapRuns.length}`);
+    return estimateZonesFromStatisticalAnalysis([...runs, ...lapRuns], maxHR, restHR, asOf, debug, halfLifeOverrideDays);
+  };
+
+  const standard = runPass();
+  if (standard) return standard;
+
+  for (const halfLifeDays of EXTENDED_HALFLIFE_LADDER_DAYS) {
+    const extended = runPass(halfLifeDays);
+    if (extended) {
+      if (debug) console.log(`[zones:debug] standard window found no structure — extended pass succeeded at halfLife=${halfLifeDays}d`);
+      return { ...extended, usedExtendedWindow: true };
+    }
+  }
+  return null;
 }
 
 function segErr(paces: number[], hrs: number[], from: number, to: number, weights?: number[]): number {

@@ -258,6 +258,41 @@ Clearing `FitnessCache` forces a full rebuild with whatever algorithm is current
 
 ---
 
+## 5b. Escalating Half-Life Fallback (2026-06-23)
+
+The standard recency window (90-180 day half-life, ~14-27 month effective lookback via the
+`weight > 0.01` cutoff) is sometimes wide enough on raw point count but still finds **no usable
+pace structure** — e.g. a real case where 263-363 weighted points cleared the `points >= 40`
+gate easily, but every one of them landed in a single 15 sec/km bucket (`monoBuckets=1`, needs
+`>= 6`), because that athlete's recency-weighted training window had essentially no pace
+variety to detect a breakpoint in.
+
+`estimateZonesFromActivities()` now retries with a wider half-life, one rung at a time, only
+when the standard pass returns `null`:
+
+```typescript
+const EXTENDED_HALFLIFE_LADDER_DAYS = [270, 365, 545, 730, 1095];
+```
+
+Each rung re-runs the full phase1-bootstrap + final-pass pipeline with that half-life forced
+(via `estimateZonesFromStatisticalAnalysis()`'s new `halfLifeOverrideDays` param, which bypasses
+the normal recentCount-based auto-calculation). The loop stops at the **first** rung that
+produces a non-null result — so the estimate always uses the most recent data that's actually
+sufficient, never jumping straight to the full history. If every rung fails too, the function
+returns `null` exactly as before and `updateHRZones()` falls through to race-PB/fixed-percentage
+zones, unchanged.
+
+This is a strict superset of the prior behavior: any case that used to succeed still returns the
+identical result on the first (standard) try. Only previously-`null` cases are affected.
+
+**Method labeling:** `StatisticalZoneResult.usedExtendedWindow` is `true` when an extended rung
+was needed. `updateHRZones()` sets `zonesMethod: "statistical-historical"` instead of
+`"statistical"` in that case — surfaced in the `/api/coach/calibrate` response and the Stats
+page's "Method: …" line, so the result is visibly flagged as leaning on older training data
+rather than current fitness (the whole point of recency-weighting in the first place — see §6).
+
+---
+
 ## 6. Confidence and Known Limitations
 
 The live computation (Statistical threshold estimation card) is the **highest-confidence**
@@ -296,4 +331,6 @@ Both are frozen, standalone reimplementations — never imported from `zones.ts`
 
 ---
 
-*Last updated: 2026-06-18 (unified updateHRZones() and updateVO2maxAndPaces() onto one shared estimateZonesFromActivities() pipeline; reconfirmed the OL pace-threshold exclusion must stay isRace-gated after real-data validation showed the alternative discards legitimate easy training; fixed the breakpoint scan's blanket fastest-bucket skip — now selectable with a 60%-of-max threshold plus an absolute slopeMax≥0.25 floor; gap-aware median-filter smoothing with lt1/lt2 ratio consistency; confidence/limitations section added; confidence tooltips added to the live card and trend chart)*
+*Last updated: 2026-06-23 (added the escalating half-life fallback — §5b — for cases where the standard recency window finds plenty of points but no pace structure to detect a breakpoint in; new `zonesMethod: "statistical-historical"` flags results that needed it)*
+
+*Previously updated: 2026-06-18 (unified updateHRZones() and updateVO2maxAndPaces() onto one shared estimateZonesFromActivities() pipeline; reconfirmed the OL pace-threshold exclusion must stay isRace-gated after real-data validation showed the alternative discards legitimate easy training; fixed the breakpoint scan's blanket fastest-bucket skip — now selectable with a 60%-of-max threshold plus an absolute slopeMax≥0.25 floor; gap-aware median-filter smoothing with lt1/lt2 ratio consistency; confidence/limitations section added; confidence tooltips added to the live card and trend chart)*
