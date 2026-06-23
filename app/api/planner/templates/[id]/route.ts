@@ -2,23 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
-
-const sectionSchema = z.object({
-  order: z.number().int(),
-  name: z.string().min(1).max(80),
-  durationType: z.enum(["time", "distance", "open"]),
-  duration: z.number().int().positive().optional().nullable(),
-  distance: z.number().positive().optional().nullable(),
-  repetitions: z.number().int().min(1).optional().nullable(),
-  zoneType: z.enum(["hr_zone", "pace_zone", "power_zone", "rpe"]).optional().nullable(),
-  targetZone: z.number().int().min(1).max(5).optional().nullable(),
-  targetPaceLow: z.number().positive().optional().nullable(),
-  targetPaceHigh: z.number().positive().optional().nullable(),
-  targetHRLow: z.number().int().optional().nullable(),
-  targetHRHigh: z.number().int().optional().nullable(),
-  targetRPE: z.number().int().min(1).max(10).optional().nullable(),
-  notes: z.string().max(500).optional().nullable(),
-});
+import { sectionSchema } from "@/lib/planner/sectionSchema";
+import { computeTemplateEstimate } from "@/lib/planner/estimate";
 
 const updateSchema = z.object({
   name:        z.string().min(1).max(100).optional(),
@@ -51,7 +36,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     await prisma.workoutTemplate.update({ where: { id }, data: templateData });
   }
 
-  // Replace sections if provided
+  // Replace sections if provided, and recompute the template's cached
+  // estimate fields — they otherwise go stale on every section edit.
   if (sections !== undefined) {
     await prisma.workoutSection.deleteMany({ where: { templateId: id } });
     if (sections.length > 0) {
@@ -59,6 +45,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         data: sections.map(s => ({ ...s, templateId: id })),
       });
     }
+    await prisma.workoutTemplate.update({ where: { id }, data: computeTemplateEstimate(sections) });
   }
 
   const updated = await prisma.workoutTemplate.findUnique({

@@ -8,6 +8,7 @@ import { secPerKmToPaceStr } from "@/lib/fitness/paces";
 import type { SportCategory, WorkoutSection, WorkoutType } from "@/lib/planner/types";
 import { ZONE_COLORS } from "@/lib/planner/types";
 import { workoutColor } from "@/lib/planner/colors";
+import { estimateSections } from "@/lib/planner/estimate";
 import { cn } from "@/lib/utils";
 
 interface NewSection extends Omit<WorkoutSection, "id"> { _key: number; }
@@ -81,6 +82,7 @@ function makeDefaultSection(duration: number | null, distance: number | null, zo
     repetitions: null, zoneType: "pace_zone", targetZone: zone,
     targetPaceLow: null, targetPaceHigh: null,
     targetHRLow: null, targetHRHigh: null, targetRPE: null, notes: null,
+    restDurationType: null, restDuration: null, restDistance: null, restTargetZone: null,
   };
 }
 
@@ -91,6 +93,7 @@ function emptySection(): NewSection {
     repetitions: null, zoneType: "pace_zone", targetZone: 2,
     targetPaceLow: null, targetPaceHigh: null,
     targetHRLow: null, targetHRHigh: null, targetRPE: null, notes: null,
+    restDurationType: null, restDuration: null, restDistance: null, restTargetZone: null,
   };
 }
 
@@ -322,20 +325,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   }
 
   const estimated = useCallback(() => {
-    let totalSec = 0, totalM = 0;
-    const zoneSec: Record<string, number> = {};
-    for (const s of sections) {
-      const reps = s.repetitions ?? 1;
-      let dur = 0;
-      if (s.durationType === "time" && s.duration) {
-        dur = s.duration * reps; totalSec += dur;
-      } else if (s.durationType === "distance" && s.distance) {
-        const pace = s.targetPaceHigh ? ((s.targetPaceLow ?? s.targetPaceHigh) + s.targetPaceHigh) / 2 : 360;
-        dur = (s.distance * reps / 1000) * pace; totalSec += dur; totalM += s.distance * reps;
-      }
-      if (s.targetZone && dur > 0) { const z = `z${s.targetZone}`; zoneSec[z] = (zoneSec[z] ?? 0) + dur; }
-    }
-    return { totalSec, totalM, zoneSec };
+    return estimateSections(sections);
   }, [sections]);
 
   const est = estimated();
@@ -368,6 +358,8 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
       const reps = s.repetitions ?? 1;
       if (s.durationType === "time" && s.duration) totalDuration = (totalDuration ?? 0) + s.duration * reps;
       else if (s.durationType === "distance" && s.distance) totalDistance = (totalDistance ?? 0) + s.distance * reps;
+      if (s.restDurationType === "time" && s.restDuration) totalDuration = (totalDuration ?? 0) + s.restDuration * reps;
+      else if (s.restDurationType === "distance" && s.restDistance) totalDistance = (totalDistance ?? 0) + s.restDistance * reps;
     }
     if (!totalDuration && typeof totalDurMin === "number" && totalDurMin > 0)
       totalDuration = Math.round(totalDurMin * 60);
@@ -632,6 +624,20 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   );
 }
 
+function sectionSummary(s: NewSection): string {
+  const reps = s.repetitions ?? 1;
+  const activeLabel = s.durationType === "time" && s.duration ? formatDuration(s.duration)
+    : s.durationType === "distance" && s.distance ? formatDistance(s.distance) : "";
+  const zoneLabel = s.targetZone ? ` Z${s.targetZone}` : "";
+  if (reps <= 1) return `${activeLabel}${zoneLabel}`;
+
+  const restLabel = s.restDurationType === "time" && s.restDuration ? formatDuration(s.restDuration)
+    : s.restDurationType === "distance" && s.restDistance ? formatDistance(s.restDistance) : "";
+  const restZoneLabel = s.restTargetZone ? ` Z${s.restTargetZone}` : "";
+  const rest = restLabel ? ` + ${restLabel}${restZoneLabel} rest` : "";
+  return `${reps}× ${activeLabel}${zoneLabel}${rest}`;
+}
+
 // ── Section row ────────────────────────────────────────────────────────────
 
 function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRemove, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd, canMoveUp, canMoveDown, onMoveUp, onMoveDown }: {
@@ -686,12 +692,7 @@ function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRem
         </div>
         <div className="flex-1 min-w-0">
           <span className="text-sm font-medium text-primary">{s.name}</span>
-          <span className="ml-2 text-xs text-muted">
-            {s.durationType === "time" && s.duration ? formatDuration(s.duration * (s.repetitions ?? 1)) : ""}
-            {s.durationType === "distance" && s.distance ? formatDistance(s.distance * (s.repetitions ?? 1)) : ""}
-            {s.repetitions && s.repetitions > 1 ? ` ×${s.repetitions}` : ""}
-            {s.targetZone && ` · Z${s.targetZone}`}
-          </span>
+          <span className="ml-2 text-xs text-muted">{sectionSummary(s)}</span>
         </div>
         {s.targetZone && <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ZONE_COLORS[s.targetZone] }} />}
         <ChevronDown size={14} className={cn("text-muted transition-transform shrink-0", open && "rotate-180")} />
@@ -756,6 +757,48 @@ function SectionRow({ section: s, paceZones, hrZones, onChange, onRemove, canRem
               ))}
             </select>
           </div>
+
+          {(s.repetitions ?? 1) > 1 && (
+            <div className="sm:col-span-2 rounded-xl border border-border/60 bg-surface-2 p-2.5 space-y-1.5">
+              <label className="text-xs text-muted block">Rest between reps</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <select value={s.restDurationType ?? ""} onChange={e => {
+                  const val = e.target.value as "" | "time" | "distance";
+                  onChange(val
+                    ? { restDurationType: val }
+                    : { restDurationType: null, restDuration: null, restDistance: null, restTargetZone: null });
+                }} className={inputCls}>
+                  <option value="">No rest</option>
+                  <option value="time">Time</option>
+                  <option value="distance">Distance</option>
+                </select>
+
+                {s.restDurationType === "time" && (
+                  <input type="number" min={1} value={s.restDuration ?? ""}
+                    onChange={e => onChange({ restDuration: parseInt(e.target.value) || null })}
+                    className={inputCls} placeholder="Seconds, e.g. 90" />
+                )}
+                {s.restDurationType === "distance" && (
+                  <input type="number" min={1} value={s.restDistance ?? ""}
+                    onChange={e => onChange({ restDistance: parseFloat(e.target.value) || null })}
+                    className={inputCls} placeholder="Meters, e.g. 200" />
+                )}
+
+                {s.restDurationType && (
+                  <select value={s.restTargetZone ?? ""} onChange={e => onChange({ restTargetZone: parseInt(e.target.value) || null })} className={inputCls}>
+                    <option value="">No zone</option>
+                    {[1, 2, 3, 4, 5].map(z => (
+                      <option key={z} value={z}>
+                        {ZONE_NAMES[z]}
+                        {paceZones?.[z - 1] ? ` (${secPerKmToPaceStr(paceZones[z - 1][1])}–${secPerKmToPaceStr(paceZones[z - 1][0])})` : ""}
+                        {hrZones?.[z - 1] ? ` · ${hrZones[z - 1][0]}–${hrZones[z - 1][1]} bpm` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="sm:col-span-2">
             <label className="text-xs text-muted mb-1 block">Notes</label>

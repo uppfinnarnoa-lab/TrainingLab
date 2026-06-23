@@ -30,7 +30,7 @@ Full schema with all fields is in `prisma/schema.prisma`. All user-owned models 
 | `SportCategory` | User-defined sports with color + icon |
 | `WorkoutType` | User-defined workout types per sport |
 | `WorkoutTemplate` | Saved workout templates with ordered sections |
-| `WorkoutSection` | Sections within a template (zone targets, reps, duration) |
+| `WorkoutSection` | Sections within a template (zone targets, reps, duration, optional rest segment for interval blocks) |
 | `TrainingBlock` | Named multi-week periods (Base/Build/Peak/Taper) with date range + race link |
 | `PlannedWorkout` | Calendar entries; status + missedReason when past |
 | `RaceRecord` | PBs per distance with full history |

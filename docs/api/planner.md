@@ -104,26 +104,32 @@ Create a workout template.
   "color":       "#rrggbb | null",
   "sections": [
     {
-      "order":          "number",
-      "name":           "string",
-      "durationType":   "time | distance | open",
-      "duration":       "number (seconds) | null",
-      "distance":       "number (meters) | null",
-      "repetitions":    "number | null",
-      "zoneType":       "hr_zone | pace_zone | power_zone | rpe | null",
-      "targetZone":     "1-5 | null",
-      "targetPaceLow":  "number (sec/km) | null",
-      "targetPaceHigh": "number (sec/km) | null",
-      "targetHRLow":    "number (bpm) | null",
-      "targetHRHigh":   "number (bpm) | null",
-      "targetRPE":      "1-10 | null",
-      "notes":          "string | null"
+      "order":            "number",
+      "name":             "string",
+      "durationType":     "time | distance | open",
+      "duration":         "number (seconds) | null",
+      "distance":         "number (meters) | null",
+      "repetitions":      "number | null",
+      "zoneType":         "hr_zone | pace_zone | power_zone | rpe | null",
+      "targetZone":       "1-5 | null",
+      "targetPaceLow":    "number (sec/km) | null",
+      "targetPaceHigh":   "number (sec/km) | null",
+      "targetHRLow":      "number (bpm) | null",
+      "targetHRHigh":     "number (bpm) | null",
+      "targetRPE":        "1-10 | null",
+      "notes":            "string | null",
+      "restDurationType": "time | distance | null — set to give this section a rest/recovery segment between reps",
+      "restDuration":     "number (seconds) | null",
+      "restDistance":     "number (meters) | null",
+      "restTargetZone":   "1-5 | null"
     }
   ]
 }
 ```
 
-**Response (201):** Full `WorkoutTemplate` with sections. `estimatedDuration`, `estimatedDistance`, and `estimatedZoneDistribution` are auto-computed from sections.
+A section with `repetitions > 1` and `restDurationType` set is one interval block — e.g. 6×(400m @ Z4 + 90s jog @ Z1) is a single section with `repetitions: 6`, the work segment in the existing `duration`/`distance`/`targetZone` fields, and the rest segment in `restDuration`/`restDistance`/`restTargetZone`. `restDurationType`/`restTargetZone` reuse the section's `zoneType` (no separate rest zone type — the rest target is interpreted the same way, pace vs HR vs RPE, as the active segment).
+
+**Response (201):** Full `WorkoutTemplate` with sections. `estimatedDuration`, `estimatedDistance`, and `estimatedZoneDistribution` are auto-computed from sections — for interval sections, `repetitions × (active segment + rest segment)` — and recomputed on every `PATCH` that replaces `sections`, not just on create.
 
 ---
 

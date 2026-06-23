@@ -926,7 +926,9 @@ export async function executeCoachTool(
             const dur = s.duration ? `${Math.round(s.duration / 60)}min` : s.distance ? `${(s.distance / 1000).toFixed(1)}km` : "";
             const rep = s.repetitions ? `${s.repetitions}×` : "";
             const zone = s.zoneType && s.targetZone ? ` Z${s.targetZone}` : "";
-            lines.push(`    ${rep}${s.name}: ${dur}${zone}${s.notes ? " — " + s.notes : ""}`);
+            const restDur = s.restDuration ? `${s.restDuration}s` : s.restDistance ? `${Math.round(s.restDistance)}m` : "";
+            const rest = s.restDurationType ? ` + rest ${restDur}${s.restTargetZone ? ` Z${s.restTargetZone}` : ""}` : "";
+            lines.push(`    ${rep}${s.name}: ${dur}${zone}${rest}${s.notes ? " — " + s.notes : ""}`);
           }
           lines.push("");
         }

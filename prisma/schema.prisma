@@ -265,6 +265,14 @@ model WorkoutSection {
   targetHRHigh  Int?
   targetRPE     Int?
   notes         String?
+
+  // Rest/recovery segment for interval blocks — repetitions × (active + rest).
+  // Reuses zoneType for interpretation; null restDurationType means no rest.
+  restDurationType String? // "time" | "distance" | null
+  restDuration      Int?
+  restDistance      Float?
+  restTargetZone    Int?
+
   template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@index([templateId, order])

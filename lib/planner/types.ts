@@ -36,6 +36,10 @@ export interface WorkoutSection {
   targetHRHigh: number | null;
   targetRPE: number | null;
   notes: string | null;
+  restDurationType: "time" | "distance" | null;
+  restDuration: number | null;     // seconds
+  restDistance: number | null;     // meters
+  restTargetZone: number | null;   // 1-5
 }
 
 export interface WorkoutTemplate {
