@@ -25,6 +25,8 @@ const schema = z.object({
   paceUnit:        z.enum(["min_per_km", "min_per_mi", "km_h"]).optional(),
   paceUnitBySport: z.record(z.string(), z.enum(["min_per_km", "min_per_mi", "km_h"])).optional().nullable(),
   annualGoals:     annualGoalsSchema.optional().nullable(),
+  pbDetectionMode:         z.enum(["manual", "automatic"]).optional(),
+  pbDetectionTolerancePct: z.coerce.number().min(0).max(50).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -37,6 +39,21 @@ export async function POST(req: NextRequest) {
 
   const { name, ...profileData } = parsed.data;
 
+  // pbDetectionModeChangedAt bounds auto-PB-detection to activities synced after this
+  // point (see lib/races/pb-detection.ts) — only stamp it on a genuine manual→automatic
+  // transition, never on every save while already "automatic", or it would silently
+  // re-arm the backfill guard and mask activities synced between two unrelated saves.
+  let pbDetectionModeChangedAt: Date | undefined;
+  if (parsed.data.pbDetectionMode === "automatic") {
+    const existing = await prisma.athleteProfile.findUnique({
+      where: { userId: session.user.id },
+      select: { pbDetectionMode: true },
+    });
+    if (!existing || existing.pbDetectionMode !== "automatic") {
+      pbDetectionModeChangedAt = new Date();
+    }
+  }
+
   await Promise.all([
     // Update display name on User
     name !== undefined ? prisma.user.update({ where: { id: session.user.id }, data: { name: name ?? undefined } }) : Promise.resolve(),
@@ -48,11 +65,13 @@ export async function POST(req: NextRequest) {
         ...profileData,
         dateOfBirth: profileData.dateOfBirth ? new Date(profileData.dateOfBirth) : null,
         sex: profileData.sex || null,
+        ...(pbDetectionModeChangedAt ? { pbDetectionModeChangedAt } : {}),
       },
       update: {
         ...profileData,
         dateOfBirth: profileData.dateOfBirth ? new Date(profileData.dateOfBirth) : null,
         sex: profileData.sex || null,
+        ...(pbDetectionModeChangedAt ? { pbDetectionModeChangedAt } : {}),
       },
     }),
   ]);

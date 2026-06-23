@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/prisma";
 import { stravaFetch } from "./client";
 import { fetchAndSaveWeather } from "@/lib/weather/open-meteo";
 import { matchActivityToPlanned } from "@/lib/fitness/activity-matching";
+import { detectAndRecordPBs } from "@/lib/races/pb-detection";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapActivity(raw: any, userId: string) {
@@ -115,6 +116,9 @@ export async function syncActivities(
         if (!exists && saved.startLat != null && saved.startLng != null && saved.weatherTemp == null) {
           fetchAndSaveWeather(saved.id, saved.startLat, saved.startLng, saved.startDate).catch(() => {});
         }
+        if (!exists) {
+          detectAndRecordPBs(userId, saved.id).catch(e => console.error("[sync] PB detection error:", e));
+        }
         synced++;
       } catch (e) {
         console.error("Activity upsert failed for stravaId", raw.id, e);
@@ -171,7 +175,8 @@ export async function resyncRecentActivities(
 
       if (!existing) {
         // New activity — create it
-        await prisma.activity.create({ data });
+        const saved = await prisma.activity.create({ data });
+        detectAndRecordPBs(userId, saved.id).catch(e => console.error("[resync] PB detection error:", e));
         synced++;
       } else if (existing.description !== data.description) {
         // Description has been updated — sync the new text and other fields
@@ -214,6 +219,8 @@ export async function syncSingleActivity(userId: string, stravaActivityId: numbe
   const full: any = await stravaFetch(userId, `/activities/${stravaActivityId}`);
   const data = { ...mapActivity(full, userId), splitDetailFetched: true };
 
+  const exists = await prisma.activity.findUnique({ where: { stravaId: data.stravaId }, select: { stravaId: true } });
+
   const saved = await prisma.activity.upsert({
     where: { stravaId: data.stravaId },
     create: data,
@@ -238,6 +245,10 @@ export async function syncSingleActivity(userId: string, stravaActivityId: numbe
 
   // Auto-match to planned workout
   tryMatchActivity(userId, saved.id).catch(() => {});
+
+  if (!exists) {
+    detectAndRecordPBs(userId, saved.id).catch(e => console.error("[webhook] PB detection error:", e));
+  }
 }
 
 async function tryMatchActivity(userId: string, activityId: string): Promise<void> {

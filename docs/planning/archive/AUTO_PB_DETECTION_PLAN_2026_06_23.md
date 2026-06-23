@@ -1,6 +1,6 @@
 # Automatisk identifiering av PB:n och nära-PB-resultat vid synk
 
-**Status:** Research klar, redo för implementation
+**Status:** ✅ Implemented 2026-06-24 — se sessionspost i `docs/planning/IMPLEMENTATION_PLAN.md` för exakt vad som byggdes och hur det validerades.
 **Skapad:** 2026-06-23 — **utökad 2026-06-23 (samma dag):** scope breddad från "bara nya PB:n" till "alla tävlings- eller träningsresultat inom ett konfigurerbart intervall av PB", se §4b.
 
 ## 1. Mål

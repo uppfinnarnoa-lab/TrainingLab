@@ -2,9 +2,10 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Loader2, Edit2, Trash2, ExternalLink, Trophy, Link2, Unlink } from "lucide-react";
+import { Plus, Loader2, Edit2, Trash2, ExternalLink, Trophy, Link2, Unlink, ScanSearch } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceDot } from "recharts";
 import { secToTimeStr } from "@/lib/fitness/paces";
+import { RACE_DISTANCE_PRESETS } from "@/lib/races/distances";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 
@@ -34,7 +35,7 @@ interface Props {
 }
 
 // Canonical distance order for the sidebar
-const DISTANCE_ORDER = ["400m","800m","1K","1500m","Mile","2K","3K","5K","10K","15K","Half Marathon","Marathon"];
+const DISTANCE_ORDER = RACE_DISTANCE_PRESETS.map(d => d.label);
 
 export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) {
   const router = useRouter();
@@ -45,6 +46,8 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
   const [autoLinking, setAutoLinking] = useState(false);
   const [linkResult, setLinkResult] = useState<{ linked: number } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<{ created: number } | null>(null);
 
   const distances = useMemo(() => {
     const map = new Map<string, RaceRecord[]>();
@@ -84,6 +87,21 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
       setLinkResult({ linked: data.linked });
     }
     setAutoLinking(false);
+  }
+
+  async function handleScanHistory() {
+    setScanning(true);
+    setScanResult(null);
+    const res = await fetch("/api/races/scan-history", { method: "POST" });
+    if (res.ok) {
+      const data: { created: number; records: RaceRecord[] } = await res.json();
+      setScanResult({ created: data.created });
+      if (data.created > 0) {
+        setRecords(prev => [...prev, ...data.records.map(r => ({ ...r, date: r.date.slice(0, 10) }))]);
+        router.refresh();
+      }
+    }
+    setScanning(false);
   }
 
   async function unlinkActivity(id: string) {
@@ -144,6 +162,19 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
           Link activities
           {linkResult !== null && (
             <span className="text-accent font-semibold">({linkResult.linked} linked)</span>
+          )}
+        </button>
+
+        <button
+          onClick={handleScanHistory}
+          disabled={scanning}
+          className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs font-medium text-muted hover:text-primary hover:border-accent/40 disabled:opacity-50 transition"
+          title="Scan all past activities for PBs and near-PB results based on your tolerance setting"
+        >
+          {scanning ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />}
+          Scan history for PBs
+          {scanResult !== null && (
+            <span className="text-accent font-semibold">({scanResult.created} added)</span>
           )}
         </button>
       </div>
@@ -347,19 +378,8 @@ export function RacesClient({ records: initialRecords, perfTrend = [] }: Props) 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
 
 const PRESETS = [
-  { label: "400m",          m: 400 },
-  { label: "800m",          m: 800 },
-  { label: "1K",            m: 1000 },
-  { label: "1500m",         m: 1500 },
-  { label: "Mile",          m: 1609 },
-  { label: "2K",            m: 2000 },
-  { label: "3K",            m: 3000 },
-  { label: "5K",            m: 5000 },
-  { label: "10K",           m: 10000 },
-  { label: "15K",           m: 15000 },
-  { label: "Half Marathon", m: 21097 },
-  { label: "Marathon",      m: 42195 },
-  { label: "Custom",        m: 0 },
+  ...RACE_DISTANCE_PRESETS.map(d => ({ label: d.label, m: d.meters })),
+  { label: "Custom", m: 0 },
 ];
 
 function RaceModal({ record, onClose, onSave }: {

@@ -18,6 +18,8 @@ interface Profile {
   yearsTraining?: number | null;
   paceUnit?: string | null;
   annualGoals?: Record<string, Record<string, number>> | null;
+  pbDetectionMode?: string | null;
+  pbDetectionTolerancePct?: number | null;
 }
 
 export function AthleteProfileForm({ initial, sports }: { initial: Profile; sports: string[] }) {
@@ -169,6 +171,41 @@ export function AthleteProfileForm({ initial, sports }: { initial: Profile; spor
             </label>
           ))}
         </div>
+      </Field>
+
+      {/* PB detection */}
+      <Field label="Personal best detection" hint="Automatic adds new race results to your PB tracker straight from synced Strava activities — same as adding them by hand, just automatic" className="sm:col-span-2">
+        <div className="flex gap-3 flex-wrap mb-3">
+          {[
+            { value: "manual", label: "Manual" },
+            { value: "automatic", label: "Automatic" },
+          ].map(opt => (
+            <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="pbDetectionMode"
+                value={opt.value}
+                checked={(form.pbDetectionMode ?? "manual") === opt.value}
+                onChange={() => setForm(f => ({ ...f, pbDetectionMode: opt.value }))}
+                className="accent-accent"
+              />
+              <span className="text-sm text-primary">{opt.label}</span>
+            </label>
+          ))}
+        </div>
+        {form.pbDetectionMode === "automatic" && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-primary">Also track results within</span>
+            <input
+              type="number" min={0} max={50} step={1}
+              aria-label="PB tracking tolerance percentage"
+              value={form.pbDetectionTolerancePct ?? 5}
+              onChange={e => setForm(f => ({ ...f, pbDetectionTolerancePct: e.target.value === "" ? 5 : parseFloat(e.target.value) }))}
+              className={`${inputCls} w-20 text-center`}
+            />
+            <span className="text-sm text-primary">% of your PB (0 = strict PBs only)</span>
+          </div>
+        )}
       </Field>
 
       {/* Annual goals */}

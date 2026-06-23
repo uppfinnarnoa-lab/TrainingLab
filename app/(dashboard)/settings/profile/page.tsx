@@ -37,6 +37,8 @@ export default async function ProfileSettingsPage() {
           yearsTraining: athleteProfile?.yearsTraining,
           paceUnit: athleteProfile?.paceUnit ?? "min_per_km",
           annualGoals: (athleteProfile?.annualGoals as Record<string, Record<string, number>> | null) ?? null,
+          pbDetectionMode: athleteProfile?.pbDetectionMode ?? "manual",
+          pbDetectionTolerancePct: athleteProfile?.pbDetectionTolerancePct ?? 5,
         }} sports={sports.map((s: { name: string }) => s.name)} />
       </section>
 

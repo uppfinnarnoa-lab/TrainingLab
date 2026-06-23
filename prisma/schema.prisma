@@ -59,6 +59,9 @@ model AthleteProfile {
   annualGoals      Json?     // { "2026": { "Run": 2000, "Ride": 3000 }, ... } km targets per year per sport
   paceUnit         String    @default("min_per_km") // "min_per_km" | "min_per_mi" | "km_h"
   paceUnitBySport  Json?     // { "Run": "min_per_km", "Ride": "km_h" } per-sport override
+  pbDetectionMode          String    @default("manual") // "manual" | "automatic"
+  pbDetectionModeChangedAt DateTime? // set when pbDetectionMode transitions to "automatic" — bounds auto-detection to activities after this point, never retroactively
+  pbDetectionTolerancePct  Float     @default(5) // % slower than PB still recorded as a result (0 = strict PBs only)
   updatedAt        DateTime  @updatedAt
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

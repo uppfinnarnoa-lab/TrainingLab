@@ -33,10 +33,10 @@ Full schema with all fields is in `prisma/schema.prisma`. All user-owned models 
 | `WorkoutSection` | Sections within a template (zone targets, reps, duration, optional rest segment for interval blocks) |
 | `TrainingBlock` | Named multi-week periods (Base/Build/Peak/Taper) with date range + race link |
 | `PlannedWorkout` | Calendar entries; status + missedReason when past |
-| `RaceRecord` | PBs per distance with full history |
+| `RaceRecord` | PBs and near-PB results per distance with full history; `isManual: false` rows come from automatic detection (see `lib/races/pb-detection.ts`) |
 | `Conversation` / `Message` | AI coach chat history with token cost tracking |
 | `AISettings` | Provider choice (claude/gemini), API keys, monthly budget |
-| `AthleteProfile` | Weight, height, DOB, sex, max HR, resting HR, primary goal — sent in AI system prompt |
+| `AthleteProfile` | Weight, height, DOB, sex, max HR, resting HR, primary goal — sent in AI system prompt; also holds `pbDetectionMode`/`pbDetectionTolerancePct` (automatic PB tracking) |
 
 ## Pages (all implemented)
 | Route | Description |

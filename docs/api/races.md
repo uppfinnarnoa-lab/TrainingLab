@@ -1,5 +1,16 @@
 # Races API
 
+## Automatic PB detection (side effect, not its own endpoint)
+
+When `AthleteProfile.pbDetectionMode === "automatic"`, every newly-synced running `Activity` is scanned for PBs and near-PB results by `lib/races/pb-detection.ts`, called from `lib/strava/sync.ts` after a genuinely new activity is created (bulk sync, smart resync, and the Strava webhook path all three call it). Source data is `Activity.bestEfforts` (Strava's own exact per-distance segment times), matched against the canonical distance list in `lib/races/distances.ts`. A result is recorded (`RaceRecord.isManual: false`, `eventName` set to the Strava activity's name) when:
+
+- it beats or is within `AthleteProfile.pbDetectionTolerancePct`% of the current best for that distance, or
+- there is no current best yet AND `Activity.isRace === true` (a flagged-race requirement that applies only to seeding the *first* record on a never-before-tracked distance).
+
+Only applies to activities synced **after** `pbDetectionMode` was last switched to `"automatic"` (`AthleteProfile.pbDetectionModeChangedAt`) — never retroactively, to avoid flooding the tracker on first activation. See `POST /api/races/scan-history` below for the explicit, user-initiated way to backfill historical results.
+
+---
+
 ## GET /api/races
 
 Fetch all race records for the user.
@@ -114,3 +125,25 @@ Update a race record (edit time, date, or event name).
 Delete a race record.
 
 **Auth:** Required. **Response (200):** `{ "ok": true }`.
+
+---
+
+## POST /api/races/scan-history
+
+Explicit, user-initiated bulk scan of **all** past running activities for PBs and near-PB results, using the same logic and `pbDetectionTolerancePct` as automatic detection — but bypassing `pbDetectionMode` and the `pbDetectionModeChangedAt` guard entirely, since this endpoint *is* the deliberate, reviewable alternative to automatic backfilling. Activities are processed oldest-first so each result is compared against the true best-so-far at that point in time.
+
+**Auth:** Required
+
+**Request:** No body.
+
+**Response (200):**
+```json
+{
+  "created": 3,
+  "records": [
+    { "id": "cuid", "distance": "5K", "distanceM": 5000, "time": 1185, "date": "2025-09-14T00:00:00.000Z", "eventName": "Tuesday track session", "stravaActivityId": "123456789", "notes": null, "isManual": false }
+  ]
+}
+```
+
+**Side effects:** Creates one `RaceRecord` per qualifying `bestEffort` across the user's entire running history (idempotent — running it twice never duplicates a result already recorded for the same activity + distance).
