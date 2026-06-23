@@ -398,6 +398,13 @@ export function estimateZonesFromStatisticalAnalysis(
   // A bucket with 3 recent race laps (weight ≈ 3 each = 9) passes; 12 stale laps
   // (weight ≈ 0.2 each = 2.4) do not. Data-driven, not count-based.
   const MIN_EFF_WEIGHT = 8;
+  if (debug) {
+    const allBins = [...bucketMap.entries()]
+      .map(([pace, pts]) => ({ pace, count: pts.length, weight: pts.reduce((s, p) => s + p.w, 0) }))
+      .sort((a, b) => a.pace - b.pace);
+    log(`bin detail (pace:count/weight, ✓=passes MIN_EFF_WEIGHT=${MIN_EFF_WEIGHT}): ` +
+      allBins.map(b => `${b.pace}:${b.count}/${b.weight.toFixed(1)}${b.weight >= MIN_EFF_WEIGHT ? "✓" : ""}`).join(" "));
+  }
   const buckets: BucketPoint[] = [...bucketMap.entries()]
     .filter(([, pts]) => pts.reduce((s, p) => s + p.w, 0) >= MIN_EFF_WEIGHT)
     .map(([pace, pts]) => {
