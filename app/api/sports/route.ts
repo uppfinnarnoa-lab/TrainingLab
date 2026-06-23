@@ -15,6 +15,7 @@ const sportUpdateSchema = z.object({
   id: z.string().cuid(),
   name: z.string().min(1).max(60).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  isRunningRelated: z.boolean().optional(),
 });
 
 const typeSchema = z.object({

@@ -89,7 +89,7 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
     setSports(prev => prev.filter(s => s.id !== id));
   }
 
-  async function updateSport(id: string, patch: Partial<Pick<Sport, "name" | "color">>) {
+  async function updateSport(id: string, patch: Partial<Pick<Sport, "name" | "color" | "isRunningRelated">>) {
     setSports(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
     await fetch("/api/sports", {
       method: "PATCH",
@@ -244,6 +244,11 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
           {/* Types */}
           {expanded.has(sport.id) && (
             <div className="border-t border-border px-4 py-3 space-y-2">
+              <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+                <input type="checkbox" checked={sport.isRunningRelated}
+                  onChange={e => updateSport(sport.id, { isRunningRelated: e.target.checked })} className="rounded" />
+                Related to running (counts toward weekly running distance)
+              </label>
               <div className="space-y-1.5">
                 {sport.workoutTypes.map((type, i) => (
                   <div key={type.id} className="rounded-xl border border-border bg-surface-2 overflow-hidden">
