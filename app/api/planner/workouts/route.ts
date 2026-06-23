@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
+import { createEvent } from "@/lib/google-calendar/sync";
 
 const workoutSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -75,6 +76,8 @@ export async function POST(req: NextRequest) {
     },
     include: { template: { include: { sport: true, sections: { orderBy: { order: "asc" } } } }, type: true },
   });
+
+  createEvent(session.user.id, workout).catch(e => console.error("[google-calendar] createEvent error:", e));
 
   return NextResponse.json(serialiseWorkout(workout), { status: 201 });
 }

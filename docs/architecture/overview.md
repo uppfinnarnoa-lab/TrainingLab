@@ -27,12 +27,13 @@ Full schema with all fields is in `prisma/schema.prisma`. All user-owned models 
 | `Activity` | All Strava activities incl. name, description, HR, splits, weather fields |
 | `GarminAccount` | Garmin OAuth tokens |
 | `GarminDailySummary` | Per-day HRV, sleep stages, resting HR, Body Battery |
+| `GoogleCalendarAccount` | OAuth tokens for one-way `PlannedWorkout` → Google Calendar sync, `needsReconnect` flag |
 | `SportCategory` | User-defined sports with color + icon |
 | `WorkoutType` | User-defined workout types per sport |
 | `WorkoutTemplate` | Saved workout templates with ordered sections |
 | `WorkoutSection` | Sections within a template (zone targets, reps, duration, optional rest segment for interval blocks) |
 | `TrainingBlock` | Named multi-week periods (Base/Build/Peak/Taper) with date range + race link |
-| `PlannedWorkout` | Calendar entries; status + missedReason when past |
+| `PlannedWorkout` | Calendar entries; status + missedReason when past; `googleEventId` when synced to Google Calendar |
 | `RaceRecord` | PBs and near-PB results per distance with full history; `isManual: false` rows come from automatic detection (see `lib/races/pb-detection.ts`) |
 | `Conversation` / `Message` | AI coach chat history with token cost tracking |
 | `AISettings` | Provider choice (claude/gemini), API keys, monthly budget |
@@ -50,7 +51,7 @@ Full schema with all fields is in `prisma/schema.prisma`. All user-owned models 
 | `/planner` | Training calendar + template library + block banner |
 | `/coach` | AI chat (Claude or Gemini), streaming, cost tracking |
 | `/races` | PB tracker per distance, timeline chart, manual entry |
-| `/settings` | Strava/Garmin connect, AI keys, athlete profile, sports/types, goals, account; admins also see a Users panel to approve/revoke accounts |
+| `/settings` | Strava/Garmin/Google Calendar connect, AI keys, athlete profile, sports/types, goals, account; admins also see a Users panel to approve/revoke accounts |
 
 ## File Structure (key paths)
 ```
@@ -67,13 +68,16 @@ app/
   api/
     strava/            OAuth callback, sync, webhook
     garmin/            OAuth callback, sync
+    google-calendar/   OAuth callback, push-upcoming sync, disconnect
     coach/chat/        Streaming AI responses
     planner/           CRUD for planned workouts + templates
-    races/             Race record CRUD
+    races/             Race record CRUD + auto-PB-detection bulk scan
 
 lib/
   strava/              API client + sync logic
   garmin/              API client + HRV/sleep sync
+  google-calendar/     OAuth client + planner→Calendar event sync
+  races/               Canonical distance presets + auto-PB-detection logic
   weather/             Open-Meteo client + backfill
   ai/                  AIClient interface, Claude + Gemini implementations, context builder
   fitness/             VO2max, ATL/CTL/TSB, zones, plan-analysis

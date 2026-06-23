@@ -10,6 +10,8 @@ const schema = z.object({
   stravaClientSecret: z.string().optional().nullable(),
   garminClientId:     z.string().optional().nullable(),
   garminClientSecret: z.string().optional().nullable(),
+  googleClientId:     z.string().optional().nullable(),
+  googleClientSecret: z.string().optional().nullable(),
 });
 
 export async function POST(req: NextRequest) {
@@ -26,6 +28,8 @@ export async function POST(req: NextRequest) {
   if (parsed.data.stravaClientSecret !== undefined) data.stravaClientSecret = encryptIfNeeded(parsed.data.stravaClientSecret);
   if (parsed.data.garminClientId     !== undefined) data.garminClientId     = parsed.data.garminClientId ?? null;
   if (parsed.data.garminClientSecret !== undefined) data.garminClientSecret = encryptIfNeeded(parsed.data.garminClientSecret);
+  if (parsed.data.googleClientId     !== undefined) data.googleClientId     = parsed.data.googleClientId ?? null;
+  if (parsed.data.googleClientSecret !== undefined) data.googleClientSecret = encryptIfNeeded(parsed.data.googleClientSecret);
 
   await prisma.appConfig.upsert({
     where:  { userId: session.user.id },
@@ -49,6 +53,8 @@ export async function GET() {
     hasStravaClientSecret: !!(config?.stravaClientSecret || process.env.STRAVA_CLIENT_SECRET),
     hasGarminClientId:     !!(config?.garminClientId    || process.env.GARMIN_CLIENT_ID),
     hasGarminClientSecret: !!(config?.garminClientSecret || process.env.GARMIN_CLIENT_SECRET),
+    hasGoogleClientId:     !!(config?.googleClientId    || process.env.GOOGLE_CLIENT_ID),
+    hasGoogleClientSecret: !!(config?.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET),
     stravaClientIdHint:    config?.stravaClientId ? `${config.stravaClientId.slice(0, 4)}…` : null,
   });
 }

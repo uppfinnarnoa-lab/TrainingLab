@@ -1,6 +1,6 @@
 # Koppla Planner till Google Calendar
 
-**Status:** Research klar, redo för implementation
+**Status:** ✅ Implementerad 2026-06-24 (kod + dokumentation) — **men inte verifierad mot ett riktigt Google-konto än**, eftersom ingen Google Cloud OAuth-klient finns uppsatt. Se sessionspost i `docs/planning/IMPLEMENTATION_PLAN.md` för exakt vad som byggdes; se `docs/integrations/google-calendar.md` för uppsättningsguiden användaren behöver följa innan §8:s validering kan köras på riktigt.
 **Skapad:** 2026-06-23
 
 ## 1. Mål

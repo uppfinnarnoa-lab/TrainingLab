@@ -9,6 +9,8 @@ export interface AppCredentials {
   stravaClientSecret: string;
   garminClientId:     string;
   garminClientSecret: string;
+  googleClientId:     string;
+  googleClientSecret: string;
 }
 
 // Per-userId cache — avoids a DB hit on every API call
@@ -34,6 +36,8 @@ export async function getCredentials(userId: string): Promise<AppCredentials> {
     stravaClientSecret: (safeDecrypt(config?.stravaClientSecret) ?? config?.stravaClientSecret) || process.env.STRAVA_CLIENT_SECRET || "",
     garminClientId:     config?.garminClientId || process.env.GARMIN_CLIENT_ID || "",
     garminClientSecret: (safeDecrypt(config?.garminClientSecret) ?? config?.garminClientSecret) || process.env.GARMIN_CLIENT_SECRET || "",
+    googleClientId:     config?.googleClientId || process.env.GOOGLE_CLIENT_ID || "",
+    googleClientSecret: (safeDecrypt(config?.googleClientSecret) ?? config?.googleClientSecret) || process.env.GOOGLE_CLIENT_SECRET || "",
   };
 
   _cache.set(userId, { creds, at: Date.now() });

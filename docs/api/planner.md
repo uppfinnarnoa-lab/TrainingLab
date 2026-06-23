@@ -36,6 +36,8 @@ Create a planned workout.
 
 **Response (201):** Full `PlannedWorkout` object with nested template and type.
 
+**Side effects:** if the user has connected Google Calendar (see `docs/integrations/google-calendar.md`), an all-day event is created on their calendar and `PlannedWorkout.googleEventId` is set — fire-and-forget, never blocks the response or this endpoint's success.
+
 ---
 
 ## PATCH /api/planner/workouts/[id]
@@ -68,6 +70,8 @@ Update a planned workout (reschedule or log outcome).
 
 **Business rule:** `status` can only be set to non-"planned" values on or after the workout date (date string comparison, UTC-safe).
 
+**Side effects:** if a linked Google Calendar event exists (`googleEventId`), it's updated to match (title gains a "✓"/"✗" prefix when `status` becomes `completed`/`missed`); if the event was deleted on Google's side, it's transparently recreated. If no event exists yet but Google Calendar is connected, one is created. Fire-and-forget.
+
 ---
 
 ## DELETE /api/planner/workouts/[id]
@@ -75,6 +79,8 @@ Update a planned workout (reschedule or log outcome).
 Delete a planned workout.
 
 **Auth:** Required. **Response (200):** `{ "ok": true }`.
+
+**Side effects:** if a linked Google Calendar event exists, it's deleted (fire-and-forget; a 404 — already gone — is treated as success).
 
 ---
 

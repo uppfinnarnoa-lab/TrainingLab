@@ -2,9 +2,11 @@ import { auth } from "@/auth";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/db/prisma";
 import { getStravaAuthUrl } from "@/lib/strava/client";
+import { getGoogleAuthUrl } from "@/lib/google-calendar/client";
 import { getCredentials } from "@/lib/config";
 import { StravaConnectSection } from "./strava-connect";
 import { GarminConnectSection } from "./garmin-connect";
+import { GoogleCalendarConnectSection } from "./google-calendar-connect";
 import { AISettingsSection } from "./ai-settings";
 import { getGarminAuthUrl } from "@/lib/garmin/auth";
 
@@ -25,10 +27,11 @@ export default async function SettingsPage() {
   const garminCallbackUrl = `${origin}/api/garmin/callback`;
   const garminAuthUrl     = getGarminAuthUrl(garminCallbackUrl);
 
-  const [stravaAccount, garminAccount, aiSettings, user, appConfig] =
+  const [stravaAccount, garminAccount, googleCalendarAccount, aiSettings, user, appConfig] =
     await Promise.all([
       prisma.stravaAccount.findUnique({ where: { userId } }),
       prisma.garminAccount.findUnique({ where: { userId }, select: { displayName: true } }),
+      prisma.googleCalendarAccount.findUnique({ where: { userId } }),
       prisma.aISettings.findUnique({ where: { userId } }),
       prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } }),
       // App-level API config — read from this user's record
@@ -48,6 +51,14 @@ export default async function SettingsPage() {
   let stravaAuthUrl: string | null = null;
   if (hasStravaClientId && hasStravaClientSecret) {
     try { stravaAuthUrl = await getStravaAuthUrl(userId, stravaCallback); } catch { /* not configured */ }
+  }
+
+  const hasGoogleClientId     = !!creds.googleClientId;
+  const hasGoogleClientSecret = !!creds.googleClientSecret;
+  const googleCallback = `${origin}/api/google-calendar/callback`;
+  let googleAuthUrl: string | null = null;
+  if (hasGoogleClientId && hasGoogleClientSecret) {
+    try { googleAuthUrl = await getGoogleAuthUrl(userId, googleCallback); } catch { /* not configured */ }
   }
 
   return (
@@ -76,6 +87,20 @@ export default async function SettingsPage() {
           displayName={garminAccount?.displayName ?? null}
           garminAuthUrl={garminAuthUrl}
           origin={origin}
+        />
+      </IntegrationCard>
+
+      {/* ── Google Calendar ── */}
+      <IntegrationCard logo="📅" name="Google Calendar" description="Mirrors your planned workouts as all-day events on your calendar" connected={!!googleCalendarAccount} badge="Optional">
+        <GoogleCalendarConnectSection
+          connected={!!googleCalendarAccount}
+          needsReconnect={!!googleCalendarAccount?.needsReconnect}
+          authUrl={googleAuthUrl}
+          callbackUrl={googleCallback}
+          lastSyncAt={googleCalendarAccount?.lastSyncAt?.toISOString() ?? null}
+          hasClientId={hasGoogleClientId}
+          hasClientSecret={hasGoogleClientSecret}
+          isAdmin={isAdmin}
         />
       </IntegrationCard>
 

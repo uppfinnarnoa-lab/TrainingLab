@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
+import { updateEvent, deleteEvent } from "@/lib/google-calendar/sync";
 
 const updateSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -66,7 +67,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       date: parsed.data.date ? new Date(parsed.data.date) : undefined,
       markedAt: parsed.data.status ? new Date() : undefined,
     },
+    include: { template: { include: { sections: { orderBy: { order: "asc" } } } } },
   });
+
+  updateEvent(session.user.id, updated).catch(e => console.error("[google-calendar] updateEvent error:", e));
 
   return NextResponse.json(serialiseWorkout(updated));
 }
@@ -80,5 +84,10 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   if (!workout) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   await prisma.plannedWorkout.delete({ where: { id } });
+
+  if (workout.googleEventId) {
+    deleteEvent(session.user.id, workout.googleEventId).catch(e => console.error("[google-calendar] deleteEvent error:", e));
+  }
+
   return NextResponse.json({ ok: true });
 }

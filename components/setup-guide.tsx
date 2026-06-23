@@ -124,6 +124,25 @@ export const CLAUDE_GUIDE: Step[] = [
   },
 ];
 
+export const GOOGLE_CALENDAR_GUIDE: Step[] = [
+  {
+    text: "Create (or reuse) a project in Google Cloud Console, then enable the Google Calendar API for it.",
+    link: { label: "console.cloud.google.com", url: "https://console.cloud.google.com" },
+  },
+  {
+    text: 'On the OAuth consent screen, add the scope ".../auth/calendar.events" and add yourself as a Test user. Once it works, switch Publishing status to "In production" — otherwise refresh tokens expire after ~7 days (no Google review needed for this scope).',
+  },
+  {
+    text: 'Under Credentials, create an OAuth client ID of type "Web application", and add the redirect URI below as an Authorized redirect URI.',
+  },
+  {
+    text: "Copy the Client ID and Client Secret into the fields above and save.",
+  },
+  {
+    text: 'Click "Connect with Google" below — each user (including you) connects their own calendar with the same Client ID/Secret.',
+  },
+];
+
 export const GEMINI_GUIDE: Step[] = [
   {
     text: "Go to Google AI Studio and create a free API key. No credit card needed for the free tier.",
