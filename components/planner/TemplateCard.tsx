@@ -50,9 +50,11 @@ export function TemplateCard({ template, onAddToDate, onDelete, onEdit, compact 
         </div>
 
         {/* Actions — always visible on mobile (hover unavailable on touch).
+            Hidden (not just opacity-0) on desktop until hover, so they don't
+            reserve layout width and steal space from the title when idle.
             onPointerDown stop-propagation prevents the draggable card from
             intercepting the touch before the button click fires. */}
-        <div className="shrink-0 flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+        <div className="shrink-0 flex items-center gap-2 md:hidden md:group-hover:flex">
           {onEdit && (
             <button
               onClick={e => { e.stopPropagation(); onEdit(template); }}
@@ -88,20 +90,22 @@ export function TemplateCard({ template, onAddToDate, onDelete, onEdit, compact 
 
       {/* Stats row */}
       {(template.estimatedDuration || template.estimatedDistance) && (
-        <div className="flex items-center gap-3 text-xs text-muted">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
           {template.estimatedDuration && (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 whitespace-nowrap">
               <Clock size={11} />
               {formatDuration(template.estimatedDuration)}
             </span>
           )}
           {template.estimatedDistance && (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 whitespace-nowrap">
               <Ruler size={11} />
               {formatDistance(template.estimatedDistance)}
             </span>
           )}
-          <span className="text-muted">{template.sections.length} sections</span>
+          <span className="text-muted whitespace-nowrap">
+            {template.sections.length} section{template.sections.length !== 1 ? "s" : ""}
+          </span>
         </div>
       )}
 
