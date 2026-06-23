@@ -25,13 +25,15 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
     router.push(`/planner/week?date=${format(weekStart, "yyyy-MM-dd")}`);
   }
 
-  // Aggregate
+  // Aggregate — running-related sports (see isRunningRelated) are merged into
+  // one "Running" bucket instead of listed per-sport (e.g. Running + Orienteering).
+  const runningSportNames = new Set(sports.filter(s => s.isRunningRelated).map(s => s.name));
   const bySport: Record<string, { km: number; timeSec: number }> = {};
   const totalZones: Record<string, number> = {};
   let completed = 0, missed = 0;
 
   for (const w of workouts) {
-    const sport = w.sportType;
+    const sport = runningSportNames.has(w.sportType) ? "Running" : w.sportType;
     if (!bySport[sport]) bySport[sport] = { km: 0, timeSec: 0 };
     if (w.targetDistance) bySport[sport].km += w.targetDistance / 1000;
     if (w.targetDuration) bySport[sport].timeSec += w.targetDuration;
@@ -57,8 +59,6 @@ export function WeekSummaryStrip({ weekStart, workouts, block, sports, onClick, 
   const weekStartStr = format(weekStart, "yyyy-MM-dd");
   const weekEnd      = format(addDays(weekStart, 6), "yyyy-MM-dd");
   const isCurrentWeek = today >= weekStartStr && today <= weekEnd;
-
-  const runningSportNames = new Set(sports.filter(s => s.isRunningRelated).map(s => s.name));
 
   let predictedRunKm: number | null = null;
   if (isCurrentWeek) {

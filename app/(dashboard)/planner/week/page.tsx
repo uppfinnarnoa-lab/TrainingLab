@@ -8,7 +8,22 @@ import {
 import { workoutColor } from "@/lib/planner/colors";
 import { formatDuration, formatDistance } from "@/lib/utils";
 import { ZoneBar } from "@/components/planner/ZoneBar";
+import { ZONE_COLORS } from "@/lib/planner/types";
 import { ChevronLeft } from "lucide-react";
+
+const ZONE_LABELS = ["", "Z1 Easy", "Z2 Aerobic", "Z3 Tempo", "Z4 Threshold", "Z5 VO2max"];
+
+// targetIntensity is a loose label (set by the AI coach as Easy/Moderate/Hard/Race,
+// or by the CSV plan import as easy/moderate/quality) with no zone data of its own —
+// map it onto the same Z1-Z5 system the rest of the planner uses.
+function intensityToZone(intensity: string | null): number | null {
+  const s = (intensity ?? "").toLowerCase();
+  if (s === "easy") return 2;
+  if (s === "moderate") return 3;
+  if (s === "quality" || s === "hard") return 4;
+  if (s === "race") return 5;
+  return null;
+}
 
 export default async function WeekDetailPage({
   searchParams,
@@ -36,7 +51,7 @@ export default async function WeekDetailPage({
   // Aggregate stats
   const bySport: Record<string, { km: number; timeSec: number; count: number }> = {};
   const byType:  Record<string, { km: number; timeSec: number; color: string }> = {};
-  const byIntensity: Record<string, { timeSec: number; color: string }> = {};
+  const byIntensity: Record<string, { timeSec: number; color: string; zone: number }> = {};
   let totalZones: Record<string, number> = {};
   let completed = 0, missed = 0, planned = 0;
 
@@ -55,12 +70,13 @@ export default async function WeekDetailPage({
     if (w.targetDistance) byType[typeKey].km += w.targetDistance / 1000;
     if (w.targetDuration) byType[typeKey].timeSec += w.targetDuration;
 
-    // By intensity
-    const intensity = w.targetIntensity ?? "Unspecified";
-    const intColor = intensity === "Easy" ? "#7DD3FC" : intensity === "Moderate" ? "#2DD4BF"
-      : intensity === "Hard" ? "#F472B6" : intensity === "Race" ? "#FBBF24" : "#94A3B8";
-    if (!byIntensity[intensity]) byIntensity[intensity] = { timeSec: 0, color: intColor };
-    if (w.targetDuration) byIntensity[intensity].timeSec += w.targetDuration;
+    // By intensity, mapped onto the Z1-Z5 zone system
+    const intensityZone = intensityToZone(w.targetIntensity);
+    if (intensityZone) {
+      const zoneKey = `z${intensityZone}`;
+      if (!byIntensity[zoneKey]) byIntensity[zoneKey] = { timeSec: 0, color: ZONE_COLORS[intensityZone], zone: intensityZone };
+      if (w.targetDuration) byIntensity[zoneKey].timeSec += w.targetDuration;
+    }
 
     const zoneDist = w.template?.estimatedZoneDistribution as Record<string, number> | null;
     if (zoneDist) {
@@ -176,15 +192,15 @@ export default async function WeekDetailPage({
             const totalIntSec = Object.values(byIntensity).reduce((s, v) => s + v.timeSec, 0);
             const maxSec = Math.max(...Object.values(byIntensity).map(x => x.timeSec), 1);
             return Object.entries(byIntensity)
-              .sort((a, b) => b[1].timeSec - a[1].timeSec)
-              .map(([intensity, d]) => {
+              .sort((a, b) => a[1].zone - b[1].zone)
+              .map(([key, d]) => {
                 const pct = totalIntSec > 0 ? Math.round((d.timeSec / totalIntSec) * 100) : 0;
                 return (
-                  <div key={intensity} className="space-y-1">
+                  <div key={key} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                        <span className="font-medium text-primary">{intensity}</span>
+                        <span className="font-medium text-primary">{ZONE_LABELS[d.zone]}</span>
                       </div>
                       <span className="font-mono text-muted text-xs">{pct}% · {formatDuration(d.timeSec)}</span>
                     </div>
@@ -204,7 +220,7 @@ export default async function WeekDetailPage({
           <h2 className="text-sm font-semibold text-primary">Zone distribution</h2>
           <ZoneBar distribution={totalZones} height={12} className="rounded-lg" />
           <div className="grid grid-cols-5 gap-2 text-xs text-center">
-            {["Z1 Easy","Z2 Aerobic","Z3 Tempo","Z4 Threshold","Z5 VO2max"].map((z, i) => {
+            {ZONE_LABELS.slice(1).map((z, i) => {
               const key = `z${i+1}`;
               const sec = totalZones[key] ?? 0;
               const pct = totalTimeSec > 0 ? Math.round((sec / totalTimeSec) * 100) : 0;
