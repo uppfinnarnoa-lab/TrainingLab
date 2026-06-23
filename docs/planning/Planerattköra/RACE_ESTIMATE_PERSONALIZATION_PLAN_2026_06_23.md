@@ -75,15 +75,22 @@ Detta är en **rekommendation**, inte färdig kod — implementerande agent ska 
 4. **Flagga eller dölj prediktioner under ~1500m** som "utanför modellens giltiga intervall" — Daniels VDOT-tabellen är kalibrerad för ~3.5 min–3 h-insatser; 400m (66 sek) är strukturellt fel att köra genom samma tabell (+22.7% är inte ett "personaliseringsproblem", det är fel verktyg för jobbet).
 5. Uppdatera **båda** beräkningsställena i `lib/fitness/cache.ts` (full + fast path) identiskt, och verifiera `app/api/stats/route.ts:130` — avgör om den tredje beräkningen fortfarande används någonstans eller är dead code som kan tas bort (Bug Audit Practice: bekräfta innan du rör den).
 
-## 6. Validering (obligatoriskt innan denna plan arkiveras)
+## 6. Kritisk granskning (andra researchpasset — verifierat mot litteratur + kod)
+
+- **Alternativ modell övervägd och avvisad:** Purdy Points (jämför prestationer mot world-record-skalor) presterar enligt litteraturen bäst för distanser **under en mile** och är "lika bra" för längre — alltså ingen tydlig fördel specifikt i 5K–10K-zonen som är användarens faktiska problem, samtidigt som det skulle kräva en helt ny modell parallellt med den redan investerade Riegel/VDOT-infrastrukturen. **Inte värt omskrivningen.** Litteraturen bekräftar uttryckligen att "individuella faktorer väger tyngre än standardformeln 1.06 — specialister kan behöva anpassade exponenter", vilket är precis riktningen i §5 — håll fast vid en regimmedveten Riegel/VDOT-personalisering, byt inte modellfamilj.
+- **Robusthet vid lite data måste vara explicit, inte underförstådd:** Den föreslagna regim-/bracket-baserade metoden måste ha en tydlig, testad fallback till dagens globala Daniels-kurva när en distans-regim har för få datapunkter (samma princip som `personalizedFatigueExponent`s befintliga `byDistance.size < 3 → null`-spärr). Detta är en ensam-användar-app — implementationen FÅR INTE bli mer skör vid sparse data än dagens "Peak"-kolumn redan är. Testa explicit med en distans som bara har 1 PB.
+- **Nedströms-konsumenter måste hållas i synk:** `FitnessCache.predictionsJson`s nuvarande form (`{ label, meters, peak, today, riegel, rangeLo, rangeHi }`) konsumeras av två oberoende ställen — `components/stats/fitness-metrics.tsx` (UI-tabellen) och `lib/ai/tools.ts:687-720` (AI-coachens `get_fitness_metrics`-verktyg, som formaterar `preds` till text). Om fältens *betydelse* ändras (t.ex. "peak" blir den nya förbättrade siffran istället för den gamla globala VDOT-kurvan) måste BÅDA uppdateras samtidigt, och textbygget i AI-verktyget ses över så coachens förklaring fortfarande matchar vad UI visar.
+- **Detta är personalisering för EN användare, inte en generell modell** — avsiktligt och okej (appen är personlig, closed-invite), men betyder att lösningen ska valideras mot just denna användares data, inte mot ett syntetiskt "genomsnittligt" facit.
+
+## 7. Validering (obligatoriskt innan denna plan arkiveras)
 
 Implementerande agent ska:
-1. Återskapa ett diagnostik-skript likt det i §7 (eller återanvänd om det fortfarande finns) som kör de nya funktionerna mot **riktiga lagrade `RaceRecord`** för den faktiska användaren, och skriver ut predikterat vs. faktiskt för varje distans med data.
+1. Återskapa ett diagnostik-skript likt det i §8 (eller återanvänd om det fortfarande finns) som kör de nya funktionerna mot **riktiga lagrade `RaceRecord`** för den faktiska användaren, och skriver ut predikterat vs. faktiskt för varje distans med data.
 2. Iterera tills 1K–10K-felet ligger inom ±3-5% (ner från dagens -16% till +30%), UTAN att införa ny systematisk bias åt motsatt håll.
 3. Kontrollera att UI (`components/stats/fitness-metrics.tsx`) och AI-coachens `get_fitness_metrics`-verktyg (`lib/ai/tools.ts:687-720`) visar de uppdaterade, koherenta talen.
 4. Köra `pnpm build --no-lint` och bekräfta inga TypeScript-fel innan commit.
 
-## 7. Hur man återskapar diagnostik-skriptet
+## 8. Hur man återskapar diagnostik-skriptet
 
 ```bash
 # scripts/_tmp_race_predict_check.ts (throwaway — radera efter användning)
