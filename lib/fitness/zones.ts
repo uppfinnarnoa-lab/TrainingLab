@@ -118,7 +118,10 @@ export function ltBoundaries(zones: HRZones) {
   return {
     lt1: zones.z3[0],  // LT1 = bottom of Z3
     lt2: zones.z4[0],  // LT2 = bottom of Z4
-    ltTrainingRange: [zones.z4[0], Math.round(zones.maxHR * 0.91)] as [number, number],
+    // Z4's own bounds — guaranteed ascending by ensureValidZones(), unlike a fixed 91%-of-maxHR
+    // ceiling, which inverts whenever LT2 itself is at/above that percentage (e.g. LT2=180bpm,
+    // 92.8% of a 194 maxHR, produced an inverted [180,177] before this fix).
+    ltTrainingRange: [zones.z4[0], zones.z4[1]] as [number, number],
     atTrainingRange: [zones.z3[0], zones.z4[0]] as [number, number],
   };
 }
