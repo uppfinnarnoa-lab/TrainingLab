@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import { sectionSchema } from "@/lib/planner/sectionSchema";
 import { computeTemplateEstimate } from "@/lib/planner/estimate";
+import { buildPaceZones, paceZonesToRanges } from "@/lib/fitness/zones";
 
 const updateSchema = z.object({
   name:        z.string().min(1).max(100).optional(),
@@ -45,7 +46,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         data: sections.map(s => ({ ...s, templateId: id })),
       });
     }
-    await prisma.workoutTemplate.update({ where: { id }, data: computeTemplateEstimate(sections) });
+    const fitnessCache = await prisma.fitnessCache.findUnique({ where: { userId: session.user.id }, select: { vdot: true } });
+    const paceZoneRanges = paceZonesToRanges(buildPaceZones(fitnessCache?.vdot ?? 45));
+    await prisma.workoutTemplate.update({ where: { id }, data: computeTemplateEstimate(sections, paceZoneRanges) });
   }
 
   const updated = await prisma.workoutTemplate.findUnique({

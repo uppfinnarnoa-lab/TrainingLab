@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
 import { sectionSchema } from "@/lib/planner/sectionSchema";
 import { computeTemplateEstimate } from "@/lib/planner/estimate";
+import { buildPaceZones, paceZonesToRanges } from "@/lib/fitness/zones";
 
 const templateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -53,8 +54,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  // Compute estimated totals from sections
-  const estimated = computeTemplateEstimate(sections);
+  // Compute estimated totals from sections, using the athlete's real pace
+  // zones so a section with only a duration (or only a distance) still
+  // gets a sensible estimate for the other dimension.
+  const fitnessCache = await prisma.fitnessCache.findUnique({ where: { userId: session.user.id }, select: { vdot: true } });
+  const paceZoneRanges = paceZonesToRanges(buildPaceZones(fitnessCache?.vdot ?? 45));
+  const estimated = computeTemplateEstimate(sections, paceZoneRanges);
 
   const template = await prisma.workoutTemplate.create({
     data: {

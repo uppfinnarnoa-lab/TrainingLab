@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Loader2 } from "lucide-react";
 import type { TrainingBlock } from "@/lib/planner/types";
 import { BLOCK_TYPE_COLORS } from "@/lib/planner/types";
@@ -34,9 +34,12 @@ interface Props {
   onSave: (data: Partial<TrainingBlock>) => Promise<boolean>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
+  // Debounced, fired automatically as fields change while editing an existing
+  // block (never for a new one — there's nothing to attach it to yet).
+  onAutoSave?: (data: Partial<TrainingBlock>) => void;
 }
 
-export function BlockEditorModal({ initial, racePlannedWorkouts, onSave, onDelete, onClose }: Props) {
+export function BlockEditorModal({ initial, racePlannedWorkouts, onSave, onDelete, onClose, onAutoSave }: Props) {
   const isNew = !initial?.id;
   const [name, setName]       = useState(initial?.name ?? "");
   const [blockType, setType]  = useState(initial?.blockType ?? "base");
@@ -60,12 +63,8 @@ export function BlockEditorModal({ initial, racePlannedWorkouts, onSave, onDelet
     }
   }
 
-  async function handleSave() {
-    if (!name.trim() || !startDate || !effectiveEndDate) return;
-    if (!isRaceType && startDate > endDate) return;
-    setSaving(true);
-    setSaveError(false);
-    const ok = await onSave({
+  function buildData(): Partial<TrainingBlock> {
+    return {
       name: name.trim(),
       blockType,
       color,
@@ -74,7 +73,15 @@ export function BlockEditorModal({ initial, racePlannedWorkouts, onSave, onDelet
       notes: notes || null,
       targetKmPerWeek: !isRaceType && kmPerWeek ? parseFloat(kmPerWeek) : null,
       targetRaceId: isRaceType ? targetRaceId : null,
-    });
+    };
+  }
+
+  async function handleSave() {
+    if (!name.trim() || !startDate || !effectiveEndDate) return;
+    if (!isRaceType && startDate > endDate) return;
+    setSaving(true);
+    setSaveError(false);
+    const ok = await onSave(buildData());
     setSaving(false);
     if (ok) onClose();
     else setSaveError(true);
@@ -94,6 +101,20 @@ export function BlockEditorModal({ initial, racePlannedWorkouts, onSave, onDelet
   const weeks = !isRaceType && startDate && endDate && !invalidDateRange
     ? Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (7 * 86400000)) + 1
     : null;
+
+  // Debounced auto-save while editing an existing block — skips the very
+  // first run so opening the modal doesn't immediately re-save identical
+  // data back to the server.
+  const autoSaveSkippedFirst = useRef(false);
+  useEffect(() => {
+    if (isNew || !onAutoSave) return;
+    if (!name.trim() || !startDate || !effectiveEndDate) return;
+    if (!isRaceType && startDate > endDate) return;
+    if (!autoSaveSkippedFirst.current) { autoSaveSkippedFirst.current = true; return; }
+    const timer = setTimeout(() => onAutoSave(buildData()), 800);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, blockType, color, startDate, endDate, notes, kmPerWeek, targetRaceId]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

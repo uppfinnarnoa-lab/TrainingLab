@@ -262,10 +262,9 @@ export function PlannerClient(props: Props) {
     setWorkouts(prev => prev.map(w => w.id === workoutId ? { ...w, date: newDate } : w));
   }
 
-  // ── Update existing template ───────────────────────────────────────
-  async function handleTemplateUpdate(data: BuilderData) {
+  // ── Update existing template — also used as the debounced auto-save while editing ──
+  async function handleTemplateAutoSave(data: BuilderData) {
     if (!editingTemplate) return;
-    setEditingTemplate(null);
     const res = await fetch(`/api/planner/templates/${editingTemplate.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -277,7 +276,31 @@ export function PlannerClient(props: Props) {
     if (res.ok) {
       const updated: WorkoutTemplate = await res.json();
       setTemplates(prev => prev.map(t => t.id === updated.id ? updated : t));
+    } else {
+      showError("Failed to save template changes — please try again.");
     }
+  }
+
+  async function handleTemplateUpdate(data: BuilderData) {
+    setEditingTemplate(null);
+    await handleTemplateAutoSave(data);
+    startTransition(() => router.refresh());
+  }
+
+  // Revert the template on the server back to how it was when the editor opened.
+  async function handleTemplateEditCancel() {
+    const snapshot = editingTemplate;
+    setEditingTemplate(null);
+    if (!snapshot) return;
+    await fetch(`/api/planner/templates/${snapshot.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: snapshot.name, sportId: snapshot.sportId, typeId: snapshot.typeId,
+        description: snapshot.description, color: snapshot.color, sections: snapshot.sections,
+      }),
+    });
+    setTemplates(prev => prev.map(t => t.id === snapshot.id ? snapshot : t));
     startTransition(() => router.refresh());
   }
 
@@ -348,12 +371,10 @@ export function PlannerClient(props: Props) {
     return true;
   }
 
-  // ── Edit save (future workouts via WorkoutBuilder) ──────────────────
-  async function handleEditBuilderSave(data: BuilderData) {
+  // ── Edit save (future workouts via WorkoutBuilder) — also the debounced auto-save ──
+  async function handleWorkoutAutoSave(data: BuilderData) {
     if (!editWorkout) return;
     const id = editWorkout.id;
-    setEditWorkout(null);
-
     const sport = sports.find(s => s.id === data.sportId);
 
     const res = await fetch(`/api/planner/workouts/${id}`, {
@@ -373,6 +394,9 @@ export function PlannerClient(props: Props) {
     if (res.ok) {
       const updated: PlannedWorkout = await res.json();
       setWorkouts(prev => prev.map(w => w.id === id ? { ...w, ...updated } : w));
+    } else {
+      showError("Failed to save workout changes — please try again.");
+      return;
     }
 
     // If the workout has a linked template, update its sections and metadata too
@@ -387,6 +411,55 @@ export function PlannerClient(props: Props) {
           description: data.description,
           color: data.color,
           sections: data.sections,
+        }),
+      });
+    }
+  }
+
+  async function handleEditBuilderSave(data: BuilderData) {
+    setEditWorkout(null);
+    await handleWorkoutAutoSave(data);
+    startTransition(() => router.refresh());
+  }
+
+  // Revert the workout (and its linked template, if any) back to how they
+  // were when the editor opened.
+  async function handleWorkoutEditCancel() {
+    const snapshotWorkout = editWorkout;
+    const snapshotTemplate = editTemplate;
+    setEditWorkout(null);
+    if (!snapshotWorkout) return;
+
+    await fetch(`/api/planner/workouts/${snapshotWorkout.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: snapshotWorkout.name,
+        sportType: snapshotWorkout.sportType,
+        date: snapshotWorkout.date,
+        typeId: snapshotWorkout.typeId,
+        notes: snapshotWorkout.notes,
+        color: snapshotWorkout.color,
+        targetDuration: snapshotWorkout.targetDuration,
+        targetDistance: snapshotWorkout.targetDistance,
+      }),
+    });
+    setWorkouts(prev => prev.map(w => w.id === snapshotWorkout.id ? snapshotWorkout : w));
+
+    // Only revert the template if it's a real, persisted one (synthetic
+    // ad-hoc "template" objects built in the editTemplate memo below don't
+    // exist as actual WorkoutTemplate rows and have nothing to revert).
+    if (snapshotWorkout.templateId && snapshotTemplate) {
+      await fetch(`/api/planner/templates/${snapshotWorkout.templateId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: snapshotTemplate.name,
+          sportId: snapshotTemplate.sportId,
+          typeId: snapshotTemplate.typeId,
+          description: snapshotTemplate.description,
+          color: snapshotTemplate.color,
+          sections: snapshotTemplate.sections,
         }),
       });
     }
@@ -431,6 +504,35 @@ export function PlannerClient(props: Props) {
     setEditingBlock(null);
     setBlocks(prev => prev.filter(b => b.id !== id));
     await fetch(`/api/planner/blocks/${id}`, { method: "DELETE" });
+    startTransition(() => router.refresh());
+  }
+
+  // Debounced auto-save while editing an existing block (never fires for a new one).
+  async function handleBlockAutoSave(data: Partial<TrainingBlock>) {
+    if (!editingBlock) return;
+    const res = await fetch(`/api/planner/blocks/${editingBlock.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) { showError("Failed to save block changes — please try again."); return; }
+    const updated: TrainingBlock = await res.json();
+    setBlocks(prev => prev.map(b => b.id === updated.id ? updated : b));
+  }
+
+  // Revert the block on the server back to how it was when the editor opened.
+  async function handleBlockCancel() {
+    const snapshot = editingBlock;
+    setEditingBlock(null); setShowNewBlock(false);
+    if (!snapshot) return;
+    await fetch(`/api/planner/blocks/${snapshot.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: snapshot.name, blockType: snapshot.blockType, color: snapshot.color,
+        startDate: snapshot.startDate, endDate: snapshot.endDate, notes: snapshot.notes,
+        targetKmPerWeek: snapshot.targetKmPerWeek, targetRaceId: snapshot.targetRaceId,
+      }),
+    });
+    setBlocks(prev => prev.map(b => b.id === snapshot.id ? snapshot : b));
     startTransition(() => router.refresh());
   }
 
@@ -538,7 +640,8 @@ export function PlannerClient(props: Props) {
           hrZones={props.hrZoneRanges}
           editTemplate={editingTemplate}
           onSave={handleTemplateUpdate}
-          onCancel={() => setEditingTemplate(null)}
+          onAutoSave={handleTemplateAutoSave}
+          onCancel={handleTemplateEditCancel}
           onSportsUpdated={setSports}
         />
       )}
@@ -564,8 +667,9 @@ export function PlannerClient(props: Props) {
           initialDate={editWorkout.date}
           plannedWorkoutMode
           onSave={handleEditBuilderSave}
+          onAutoSave={handleWorkoutAutoSave}
           onDelete={() => { handleDeleteWorkout(editWorkout.id); setEditWorkout(null); }}
-          onCancel={() => setEditWorkout(null)}
+          onCancel={handleWorkoutEditCancel}
           onSportsUpdated={setSports}
         />
       )}
@@ -576,8 +680,9 @@ export function PlannerClient(props: Props) {
           initial={editingBlock ?? undefined}
           racePlannedWorkouts={racePlannedWorkouts}
           onSave={handleBlockSave}
+          onAutoSave={handleBlockAutoSave}
           onDelete={editingBlock ? handleBlockDelete : undefined}
-          onClose={() => { setShowNewBlock(false); setEditingBlock(null); }}
+          onClose={editingBlock ? handleBlockCancel : () => setShowNewBlock(false)}
         />
       )}
     </div>

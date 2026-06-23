@@ -792,6 +792,12 @@ export function buildPaceZones(vdot: number): PaceZones {
   };
 }
 
+// PaceZones (named categories) as a [z1..z5] array, matching the planner's
+// generic 5-zone picker (lib/planner/types.ts ZONE_COLORS/ZONE_NAMES).
+export function paceZonesToRanges(pz: PaceZones): [number, number][] {
+  return [pz.easy, pz.marathon, pz.threshold, pz.interval, pz.repetition];
+}
+
 export function buildPaceZonesFromLT(lt1PaceSecPerKm: number, lt2PaceSecPerKm: number): PaceZones {
   // All zone math in velocity space (m/s), not sec/km, to preserve correct % relationships.
   // LT2 ≈ 88% vVO2max for well-trained endurance athletes (Seiler 2010, Esteve-Lanao 2007).

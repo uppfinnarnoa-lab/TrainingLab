@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { X, Plus, GripVertical, Trash2, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { ZoneBar } from "./ZoneBar";
 import { formatDuration, formatDistance } from "@/lib/utils";
@@ -26,6 +26,9 @@ interface Props {
   editTemplate?: WorkoutTemplate;
   plannedWorkoutMode?: boolean;
   onSportsUpdated?: (sports: SportCategory[]) => void;
+  // Debounced, fired automatically as fields change while editing an existing
+  // template/workout (never for new ones — there's nothing to attach to yet).
+  onAutoSave?: (data: BuilderData) => void;
 }
 
 export interface BuilderData {
@@ -144,7 +147,7 @@ function ColorSwatches({ value, onChange }: { value: string; onChange: (c: strin
 
 // ── Main component ────────────────────────────────────────────────────────
 
-export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave, onCancel, onDelete, initialDate, editTemplate, plannedWorkoutMode, onSportsUpdated }: Props) {
+export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave, onCancel, onDelete, initialDate, editTemplate, plannedWorkoutMode, onSportsUpdated, onAutoSave }: Props) {
   const isEditing = !!editTemplate;
 
   const [localSports, setLocalSports] = useState<SportCategory[]>(sportsProp);
@@ -325,8 +328,8 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   }
 
   const estimated = useCallback(() => {
-    return estimateSections(sections);
-  }, [sections]);
+    return estimateSections(sections, paceZones);
+  }, [sections, paceZones]);
 
   const est = estimated();
 
@@ -347,8 +350,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [est.totalSec, est.totalM, sectionsCustomized]);
 
-  function handleSave() {
-    if (!name.trim()) return;
+  function buildData(): BuilderData {
     const secs = sections.map(({ _key, ...s }, i) => ({ ...s, order: i }));
 
     // Compute totals from sections; fall back to top-level fields if sections are open/empty
@@ -366,14 +368,31 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     if (!totalDistance && typeof totalDistKm === "number" && totalDistKm > 0)
       totalDistance = Math.round(totalDistKm * 1000);
 
-    onSave({
+    return {
       name: name.trim(), sportId, typeId,
       description, color: autoColor,
       sections: secs,
       saveAsTemplate, date: date || undefined,
       totalDuration, totalDistance,
-    });
+    };
   }
+
+  function handleSave() {
+    if (!name.trim()) return;
+    onSave(buildData());
+  }
+
+  // Debounced auto-save while editing an existing template/workout — skips
+  // the very first run so opening the modal doesn't immediately re-save
+  // identical data back to the server.
+  const autoSaveSkippedFirst = useRef(false);
+  useEffect(() => {
+    if (!isEditing || !onAutoSave || !name.trim()) return;
+    if (!autoSaveSkippedFirst.current) { autoSaveSkippedFirst.current = true; return; }
+    const timer = setTimeout(() => onAutoSave(buildData()), 800);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, sportId, typeId, description, autoColor, sections, date, totalDurMin, totalDistKm]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -586,6 +605,11 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
                   <span className="font-mono text-primary">{formatDuration(est.totalSec)}</span>
                   {est.totalM > 0 && <span className="font-mono text-muted">{formatDistance(est.totalM)}</span>}
                 </div>
+                {est.activeSec > 0 && est.activeSec !== est.totalSec && (
+                  <p className="text-xs text-muted">
+                    Active interval time: <span className="font-mono text-primary">{formatDuration(est.activeSec)}</span>
+                  </p>
+                )}
                 <ZoneBar distribution={est.zoneSec} height={6} />
               </div>
             </div>

@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { PlannerClient } from "./planner-client";
 import { subDays, addDays, startOfWeek } from "date-fns";
-import { buildHRZones, buildPaceZones } from "@/lib/fitness/zones";
+import { buildHRZones, buildPaceZones, paceZonesToRanges } from "@/lib/fitness/zones";
 import { STRAVA_SPORT_MAP } from "@/lib/planner/sportTypeMap";
 
 export default async function PlannerPage() {
@@ -95,13 +95,7 @@ export default async function PlannerPage() {
 
   // HR zone ranges as [[lo,hi]] arrays for zone picker
   const hrZoneRanges = [hrZones.z1, hrZones.z2, hrZones.z3, hrZones.z4, hrZones.z5];
-  const paceZoneRanges = [
-    paceZonesData.easy,
-    paceZonesData.marathon,
-    paceZonesData.threshold,
-    paceZonesData.interval,
-    paceZonesData.repetition,
-  ];
+  const paceZoneRanges = paceZonesToRanges(paceZonesData);
 
   return (
     <div className="-mx-4 -mb-4 md:-m-6 h-[calc(100vh-56px)] md:h-screen flex flex-col">
