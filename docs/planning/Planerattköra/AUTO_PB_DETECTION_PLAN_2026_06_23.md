@@ -1,11 +1,11 @@
-# Automatisk identifiering av PB:n vid synk
+# Automatisk identifiering av PB:n och nära-PB-resultat vid synk
 
 **Status:** Research klar, redo för implementation
-**Skapad:** 2026-06-23
+**Skapad:** 2026-06-23 — **utökad 2026-06-23 (samma dag):** scope breddad från "bara nya PB:n" till "alla tävlings- eller träningsresultat inom ett konfigurerbart intervall av PB", se §4b.
 
 ## 1. Mål
 
-När ett nytt pass synkas in från Strava: identifiera automatiskt om det innehåller ett nytt personbästa (PB) för någon standarddistans, och lägg in det i `RaceRecord` utan att användaren manuellt behöver göra det via Races-sidans formulär. Av/på/läge ("Automatisk" / "Manuell") väljs i Settings.
+När ett nytt pass synkas in från Strava: identifiera automatiskt om det innehåller ett nytt personbästa (PB) **eller ett resultat tillräckligt nära PB** för någon standarddistans, och lägg in det i `RaceRecord` utan att användaren manuellt behöver göra det via Races-sidans formulär. Detta gäller både tävlingsresultat och träningsresultat (ett starkt bestEffort-segment ur ett vanligt träningspass räknas likvärdigt, så länge det ligger inom intervallet — se §4b för exakt regel). Av/på/läge ("Automatisk" / "Manuell") och själva intervallets storlek väljs i Settings.
 
 ## 2. Hook-punkt — delad med pass-sammanfattningsfunktionen
 
@@ -31,29 +31,59 @@ Två tänkbara källor undersöktes:
 ## 4. Detekteringslogik (förslag)
 
 För varje ny `Activity` med `sportType` som matchar löpning:
+
 1. Hämta `bestEfforts` (om null/tom array → inget att göra).
 2. För varje post: matcha `distance`-fältet (exakt, i meter) mot `RACE_DISTANCES` (`lib/fitness/paces.ts:3-13`: 800m, 1500m, 1609m/Mile, 3000m, 5000m, 10000m, 15000m, 21097m, 42195m) — **notera**: Stravas egna standarddistanser (400/800/1000/1609/3219/5000/10000/15000/16090/20000/21097/30000/42195) överlappar inte perfekt med `RACE_DISTANCES`; matcha på `distance`-värdet, inte namnet, och utöka `RACE_DISTANCES`-listan om det är värt det, eller hantera Stravas distanser som en separat tabell — avgör vid implementation baserat på vilka som faktiskt förekommer i datan.
 3. Hämta nuvarande bästa `RaceRecord` för samma distans-label (lägsta `time` där `distance` matchar).
 4. **Om ingen tidigare `RaceRecord` finns för den distansen:** skapa bara automatiskt en första post **om `Activity.isRace === true`** (dvs. användaren har själv flaggat passet som ett lopp i Strava). Skapa INTE en ny distanskategori av ett vanligt träningspass bara därför att Strava råkar kunna beräkna en bästa-5K-tid ur det — det skulle fylla PB-trackern med segment användaren aldrig avsett som ett "personbästa att spåra". Detta är en medveten avvägning, inte en bugg — se §6.
-5. **Om en tidigare `RaceRecord` finns:** om den nya tiden är strikt snabbare → detta är ett nytt PB, oavsett om passet är flaggat som lopp eller inte (ett PB är per definition den snabbaste uppmätta tiden, inte ett intentions-flagga).
+5. **Om en tidigare `RaceRecord` finns:** spara om den nya tiden är snabbare än ELLER inom det konfigurerbara intervallet av den nuvarande bästa tiden för distansen — se §4b för exakt regel. Detta gäller oavsett om passet är flaggat som lopp eller inte (precis som tidigare: ett PB/nära-PB-resultat är per definition baserat på den uppmätta tiden, inte ett intentions-flagga).
 6. Vid träff i automatiskt läge: skapa en ny `RaceRecord`-rad (`isManual: false`, `stravaActivityId: activity.stravaId.toString()`, `date: activity.startDate`, `eventName: activity.name`, `distance`/`distanceM` från matchningen, `time` från `bestEffort.elapsed_time`). **Skapa en ny rad, skriv inte över/radera den gamla** — `RaceRecord` är redan historik per distans (se `prisma/schema.prisma:309-324`, ordnad `distanceM asc, date desc`), och Races-sidan visar redan "bästa" som ett `reduce()` över alla poster för en distans (`races-client.tsx` rad ~72) — så detta mönster passar utan ändringar på visningssidan.
+
+## 4b. Utökning: spåra alla resultat inom ett intervall av PB, inte bara nya PB:n
+
+**Användarens uppdaterade krav (2026-06-23):** PB-trackern ska kunna spåra ALLA tävlings- eller träningsresultat på en distans som ligger inom ett visst intervall sämre än PB — inte bara stunder där ett nytt PB faktiskt sätts. Syftet är en rikare resultathistorik per distans (alla starka insatser, inte bara den enskilt snabbaste), inte bara en "rekordbok".
+
+**Bekräftat genom att läsa `races-client.tsx`: UI:t är redan helt byggt för detta, noll ändringar behövs där.** Races-sidan har redan:
+
+- En historiktabell per distans som visar **alla** `RaceRecord`-rader, med en `"vs PB"`-kolumn som visar `+${tid}` för varje rad som inte är PB:et (`races-client.tsx` rad ~258-284).
+- En tidslinje-graf (`recharts`) som plottar **alla** resultat över tid, med PB:et markerat med en separat `ReferenceDot` (rad ~241-243).
+- En distans-sidopanel som redan visar antal resultat per distans (`"{rs.length} resultat"`, rad 178).
+
+Detta betyder att hela utökningen i praktiken bara är en ändring av **detekteringslogiken** (steg 5 ovan) — ingen ny UI-komponent, inget nytt visningsläge. Resultat som inte är PB visas redan korrekt som "+X sekunder bakom PB" i samma tabell.
+
+**Ny regel för steg 5:** låt `best` vara nuvarande snabbaste `RaceRecord.time` för distansen och `tolerancePct` det konfigurerbara intervallet (se nytt fält i §5). Skapa en ny rad om:
+
+```text
+newTime <= best * (1 + tolerancePct / 100)
+```
+
+— dvs. PB:n (newTime < best) täcks automatiskt av samma villkor som "nära-PB" (newTime mellan best och best×(1+tolerancePct/100)), så det blir EN regel istället för två separata fall.
+
+**Designval att vara medveten om (avvägning, inte en quick-fix att hoppa över):**
+
+- **Procentbaserat, inte absolut tidsintervall** — sekunder/minuter skalar inte rimligt mellan 800m och marathon, men en procentsats gör det (5% av en 5K-tid och 5% av en maratontid är båda meningsfulla marginaler för respektive distans).
+- **Default-förslag: 5%, konfigurerbart 1–20%** — smalt nog för att hålla resultatlistan meningsfull ("starka insatser"), brett nog för att fånga upp en dålig-dag-lopp eller en stark tempokörning som inte riktigt slog PB:et. Användaren äger detta värde i Settings — om 5% visar sig ge för många eller för få träffar i praktiken är det en inställning att justera, inte en kodändring.
+- **Detta ÖKAR datamängden `onNewActivityCreated` kan generera per aktivitet** jämfört med den ursprungliga strikta "bara nya PB:n"-regeln — backfill-spärren i §2b blir alltså ÄNNU viktigare att få rätt, inte mindre viktig, eftersom en bredare regel matchar fler historiska aktiviteter om spärren skulle saknas.
+- **§4 steg 4 (kräv `isRace` för att skapa den FÖRSTA posten på en helt ny distans) gäller fortfarande oförändrat** — den nya intervall-regeln i detta avsnitt gäller bara när distansen redan har minst en spårad post (PB eller tidigare nära-PB-resultat) att jämföra mot. En distans utan någon historik alls kräver fortfarande ett flaggat lopp för sin första post, av samma anledning som tidigare (undvik att en slumpartad träningssplit ensam skapar en helt ny distanskategori).
 
 ## 5. Inställning: Automatisk vs. Manuell
 
 - Nytt fält `pbDetectionMode String @default("manual")` på `AthleteProfile` (`prisma/schema.prisma:45-64`) — denna modell är redan appens "diverse personliga preferenser"-plats (jfr. `paceUnit`/`paceUnitBySport`), så ett till litet preferensfält hör naturligt hemma där snarare än i en ny modell. Lägg även till `pbDetectionModeChangedAt DateTime?` (se §2b) — sätts varje gång läget ändras till `"automatic"`, läses av detekteringslogiken som undre datumgräns.
-- **Default = `"manual"`** — bevarar exakt dagens beteende för befintliga användare; ingen överraskning vid uppgradering.
-- UI: lägg till en sektion i `app/(dashboard)/settings/athlete-profile.tsx` (samma fil som redan hanterar `paceUnit`-väljaren) — två radioknappar/segment-knappar "Automatisk" / "Manuell", med en kort förklarande text ("Automatisk lägger in nya personbästa direkt när Strava-passet synkas. Manuell betyder att du själv lägger in dem på Races-sidan, som idag.").
-- API: utöka `app/api/settings/profile/route.ts` (eller motsvarande befintlig profile-endpoint) med fältet, samma mönster som övriga `AthleteProfile`-fält.
+- **Nytt fält `pbDetectionTolerancePct Float @default(5)`** på samma modell (se §4b) — hur många procent sämre än PB ett resultat får vara för att fortfarande sparas. `0` = bara strikta PB:n (ursprungsbeteendet innan denna utökning), högre värde = bredare resultathistorik.
+- **Default = `"manual"`** — bevarar exakt dagens beteende för befintliga användare; ingen överraskning vid uppgradering. `pbDetectionTolerancePct` defaultar till `5` men har förstås ingen effekt förrän läget är `"automatic"`.
+- UI: lägg till en sektion i `app/(dashboard)/settings/athlete-profile.tsx` (samma fil som redan hanterar `paceUnit`-väljaren) — två radioknappar/segment-knappar "Automatisk" / "Manuell", en kort förklarande text ("Automatisk lägger in nya personbästa direkt när Strava-passet synkas. Manuell betyder att du själv lägger in dem på Races-sidan, som idag."), och — synlig bara när "Automatisk" är vald — ett numeriskt fält "Spåra resultat inom ___% av PB" (default 5, t.ex. 1–20 i ett `<input type="number">` eller en liten förvald-lista 2/5/10/15%).
+- API: utöka `app/api/settings/profile/route.ts` (eller motsvarande befintlig profile-endpoint) med båda fälten, samma mönster som övriga `AthleteProfile`-fält.
 
 ## 6. Avsiktliga avgränsningar (dokumentera, inte buggar)
 
 - Automatiskt tillagda PB:n är fortfarande vanliga `RaceRecord`-rader — användaren kan redigera/radera dem precis som manuella via befintliga `PATCH`/`DELETE /api/races/[id]` om en GPS-spik eller felklassificering skulle smyga sig in (samma säkerhetsnät som auto-link redan förlitar sig på).
-- §4 punkt 4 (kräv `isRace` för FÖRSTA posten på en ny distans, men inte för att SLÅ en befintlig) är en medveten avvägning för att undvika att svämma över PB-trackern med ointressanta segment. Om användaren efter att ha testat funktionen tycker det är fel håll (t.ex. vill ha även förstagångs-distanser auto-spårade), är det en enrad-ändring att ta bort `isRace`-kravet — flagga detta i PR/commit-beskrivningen så det är lätt att hitta och justera.
+- §4 punkt 4 (kräv `isRace` för FÖRSTA posten på en ny distans, men inte för att matcha inom intervallet av en befintlig — se §4b) är en medveten avvägning för att undvika att svämma över PB-trackern med ointressanta segment. Om användaren efter att ha testat funktionen tycker det är fel håll (t.ex. vill ha även förstagångs-distanser auto-spårade), är det en enrad-ändring att ta bort `isRace`-kravet — flagga detta i PR/commit-beskrivningen så det är lätt att hitta och justera.
+- `pbDetectionTolerancePct` (§4b/§5) är en avsiktlig avvägning mellan "rik historik" och "en hanterbar lista" — ett för högt värde (t.ex. 20%) kan göra att de flesta kvalitetspass på en ofta körd distans (t.ex. en standard tisdagsbana-5K) kvalificerar, vilket gör listan till en träningslogg snarare än en resultatlista. Detta är ett UX-avvägningsval användaren styr själv via inställningen, inte en bugg att täta till i koden.
 - Ingen notis skickas härifrån som standard — om [[POST_WORKOUT_AI_SUMMARY_PLAN_2026_06_23]] redan är implementerad är det en billig, trevlig utbyggnad att skicka "🎉 Nytt PB: 5K på 18:15 (-13s)" via samma notifieringskanal, men bygg INTE in ett beroende mellan planerna — denna funktion ska fungera helt fristående även om notisfunktionen aldrig implementeras.
 
 ## 7. Filer som skapas/ändras
 
-- `prisma/schema.prisma` — `AthleteProfile.pbDetectionMode` + `pbDetectionModeChangedAt`
+- `prisma/schema.prisma` — `AthleteProfile.pbDetectionMode` + `pbDetectionModeChangedAt` + `pbDetectionTolerancePct`
 - `lib/strava/sync.ts` / delad hook-fil — `detectAndRecordPBs(userId, activityId)`, prenumererar på `onNewActivityCreated`, respekterar `pbDetectionModeChangedAt` (§2b)
 - `lib/races/pb-detection.ts` (ny) — ren matchningslogik (distans-mappning, jämförelse), testbar isolerat från DB-anrop; återanvänds av BÅDE den löpande hooken och bulk-scan-endpointen nedan
 - `app/api/races/scan-history/route.ts` (ny) — den explicita, användarinitierade bulk-scan-actionen från §2b
@@ -65,19 +95,20 @@ För varje ny `Activity` med `sportType` som matchar löpning:
 
 ## 8. Validering
 
-1. Sätt läge till "Automatisk", synka in en aktivitet med ett `bestEffort` som slår en befintlig `RaceRecord` för samma distans — bekräfta att en ny rad skapas korrekt och syns på Races-sidan som ny "bästa".
-2. Synka in en aktivitet som INTE slår något befintligt PB — bekräfta att inget skapas.
-3. Synka in ett nytt `isRace=true`-pass på en distans som aldrig spårats förut — bekräfta att en första post skapas. Synka in samma scenario med `isRace=false` — bekräfta att INGET skapas (per §4 punkt 4).
-4. **Testa backfill-spärren explicit (§2b):** på ett konto med befintlig historik (gamla aktiviteter med `bestEfforts` som skulle slå dagens PB:n), slå på "Automatisk" och kör en full/historisk resync — bekräfta att INGA nya `RaceRecord`-rader skapas från de gamla aktiviteterna, bara från riktigt nya pass efter att läget ändrades.
-5. Testa den separata bulk-scan-knappen (§2b) mot samma historik — bekräfta att den DÄR, som en medveten handling, hittar och skapar (eller listar för granskning) historiska PB:n korrekt.
-6. Sätt läge till "Manuell" — bekräfta att inget automatiskt skapas alls, och att befintligt manuellt flöde (Races-sidans formulär + `/api/races/auto-link`) fortfarande fungerar oförändrat.
-7. `pnpm build --no-lint` utan TypeScript-fel.
+1. Sätt läge till "Automatisk" med default-tolerans (5%), synka in en aktivitet med ett `bestEffort` som slår en befintlig `RaceRecord` för samma distans — bekräfta att en ny rad skapas korrekt och syns på Races-sidan som ny "bästa".
+2. **Testa §4b explicit:** synka in en aktivitet med ett `bestEffort` som är LÅNGSAMMARE än PB men inom toleransen (t.ex. PB 18:15, tolerans 5% → ett 18:50-resultat ska sparas) — bekräfta att en ny rad skapas och visas korrekt i historiktabellen med rätt "vs PB"-delta, UTAN att den blir markerad som ny PB. Synka sedan in ett resultat UTANFÖR toleransen (t.ex. 19:30) — bekräfta att INGET skapas.
+3. Testa att ändra `pbDetectionTolerancePct` (t.ex. till 0% eller till 15%) faktiskt ändrar tröskeln för vad som sparas — inte bara att fältet sparas i Settings.
+4. Synka in ett nytt `isRace=true`-pass på en distans som aldrig spårats förut — bekräfta att en första post skapas. Synka in samma scenario med `isRace=false` — bekräfta att INGET skapas (per §4 punkt 4) — detta krav gäller oavsett toleransvärde, eftersom det styr "första posten", inte intervallmatchningen.
+5. **Testa backfill-spärren explicit (§2b), nu med den bredare regeln i åtanke:** på ett konto med befintlig historik (gamla aktiviteter med `bestEfforts` som skulle ligga inom toleransen av dagens PB:n), slå på "Automatisk" och kör en full/historisk resync — bekräfta att INGA nya `RaceRecord`-rader skapas från de gamla aktiviteterna, bara från riktigt nya pass efter att läget ändrades. Detta test är viktigare nu än innan §4b, eftersom den bredare regeln matchar fler historiska aktiviteter om spärren saknas.
+6. Testa den separata bulk-scan-knappen (§2b) mot samma historik — bekräfta att den DÄR, som en medveten handling, hittar och skapar (eller listar för granskning) historiska PB:n OCH nära-PB-resultat korrekt enligt samma toleransregel.
+7. Sätt läge till "Manuell" — bekräfta att inget automatiskt skapas alls, och att befintligt manuellt flöde (Races-sidans formulär + `/api/races/auto-link`) fortfarande fungerar oförändrat.
+8. `pnpm build --no-lint` utan TypeScript-fel.
 
 ---
 
 ## Slutinstruktion till implementerande agent
 
-Implementera genomtänkt — särskilt avgränsningen i §6 (kräv `isRace` för nya distanser, inte för att slå befintliga) är en avsiktlig produktbeslut, inte en given sanning; om du under testning (§8) känner att det ger fel känsla i praktiken, justera och dokumentera varför i commit-meddelandet snarare än att tyst avvika från denna plan. **Backfill-spärren i §2b är dock inte valfri** — bygg och testa den explicit innan du betraktar funktionen klar, annars blir PB-trackern oanvändbar efter den första aktiveringen på ett konto med historik. Iterera tills detekteringen känns korrekt mot riktiga Strava-data, inte bara syntetiska testfall.
+Implementera genomtänkt — särskilt avgränsningen i §6 (kräv `isRace` för nya distanser, inte för att matcha inom intervallet av befintliga) är en avsiktlig produktbeslut, inte en given sanning; om du under testning (§8) känner att det ger fel känsla i praktiken, justera och dokumentera varför i commit-meddelandet snarare än att tyst avvika från denna plan. **Backfill-spärren i §2b är dock inte valfri** — bygg och testa den explicit innan du betraktar funktionen klar, annars blir PB-trackern oanvändbar efter den första aktiveringen på ett konto med historik, och risken är STÖRRE nu efter §4b:s breddning än i ursprungsplanen. Iterera tills detekteringen — både PB-träffar och nära-PB-träffar — känns korrekt mot riktiga Strava-data, inte bara syntetiska testfall, och tills `pbDetectionTolerancePct` faktiskt styr vad som sparas på ett sätt som känns rätt i praktiken (testa gärna med ett par olika procentvärden, inte bara defaulten).
 
 1. **Dubbelkolla att implementationen fungerar korrekt** genom att köra valideringsstegen i §8 mot riktiga synkade aktiviteter (inte bara enhetstester) — bekräfta att PB:n faktiskt dyker upp på Races-sidan med rätt distans, tid och `isManual: false`.
 2. Uppdatera `docs/planning/IMPLEMENTATION_PLAN.md` med en sessionspost, samt `docs/api/races.md` enligt §7.
