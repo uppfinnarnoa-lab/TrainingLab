@@ -15,7 +15,9 @@ Detta dokument beskriver kort och koncist hur pulszonerna (HR-zoner) beräknas i
     2. Estimat från tävlingspass (80:e percentilen av maxHR från lopp + 5 bpm marginal, cap 210 bpm; kräver ≥2 lopp).
     3. Statistiskt maxHR från hårda löp/trail-pass (80:e percentilen av maxHR på pass med snittpuls > 78 % av observerat max; kräver ≥5 pass).
     4. Estimat från tröskelpass (85:e percentilen av snittpulsen på tröskelpass, dividerat med 0.88; kräver ≥3 pass).
-    5. Estimat från övriga aktiviteter (85:e percentilen av maxHR på vanliga pass, hård-cappat vid 190 bpm för att rensa sensorfel).
+    5. Estimat från övriga aktiviteter (85:e percentilen av maxHR på vanliga pass, cappat för att rensa sensorfel).
+
+**Sensorfel-cap (artifact cap):** cappet i metod 2–5 ovan är inte längre ett fast globalt tal (190 bpm) — `estimatePersonalizedArtifactCap()` i `lib/fitness/zones.ts` räknar fram det individuellt per idrottare från dennes egna data (Hampel/MAD-filter på de hårdaste 15 % av passen, median + 1×robust-sigma). Faller tillbaka till 190 bpm bara om idrottaren har för få pass (<50) för en pålitlig egen skattning. Användarens manuella `maxHRArtifactCap` (Inställningar) vinner alltid över den automatiska skattningen. Validerat mot verklig data 2026-06-23: gav cap=188 för en idrottare med känd verklig maxpuls ≈185 bpm (jämfört med 197 om man hade använt den klassiska Hampel-tröskeln 3×sigma — för löst; eller 190 om man behållit det gamla fasta capet).
 
 ---
 

@@ -14,7 +14,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromActivities, ensureValidZones, computeZoneTime, type ZoneTimeActivity, MAXHR_ARTIFACT_CAP } from "./zones";
+import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromActivities, estimatePersonalizedArtifactCap, ensureValidZones, computeZoneTime, type ZoneTimeActivity } from "./zones";
 import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, personalizedFatigueExponent, type RacePB } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
 import { estimateCriticalSpeed } from "./critical-speed";
@@ -497,8 +497,10 @@ export async function updateHRZones(userId: string) {
   ]);
 
   const acts = activities as ActLight[];
-  const artifactCap = profile?.maxHRArtifactCap ?? MAXHR_ARTIFACT_CAP;
   const maxHRs = acts.flatMap(a => a.maxHeartrate ? [a.maxHeartrate] : []);
+  // Manual override always wins; otherwise derive the cap from this athlete's own data
+  // instead of one fixed global threshold (see estimatePersonalizedArtifactCap() doc comment).
+  const artifactCap = profile?.maxHRArtifactCap ?? estimatePersonalizedArtifactCap(maxHRs);
   // Clean observed max: remove artifact spikes before using as filter threshold
   // Raw max(maxHRs) can be 220-230 bpm from optical sensor glitches — totally wrong
   const cleanMaxHRs = maxHRs.filter(h => h <= artifactCap);

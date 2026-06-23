@@ -34,7 +34,63 @@ export interface PaceZones {
  */
 // Artifact cap: optical HR sensors can spike above 210 on wrist movement.
 // 190 bpm is a safe ceiling for most adults; true physiological max rarely exceeds this.
+// Used only as a fallback by estimatePersonalizedArtifactCap() below when there isn't
+// enough data for a per-athlete estimate — not a global ceiling for everyone.
 export const MAXHR_ARTIFACT_CAP = 190;
+
+/**
+ * Personalized max-HR artifact cap, derived from the athlete's own data instead of one
+ * fixed global threshold (190 is wrong for an athlete whose real ceiling is 220, and too
+ * permissive for one whose real ceiling is 175).
+ *
+ * Naively applying a robust-outlier filter (Hampel/MAD) to ALL per-activity max-HR values
+ * would be wrong: most days are easy runs where the athlete never pushes hard, so the
+ * "max HR" recorded that day is legitimately low — mixing those into the population pulls
+ * the median down and contaminates the result. Instead, this restricts to the upper tail
+ * (the athlete's genuine hard-effort days) first, then applies Hampel-style filtering —
+ * median + 1×robust-sigma (MAD×1.4826, the scaling that makes MAD comparable to a normal
+ * distribution's standard deviation) — within that tail only.
+ *
+ * Note this uses 1×robust-sigma, not the textbook Hampel "3×" extreme-outlier threshold.
+ * We're not flagging generic statistical outliers here — we're drawing the line between
+ * "this athlete's real hard-effort ceiling" and "sensor noise above it," which is a tighter
+ * question. Validated against this codebase's own real local data (1654 activities, ground
+ * truth from the athlete: real max ≈185bpm): the 15%-tail's median was 184 with MAD=3.00.
+ * 3×robust-sigma gave cap=197 — confirmed too loose, since the top values (229, 228, 226,
+ * 223, 220, [13bpm gap], 207, 203, 200...) show genuine sensor spikes start well below that,
+ * right after the gap. 1×robust-sigma gives cap=188 — within a few bpm of the known true
+ * max, and iterating (re-deriving median/MAD after trimming at the cap) confirmed the result
+ * is stable, not an artifact of under-iterating.
+ *
+ * Returns `fallback` (the fixed default) when there isn't enough data to trust a per-athlete
+ * estimate — never a floor/ceiling on the computed value itself, only a substitute for it.
+ */
+export function estimatePersonalizedArtifactCap(
+  activityMaxHRs: number[],
+  fallback = MAXHR_ARTIFACT_CAP,
+): number {
+  const MIN_TOTAL = 50;  // need enough activities for the upper tail to be meaningful
+  const MIN_TAIL = 10;   // minimum points in the hard-effort tail for a stable MAD
+  if (activityMaxHRs.length < MIN_TOTAL) return fallback;
+
+  const sortedDesc = [...activityMaxHRs].sort((a, b) => b - a);
+  const tailSize = Math.max(MIN_TAIL, Math.round(sortedDesc.length * 0.15));
+  const tail = sortedDesc.slice(0, Math.min(tailSize, sortedDesc.length));
+  if (tail.length < MIN_TAIL) return fallback;
+
+  const sortedTail = [...tail].sort((a, b) => a - b);
+  const median = sortedTail[Math.floor(sortedTail.length / 2)];
+  const absDevs = sortedTail.map(h => Math.abs(h - median)).sort((a, b) => a - b);
+  const mad = absDevs[Math.floor(sortedTail.length / 2)];
+  const robustSigma = mad * 1.4826;
+  // Small fixed margin when MAD=0 (an extremely tight, identical-valued tail) — 1×0 would
+  // otherwise collapse the cap onto the median itself, rejecting all natural variation.
+  const cap = robustSigma > 0 ? median + robustSigma : median + 5;
+
+  // Wide absolute backstop only — guards against a pathological/corrupted dataset, not
+  // normal individual variation. Not a per-athlete floor or ceiling.
+  return Math.round(Math.min(230, Math.max(165, cap)));
+}
 
 /**
  * Estimate max HR from per-activity max HR values.

@@ -129,10 +129,10 @@ export function AthleteProfileForm({ initial, sports }: { initial: Profile; spor
           placeholder="auto-estimated" className={inputCls} />
       </Field>
 
-      <Field label="Max HR artifact cap (bpm)" hint="HR readings above this are treated as sensor spikes and ignored. Default 190 — raise only if your true max HR is above 190.">
+      <Field label="Max HR artifact cap (bpm)" hint="HR readings above this are treated as sensor spikes and ignored. Auto-calculated from your own training data by default — set this only to override that estimate.">
         <input type="number" min={170} max={220} step={1}
           value={form.maxHRArtifactCap ?? ""} onChange={e => set("maxHRArtifactCap", e.target.value)}
-          placeholder="190" className={inputCls} />
+          placeholder="auto" className={inputCls} />
       </Field>
 
       <Field label="Years of structured training" hint="Helps the coach calibrate advice to your experience">
