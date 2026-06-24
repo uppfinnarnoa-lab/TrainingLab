@@ -552,9 +552,10 @@ function RaceModal({ record, onClose, onSave }: {
 }
 
 function PerformanceTrendCard({ data }: { data: { distance: string; period: string; time: number }[] }) {
-  const distances = [...new Set(data.map(d => d.distance))].filter(d =>
-    ["5K","10K","Half Marathon","3K","Mile","1K"].includes(d)
-  ).slice(0, 5);
+  const distances = [...new Set(data.map(d => d.distance))]
+    .filter(d => ["5K","10K","Half Marathon","3K","Mile","1K"].includes(d))
+    .sort((a, b) => DISTANCE_ORDER.indexOf(a) - DISTANCE_ORDER.indexOf(b))
+    .slice(0, 5);
   if (distances.length === 0) return null;
   const periods = [...new Set(data.map(d => d.period))].sort().slice(-8);
   const COLORS = ["#6EE7B7","#818CF8","#F472B6","#FBBF24","#3B82F6"];
