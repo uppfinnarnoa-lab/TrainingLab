@@ -395,7 +395,7 @@ model AISettings {
   claudeApiKey String?
   geminiApiKey String?
   nvidiaApiKey String?
-  nvidiaModel  String? // default: "moonshotai/kimi-k2.5"
+  nvidiaModel  String? // default: "moonshotai/kimi-k2.6"
   groqApiKey   String?
   groqModel    String? // default: "llama-3.3-70b-versatile"
   tavilyApiKey String? // AES-256-GCM encrypted — used by web_search tool

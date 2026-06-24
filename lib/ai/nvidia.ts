@@ -2,14 +2,21 @@ import OpenAI from "openai";
 import type { AIClient, AIMessage, StreamChunk } from "./client";
 
 export const NVIDIA_MODELS = [
-  { id: "moonshotai/kimi-k2.5",                      label: "Kimi K2.5 (recommended — 1T multimodal, 256K context)" },
+  { id: "moonshotai/kimi-k2.6",                      label: "Kimi K2.6 (recommended — 1T multimodal, 256K context)" },
   { id: "nvidia/llama-3.1-nemotron-70b-instruct-hq", label: "Nemotron 70B" },
   { id: "meta/llama-3.3-70b-instruct",               label: "Llama 3.3 70B" },
   { id: "meta/llama-3.1-405b-instruct",              label: "Llama 3.1 405B (slow)" },
   { id: "mistralai/mistral-large-latest",            label: "Mistral Large" },
 ] as const;
 
-export const NVIDIA_DEFAULT_MODEL = "moonshotai/kimi-k2.5";
+export const NVIDIA_DEFAULT_MODEL = "moonshotai/kimi-k2.6";
+
+// NVIDIA periodically retires model IDs outright (e.g. kimi-k2.5 → 404 as of
+// 2026-06, replaced by kimi-k2.6) — fall back to the current default instead
+// of calling a dead endpoint with a stale value a user already saved.
+export function resolveNvidiaModel(stored?: string | null): string {
+  return NVIDIA_MODELS.some(m => m.id === stored) ? (stored as string) : NVIDIA_DEFAULT_MODEL;
+}
 
 export class NvidiaClient implements AIClient {
   readonly provider = "nvidia" as const;

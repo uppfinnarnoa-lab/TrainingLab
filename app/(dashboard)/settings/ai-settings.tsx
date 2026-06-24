@@ -172,7 +172,7 @@ export function AISettingsSection({
                   <td className="py-2 pr-4 text-accent font-medium">Free</td>
                   <td className="py-2 pr-4">Fast</td>
                   <td className="py-2 pr-4">40 RPM</td>
-                  <td className="py-2">Kimi K2.5</td>
+                  <td className="py-2">Kimi K2.6</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 font-medium">Gemini Flash</td>
@@ -194,7 +194,7 @@ export function AISettingsSection({
           <p className="text-muted leading-relaxed">
             <strong className="text-primary">Groq</strong> is the best free option — fast LPU inference, no credit card required. Sign up at{" "}
             <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2">console.groq.com</a>.{" "}
-            <strong className="text-primary">NVIDIA NIM</strong> is also free and defaults to Kimi K2.5 — a larger, multimodal model with a 256K context window, at the cost of being slightly slower than Groq.{" "}
+            <strong className="text-primary">NVIDIA NIM</strong> is also free and defaults to Kimi K2.6 — a larger, multimodal model with a 256K context window, at the cost of being slightly slower than Groq.{" "}
             <strong className="text-primary">Gemini</strong> free tier is too limited (25 req/day) — use paid if you go this route.{" "}
             <strong className="text-primary">Claude</strong> gives the best response quality but has a real cost.
           </p>

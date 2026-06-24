@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { GeminiClient } from "@/lib/ai/gemini";
-import { NvidiaClient, NVIDIA_DEFAULT_MODEL } from "@/lib/ai/nvidia";
+import { NvidiaClient, resolveNvidiaModel } from "@/lib/ai/nvidia";
 import { GroqClient, GROQ_DEFAULT_MODEL } from "@/lib/ai/groq";
 import { buildCoachContext } from "@/lib/ai/context-builder";
 import { buildSystemPrompt } from "@/lib/ai/prompts";
@@ -271,7 +271,7 @@ export async function POST(req: NextRequest) {
           try {
             const OpenAI  = (await import("openai")).default;
             const baseURL = provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.groq.com/openai/v1";
-            const model   = provider === "nvidia" ? (aiSettings?.nvidiaModel ?? NVIDIA_DEFAULT_MODEL) : (aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL);
+            const model   = provider === "nvidia" ? resolveNvidiaModel(aiSettings?.nvidiaModel) : (aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL);
             const oai     = new OpenAI({ apiKey, baseURL });
             const tc      = await oai.chat.completions.create({
               model, max_tokens: 400, tools: toOpenAITools(), tool_choice: "auto",
@@ -337,7 +337,7 @@ export async function POST(req: NextRequest) {
 
         // ── Stream response for non-Claude providers ─────────────────────────
         const aiClient = provider === "nvidia"
-          ? new NvidiaClient(apiKey, aiSettings?.nvidiaModel ?? NVIDIA_DEFAULT_MODEL)
+          ? new NvidiaClient(apiKey, resolveNvidiaModel(aiSettings?.nvidiaModel))
           : provider === "groq"
           ? new GroqClient(apiKey, aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL)
           : new GeminiClient(apiKey);
@@ -382,7 +382,7 @@ async function saveAssistantMessage(convId: string, content: string, userId: str
       content,
       tokensUsed: (inputTokens ?? 0) + (outputTokens ?? 0),
       estimatedCostUsd: cost,
-      modelUsed: provider === "claude" ? "claude-sonnet-4-6" : provider === "nvidia" ? (nvidiaModel ?? NVIDIA_DEFAULT_MODEL) : provider === "groq" ? (groqModel ?? GROQ_DEFAULT_MODEL) : "gemini-2.5-flash",
+      modelUsed: provider === "claude" ? "claude-sonnet-4-6" : provider === "nvidia" ? resolveNvidiaModel(nvidiaModel) : provider === "groq" ? (groqModel ?? GROQ_DEFAULT_MODEL) : "gemini-2.5-flash",
     },
   });
   void userId;

@@ -200,10 +200,10 @@ Din JSON med rätt värden:`;
       rawText = res.content[0].type === "text" ? res.content[0].text : "";
     } else if (aiSettings?.provider === "nvidia") {
       const OpenAI = (await import("openai")).default;
-      const { NVIDIA_DEFAULT_MODEL } = await import("@/lib/ai/nvidia");
+      const { resolveNvidiaModel } = await import("@/lib/ai/nvidia");
       const oaiClient = new OpenAI({ apiKey: apiKey!, baseURL: "https://integrate.api.nvidia.com/v1" });
       const res = await oaiClient.chat.completions.create({
-        model: aiSettings.nvidiaModel ?? NVIDIA_DEFAULT_MODEL,
+        model: resolveNvidiaModel(aiSettings.nvidiaModel),
         max_tokens: 600,
         messages: [{ role: "user", content: prompt }],
       });

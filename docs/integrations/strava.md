@@ -49,7 +49,7 @@
 - **Docs**: `https://ai.google.dev/docs`
 
 ## NVIDIA NIM
-- **Model**: `moonshotai/kimi-k2.5` (default — 1T-param multimodal, 256K context; same free, no-card, ongoing rate-limited tier as the other NVIDIA models, OpenAI-compatible endpoint). Other options: Nemotron 70B, Llama 3.3 70B, Llama 3.1 405B, Mistral Large.
+- **Model**: `moonshotai/kimi-k2.6` (default — 1T-param multimodal, 256K context; same free, no-card, ongoing rate-limited tier as the other NVIDIA models, OpenAI-compatible endpoint). Other options: Nemotron 70B, Llama 3.3 70B, Llama 3.1 405B, Mistral Large. NVIDIA retires Kimi model IDs outright without redirecting (kimi-k2.5 404'd as of 2026-06); `resolveNvidiaModel()` in `lib/ai/nvidia.ts` falls back to the current default if a user's saved model ID is no longer in `NVIDIA_MODELS`.
 - **SDK**: `openai` SDK pointed at `https://integrate.api.nvidia.com/v1` (`lib/ai/nvidia.ts`).
 
 ## Groq

@@ -138,10 +138,10 @@ This is an interval/quality session. Analyze: (1) interval execution — pace co
     return new Response(readable, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } else if (provider === "nvidia") {
     const OpenAI = (await import("openai")).default;
-    const { NVIDIA_DEFAULT_MODEL } = await import("@/lib/ai/nvidia");
+    const { resolveNvidiaModel } = await import("@/lib/ai/nvidia");
     const oaiClient = new OpenAI({ apiKey, baseURL: "https://integrate.api.nvidia.com/v1" });
     const stream = await oaiClient.chat.completions.create({
-      model: aiSettings?.nvidiaModel ?? NVIDIA_DEFAULT_MODEL,
+      model: resolveNvidiaModel(aiSettings?.nvidiaModel),
       max_tokens: 500,
       messages: [{ role: "user", content: prompt }],
       stream: true,

@@ -19,6 +19,8 @@ Denna plans research (§2) missade en väg: **Kimi K2.5 (nyare än K2/K2.6, 1T-p
 
 **Kvar att göra om OpenRouter-vägen ändå blir relevant:** om Kimi K2.5 någon gång tas bort från NVIDIA NIM, eller om en användare specifikt vill ha K2.6:free (262K context) eller en modell NVIDIA inte hostar, är denna plans §3-§5b fortfarande en giltig, mer komplex väg dit — arkiveras här som referens, inte borttagen.
 
+**Uppdatering 2026-06-24f:** Exakt detta hände — NVIDIA pensionerade `kimi-k2.5` helt (404, ingen redirect) ungefär en dag efter att den lades till. Löst utan OpenRouter-vägen: NVIDIA hostar redan efterträdaren **Kimi K2.6** (`moonshotai/kimi-k2.6`) på samma endpoint/nyckel, så `NVIDIA_MODELS`/`NVIDIA_DEFAULT_MODEL` uppdaterades i stället. Se sessionsposten i `IMPLEMENTATION_PLAN.md` för detaljer, inklusive en ny `resolveNvidiaModel()`-fallback i `lib/ai/nvidia.ts` som självläker om NVIDIA pensionerar ännu en modell-id utan förvarning.
+
 ---
 
 ## 1. Mål
