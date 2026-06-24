@@ -47,6 +47,8 @@ export function AISettingsSection({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [providerError, setProviderError] = useState("");
+  const [nvidiaModelError, setNvidiaModelError] = useState("");
+  const [groqModelError, setGroqModelError] = useState("");
 
   const spendPct = monthlyBudget > 0 ? Math.min((currentSpend / monthlyBudget) * 100, 100) : 0;
 
@@ -64,6 +66,40 @@ export function AISettingsSection({
     } catch {
       setActiveProvider(previous);
       setProviderError("Failed to switch provider. Try again.");
+    }
+  }
+
+  async function selectNvidiaModel(id: string) {
+    const previous = selectedNvidiaModel;
+    setSelectedNvidiaModel(id);
+    setNvidiaModelError("");
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nvidiaModel: id }),
+      });
+      if (!res.ok) throw new Error("failed");
+    } catch {
+      setSelectedNvidiaModel(previous);
+      setNvidiaModelError("Failed to save model. Try again.");
+    }
+  }
+
+  async function selectGroqModel(id: string) {
+    const previous = selectedGroqModel;
+    setSelectedGroqModel(id);
+    setGroqModelError("");
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groqModel: id }),
+      });
+      if (!res.ok) throw new Error("failed");
+    } catch {
+      setSelectedGroqModel(previous);
+      setGroqModelError("Failed to save model. Try again.");
     }
   }
 
@@ -323,13 +359,14 @@ export function AISettingsSection({
           <label className="text-xs font-medium text-muted">Model</label>
           <select
             value={selectedNvidiaModel}
-            onChange={e => setSelectedNvidiaModel(e.target.value)}
+            onChange={e => selectNvidiaModel(e.target.value)}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           >
             {NVIDIA_MODELS.map(m => (
               <option key={m.id} value={m.id}>{m.label}</option>
             ))}
           </select>
+          {nvidiaModelError && <p className="text-xs text-error">{nvidiaModelError}</p>}
         </div>
       </div>
 
@@ -363,13 +400,14 @@ export function AISettingsSection({
           <label className="text-xs font-medium text-muted">Model</label>
           <select
             value={selectedGroqModel}
-            onChange={e => setSelectedGroqModel(e.target.value)}
+            onChange={e => selectGroqModel(e.target.value)}
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
           >
             {GROQ_MODELS.map(m => (
               <option key={m.id} value={m.id}>{m.label}</option>
             ))}
           </select>
+          {groqModelError && <p className="text-xs text-error">{groqModelError}</p>}
         </div>
       </div>
 
