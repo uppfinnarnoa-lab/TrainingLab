@@ -709,7 +709,10 @@ export async function executeCoachTool(
           `CTL (fitness): ${fc.ctl?.toFixed(1) ?? "?"} TSS  |  ATL (fatigue): ${fc.atl?.toFixed(1) ?? "?"} TSS  |  TSB (form): ${fc.tsb?.toFixed(1) ?? "?"}`,
           `ACWR: ${fc.acwr?.toFixed(2) ?? "?"}  |  Max HR: ${fc.maxHR} bpm  |  Rest HR: ${fc.restHR} bpm`,
           fc.thresholdHR ? `Threshold HR (LT2): ${fc.thresholdHR} bpm` : "",
-          fc.criticalSpeedMs ? `Critical speed: ${(fc.criticalSpeedMs * 3.6).toFixed(1)} km/h  |  W': ${fc.wPrimeMeters?.toFixed(0) ?? "?"}m` : "",
+          fc.criticalSpeedMs ? `Critical speed: ${(fc.criticalSpeedMs * 3.6).toFixed(1)} km/h  |  W': ${fc.wPrimeMeters?.toFixed(0) ?? "?"}m` +
+            (fc.criticalSpeedRSquared != null
+              ? `  |  fit R²=${fc.criticalSpeedRSquared.toFixed(2)} (${fc.criticalSpeedRSquared >= 0.7 ? "good" : fc.criticalSpeedRSquared >= 0.4 ? "moderate" : "weak"} fit, n=${fc.criticalSpeedEffortsUsed ?? "?"} efforts — also factored into the race-time predictions above)`
+              : "") : "",
           fc.decouplingLt1HR ? `Aerobic decoupling LT1 estimate: ${fc.decouplingLt1HR.toFixed(0)} bpm (from ${fc.decouplingRunsUsed ?? "?"} steady runs)` : "",
           `\nHR zones:`,
           ...(fc.zones as { z1: [number,number]; z2: [number,number]; z3: [number,number]; z4: [number,number]; z5: [number,number] } | null

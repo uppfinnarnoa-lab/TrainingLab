@@ -458,10 +458,12 @@ export default async function StatsPage() {
 
   const slowEightWeeksAgo = subDays(now, 56);
   const slowWkRunKm = new Map<string, number>();
+  let slowLongestRunM = 0;
   for (const a of activities as A[]) {
     if (!/run|trail/i.test(a.sportType) || a.startDate < slowEightWeeksAgo) continue;
     const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
     slowWkRunKm.set(wk, (slowWkRunKm.get(wk) ?? 0) + a.distance / 1000);
+    if (a.distance > slowLongestRunM) slowLongestRunM = a.distance;
   }
   const slowAvgWeeklyRunKm = [...slowWkRunKm.values()].reduce((s, v) => s + v, 0) / 8;
 
@@ -527,7 +529,8 @@ export default async function StatsPage() {
   // Shared with both FitnessCache update paths (lib/fitness/cache.ts) — see
   // computeRacePredictions() doc comment for why this must stay a single implementation.
   const bestEffortsForPredictions = await loadBestEffortsForRacePredictions(userId);
-  const predictions = computeRacePredictions(vo2max.vdot, todayLoad.tsb, racePBs, bestEffortsForPredictions);
+  const { predictions } =
+    computeRacePredictions(vo2max.vdot, todayLoad.tsb, racePBs, bestEffortsForPredictions, slowLongestRunM);
 
   // Per-model predictions — lets user see output of each individual model
   const modelVdots: Record<string, number> = {

@@ -17,7 +17,6 @@ import { prisma } from "@/lib/db/prisma";
 import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromActivities, estimatePersonalizedArtifactCap, ensureValidZones, computeZoneTime, type ZoneTimeActivity } from "./zones";
 import { estimateVO2max, computeRacePredictions, type RacePB } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
-import { estimateCriticalSpeed } from "./critical-speed";
 import { computeTSS, buildLoadCurve, computeACWR } from "./training-load";
 import { subDays, format, startOfWeek } from "date-fns";
 
@@ -192,10 +191,12 @@ export async function updateVO2maxAndPaces(userId: string) {
   // ── VO2max & paces — TSB + weekly volume passed for full model set ───────
   const cacheEightWeeksAgo = subDays(now, 56);
   const cacheWkRunKm = new Map<string, number>();
+  let cacheLongestRunM = 0;
   for (const a of activities as Act[]) {
     if (!/run|trail/i.test(a.sportType) || a.startDate < cacheEightWeeksAgo) continue;
     const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
     cacheWkRunKm.set(wk, (cacheWkRunKm.get(wk) ?? 0) + a.distance / 1000);
+    if (a.distance > cacheLongestRunM) cacheLongestRunM = a.distance;
   }
   const cacheAvgWeeklyRunKm = [...cacheWkRunKm.values()].reduce((s, v) => s + v, 0) / 8;
 
@@ -247,9 +248,6 @@ export async function updateVO2maxAndPaces(userId: string) {
     .filter(a => /run|trail/i.test(a.sportType) && Array.isArray(a.bestEfforts))
     .flatMap(a => a.bestEfforts as Array<{ distance: number; elapsed_time: number }>);
 
-  // ── Critical Speed from best efforts + race PBs (LT2 proxy) ─────────
-  const csResult = estimateCriticalSpeed(allBestEfforts, racePBs);
-
   // ── Aerobic decoupling LT1 (parallel estimate) ────────────────────────
   // Separate query — avoids loading large splitsMetric JSON for all activities.
   const decouplingRuns = await prisma.activity.findMany({
@@ -258,7 +256,11 @@ export async function updateVO2maxAndPaces(userId: string) {
   });
   const decouplingResult = estimateLT1FromDecoupling(decouplingRuns, maxHR);
 
-  const predictionsJson = computeRacePredictions(vo2maxResult.vdot, todayLoad.tsb, racePBs, allBestEfforts);
+  // computeRacePredictions() also fits Critical Speed/W' internally (used to vote on the
+  // blended estimate, see vo2max.ts) and returns it here so it can be cached for display —
+  // computed once, not duplicated between the blend and the cache write.
+  const { predictions: predictionsJson, criticalSpeed: csResult } =
+    computeRacePredictions(vo2maxResult.vdot, todayLoad.tsb, racePBs, allBestEfforts, cacheLongestRunM);
 
   // ── Extra visualizations — derived from activity data, updated every sync ──
   type ZM = { z3: [number, number]; z4: [number, number] };
@@ -466,6 +468,8 @@ export async function updateVO2maxAndPaces(userId: string) {
     decouplingRunsUsed: decouplingResult?.runsUsed ?? undefined,
     criticalSpeedMs:   csResult?.csMetersPerSec   ?? undefined,
     wPrimeMeters:      csResult?.wPrimeMeters      ?? undefined,
+    criticalSpeedRSquared:   csResult?.rSquared    ?? undefined,
+    criticalSpeedEffortsUsed: csResult?.effortsUsed ?? undefined,
     extraVizJson:       extraVizJson as object,
     // statZonesJson / statZonesLapsJson intentionally omitted — zone estimation results
     // are only written by updateHRZones (calibration button). Auto-sync must not
@@ -617,10 +621,12 @@ export async function updateHRZones(userId: string) {
 
   const zonesEightWeeksAgo = subDays(new Date(), 56);
   const zonesWkRunKm = new Map<string, number>();
+  let zonesLongestRunM = 0;
   for (const a of acts) {
     if (!/run|trail/i.test(a.sportType) || a.startDate < zonesEightWeeksAgo) continue;
     const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
     zonesWkRunKm.set(wk, (zonesWkRunKm.get(wk) ?? 0) + a.distance / 1000);
+    if (a.distance > zonesLongestRunM) zonesLongestRunM = a.distance;
   }
   const zonesAvgWeeklyRunKm = [...zonesWkRunKm.values()].reduce((s, v) => s + v, 0) / 8;
 
@@ -637,7 +643,8 @@ export async function updateHRZones(userId: string) {
 
   const cachedTsb = existingCacheForZones?.tsb ?? 0;
   const bestEffortsForZones = await loadBestEffortsForRacePredictions(userId);
-  const predictionsJson = computeRacePredictions(vo2maxResult.vdot, cachedTsb, racePBs, bestEffortsForZones);
+  const { predictions: predictionsJson } =
+    computeRacePredictions(vo2maxResult.vdot, cachedTsb, racePBs, bestEffortsForZones, zonesLongestRunM);
 
   // Recompute zone distribution with the newly calibrated zones so charts update immediately.
   // Lap-aware: see computeZoneTime() doc comment.

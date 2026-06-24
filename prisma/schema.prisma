@@ -460,6 +460,9 @@ model FitnessCache {
   decouplingRunsUsed   Int?     // how many steady-state runs contributed
   criticalSpeedMs      Float?   // Critical Speed in m/s — LT2 proxy from best efforts
   wPrimeMeters         Float?   // W' anaerobic capacity in meters
+  criticalSpeedRSquared Float?  // goodness-of-fit of the CS/W' regression — gates how much weight
+                                 // computeRacePredictions() gives it in the blended race-time estimate
+  criticalSpeedEffortsUsed Int? // how many distinct distances fed the CS/W' regression
   computedAt   DateTime @default(now()) @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

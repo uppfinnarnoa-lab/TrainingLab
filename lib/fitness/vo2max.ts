@@ -15,6 +15,7 @@
  */
 
 import { RACE_DISTANCES } from "./paces";
+import { estimateCriticalSpeed, type CriticalSpeedResult } from "./critical-speed";
 
 export interface VO2maxEstimate {
   value: number;
@@ -385,10 +386,60 @@ export interface RacePrediction {
   lowConfidenceShort: boolean;
 }
 
+// ── Critical Speed/W' as a third, physiologically-independent vote ──────────
+//
+// estimateCriticalSpeed() fits a 2-parameter hyperbolic model (Monod & Scherrer) from the
+// same bestEfforts+racePBs pool used above — distinct from the log-log Riegel exponent,
+// so it doesn't just restate the same evidence. A 2024/2025 systematic review of
+// field-based critical-speed testing in runners (see RACE_ESTIMATE_ACADEMIC_RESEARCH_PLAN)
+// found half-marathoners sustain ~97.3% of critical speed, but marathon caliber varies far
+// more (elite ~95%, population average ~84.8%) — too wide a spread to pick one fraction
+// for a marathon POINT estimate, so beyond half-marathon it only widens the uncertainty
+// range (see blendedRacePrediction), it never votes on the number itself.
+const CS_VOTE_MAX_DIST_HYPERBOLA = 15000; // mirrors critical-speed.ts's own CS_MAX_DIST fitting cutoff
+const CS_VOTE_MAX_DIST_FRACTION  = 22000; // covers the half-marathon row only
+const HM_CS_FRACTION             = 0.973;
+const MARATHON_CS_FRACTION_ELITE = 0.95;
+const MARATHON_CS_FRACTION_AVG   = 0.848;
+
+interface CSVote { timeSec: number; confidence: number }
+
+function criticalSpeedVote(targetM: number, cs: CriticalSpeedResult | null | undefined): CSVote | null {
+  if (!cs || cs.csMetersPerSec <= 0) return null;
+  const confidence = Math.max(0, Math.min(1, cs.rSquared));
+  if (targetM <= CS_VOTE_MAX_DIST_HYPERBOLA) {
+    const t = (targetM - cs.wPrimeMeters) / cs.csMetersPerSec;
+    return t > 0 ? { timeSec: t, confidence } : null;
+  }
+  if (targetM <= CS_VOTE_MAX_DIST_FRACTION) {
+    // Beyond the model's own fitted range — an extra assumption layer (a published fraction
+    // of CS, not the directly-fitted hyperbola), so confidence is discounted further.
+    return { timeSec: targetM / (cs.csMetersPerSec * HM_CS_FRACTION), confidence: confidence * 0.8 };
+  }
+  return null;
+}
+
+/**
+ * Extra range-widening when recent long-run history doesn't cover the target distance.
+ * Vickers & Vertosick (2016, BMC, N=2,303) found weekly mileage/long-run history predicts
+ * marathon-specific fade independently of any PB-derived exponent. Only ever widens the
+ * band — never shifts the point estimate, since there's no real marathon/HM result yet to
+ * validate a point-estimate change against for an athlete with no such RaceRecord.
+ */
+function longRunAdequacyWidenFactor(longestRunLast8wM: number | undefined, targetM: number): number {
+  if (longestRunLast8wM === undefined) return 1;
+  if (longestRunLast8wM <= 0) return 1.3;
+  const ratio = longestRunLast8wM / targetM;
+  if (ratio >= 0.8) return 1;
+  if (ratio <= 0.3) return 1.4;
+  return 1.4 - (ratio - 0.3) / 0.5 * 0.4;
+}
+
 /**
  * Single canonical race-time prediction for one target distance. Blends the global
- * Daniels VDOT curve ("peak" — a population-average %VO2max-vs-duration table) with the
- * local bracket-based personalized model above.
+ * Daniels VDOT curve ("peak" — a population-average %VO2max-vs-duration table), the local
+ * bracket-based personalized model above, and (within its own valid range) the Critical
+ * Speed/W' model as a third, independent vote.
  *
  * The global curve is only as good as the assumption that this runner's endurance
  * profile matches the population average through the WHOLE distance range — verified
@@ -406,37 +457,82 @@ export function blendedRacePrediction(
   vdot: number,
   knownPerformances: KnownPerformance[],
   fallbackExponent: number,
+  cs?: CriticalSpeedResult | null,
+  longestRunLast8wM?: number,
 ): RacePrediction {
   const peak = predictRaceTime(vdot, targetM);
   const local = personalizedRacePrediction(targetM, knownPerformances, fallbackExponent);
+  const csVote = criticalSpeedVote(targetM, cs);
+
+  let blended: number;
+  let riegelOut: number | null;
+  let lowConfidenceShort: boolean;
+  let groundedWeight: number; // local + CS share — scales the uncertainty band below
 
   if (!local) {
-    const range = predictionRange(peak, targetM);
-    return { peak, riegel: null, rangeLo: range.lo, rangeHi: range.hi, lowConfidenceShort: peak < 210 };
-  }
-
-  let weight: number;
-  if (local.bracketed) {
-    weight = 0.85;
+    if (csVote) {
+      const wCS = csVote.confidence * 0.5; // no personal bracket at all — lean on CS, but stay cautious
+      blended = Math.round(wCS * csVote.timeSec + (1 - wCS) * peak);
+      groundedWeight = wCS;
+    } else {
+      blended = peak;
+      groundedWeight = 0;
+    }
+    riegelOut = null;
+    lowConfidenceShort = peak < 210;
   } else {
-    // ratio === 1 means targetM IS (essentially) a known real result — there's no
-    // extrapolation at all, so trust it almost completely rather than capping at the
-    // same 0.85 used for a genuine two-point interpolation.
-    const ratio = Math.max(targetM, local.anchor.distanceM) / Math.min(targetM, local.anchor.distanceM);
-    weight = Math.max(0.15, Math.min(0.95, 0.95 - (ratio - 1) * 0.3));
+    let wLocal: number;
+    if (local.bracketed) {
+      wLocal = 0.85;
+    } else {
+      // ratio === 1 means targetM IS (essentially) a known real result — there's no
+      // extrapolation at all, so trust it almost completely rather than capping at the
+      // same 0.85 used for a genuine two-point interpolation.
+      const ratio = Math.max(targetM, local.anchor.distanceM) / Math.min(targetM, local.anchor.distanceM);
+      wLocal = Math.max(0.15, Math.min(0.95, 0.95 - (ratio - 1) * 0.3));
+    }
+    // Daniels' %VO2max-vs-duration table flatlines below ~3.5min (percentVO2maxFromDuration) —
+    // it's an approximation never calibrated for sprint-duration efforts, so for short
+    // predicted durations the global curve is the unreliable half of the blend regardless
+    // of how well-bracketed the local model is.
+    lowConfidenceShort = local.timeSec < 210 || peak < 210;
+    if (lowConfidenceShort) wLocal = Math.max(wLocal, 0.9);
+
+    const peakShare = 1 - wLocal;
+    // CS gets more room when local is only a one-sided extrapolation (no real bracket) — that's
+    // exactly where an independent physiological cross-check is most valuable; less room when a
+    // real two-point bracket already pins the estimate down directly from this runner's own data.
+    const wCS = csVote ? peakShare * csVote.confidence * (local.bracketed ? 0.3 : 0.6) : 0;
+    const wPeak = peakShare - wCS;
+
+    blended = Math.round(wLocal * local.timeSec + wCS * (csVote?.timeSec ?? 0) + wPeak * peak);
+    riegelOut = local.timeSec;
+    groundedWeight = wLocal + wCS;
   }
-  // Daniels' %VO2max-vs-duration table flatlines below ~3.5min (percentVO2maxFromDuration) —
-  // it's an approximation never calibrated for sprint-duration efforts, so for short
-  // predicted durations the global curve is the unreliable half of the blend regardless
-  // of how well-bracketed the local model is.
-  const lowConfidenceShort = local.timeSec < 210 || peak < 210;
-  if (lowConfidenceShort) weight = Math.max(weight, 0.9);
 
-  const blended = Math.round(weight * local.timeSec + (1 - weight) * peak);
-  const uncertaintyMultiplier = 1 + (1 - weight) * 1.5;
-  const range = predictionRange(blended, targetM, uncertaintyMultiplier);
+  const uncertaintyMultiplier = 1 + (1 - groundedWeight) * 1.5;
+  let range = predictionRange(blended, targetM, uncertaintyMultiplier);
 
-  return { peak: blended, riegel: local.timeSec, rangeLo: range.lo, rangeHi: range.hi, lowConfidenceShort };
+  // Marathon-distance literature spread (see criticalSpeedVote doc comment above) — widen
+  // only, never narrow, and never touch the point estimate itself.
+  if (cs && cs.csMetersPerSec > 0 && targetM > CS_VOTE_MAX_DIST_FRACTION) {
+    const csFast = Math.round(targetM / (cs.csMetersPerSec * MARATHON_CS_FRACTION_ELITE));
+    const csSlow = Math.round(targetM / (cs.csMetersPerSec * MARATHON_CS_FRACTION_AVG));
+    range = { lo: Math.min(range.lo, csFast), hi: Math.max(range.hi, csSlow) };
+  }
+
+  // Long-run-history adequacy (see longRunAdequacyWidenFactor doc comment) — HM/marathon only.
+  if (targetM >= 21097) {
+    const extra = longRunAdequacyWidenFactor(longestRunLast8wM, targetM);
+    if (extra > 1) {
+      range = {
+        lo: Math.round(blended - (blended - range.lo) * extra),
+        hi: Math.round(blended + (range.hi - blended) * extra),
+      };
+    }
+  }
+
+  return { peak: blended, riegel: riegelOut, rangeLo: range.lo, rangeHi: range.hi, lowConfidenceShort };
 }
 
 /**
@@ -444,21 +540,31 @@ export function blendedRacePrediction(
  * implementation used by both FitnessCache update paths (cache.ts) and the stats page's
  * cache-miss fallback, so they can never drift apart (see Bug 11/14/15 in
  * IMPLEMENTATION_PLAN.md for what happens when the same computation is hand-duplicated).
+ * Also returns the Critical Speed/W' fit so the AUTO cache path can persist it for display
+ * and confidence-gating elsewhere — it's computed once here, not duplicated per caller.
  */
 export function computeRacePredictions(
   vdot: number,
   tsb: number,
   racePBs: Array<{ distanceM: number; timeSec: number }>,
   bestEfforts: Array<{ distance: number; elapsed_time: number }>,
-): Array<{ label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort: boolean }> {
+  longestRunLast8wM?: number,
+): {
+  predictions: Array<{ label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort: boolean }>;
+  criticalSpeed: CriticalSpeedResult | null;
+} {
   const personalK = personalizedFatigueExponent(bestEfforts);
   const fallbackExponent = personalK !== null ? (1 - personalK) : 1.06;
   const knownPerformances = buildKnownPerformances(racePBs, bestEfforts);
+  const criticalSpeed = estimateCriticalSpeed(bestEfforts, racePBs);
 
-  return RACE_DISTANCES.map(({ label, meters }) => {
-    const { peak, riegel, rangeLo, rangeHi, lowConfidenceShort } = blendedRacePrediction(meters, vdot, knownPerformances, fallbackExponent);
+  const predictions = RACE_DISTANCES.map(({ label, meters }) => {
+    const { peak, riegel, rangeLo, rangeHi, lowConfidenceShort } =
+      blendedRacePrediction(meters, vdot, knownPerformances, fallbackExponent, criticalSpeed, longestRunLast8wM);
     return { label, meters, peak, today: tsbAdjustedRaceTime(peak, tsb), riegel, rangeLo, rangeHi, lowConfidenceShort };
   });
+
+  return { predictions, criticalSpeed };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
