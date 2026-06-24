@@ -75,8 +75,11 @@ export function Sidebar() {
 
   const sidebarContent = (
     <>
-      {/* Logo — icon stays fixed size/position, wordmark text clips away */}
-      <div className={cn("flex h-16 items-end px-3 pb-3 border-b border-border shrink-0", rail && "justify-center")}>
+      {/* Logo — icon stays fixed size/position, wordmark text clips away.
+          Left inset matches the nav icons' left edge (nav's own px-3 + each
+          Link's px-3 = 24px), not a literal center — a centered logo would
+          float inconsistently above the left-aligned nav column below it. */}
+      <div className={cn("flex h-16 items-end pb-3 border-b border-border shrink-0", rail ? "px-3 justify-center" : "pl-6 pr-3")}>
         <Logo size={LOGO_SIZE} className="shrink-0" style={rail ? undefined : { marginRight: logoPullIn(LOGO_SIZE) }} />
         <span className={labelClass(rail)}>
           <LogoText size={LOGO_SIZE} />
