@@ -23,7 +23,7 @@ import { Logo, LogoText, logoPullIn } from "./logo";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar_collapsed";
 const ICON_SIZE = 18;
-const LOGO_SIZE = 24;
+const LOGO_SIZE = 30;
 
 const nav = [
   { href: "/dashboard",  icon: LayoutDashboard, label: "Dashboard" },

@@ -6,7 +6,7 @@ export default function PendingPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm text-center space-y-6">
         <div className="flex flex-col items-center gap-2">
-          <LogoWordmark size={52} />
+          <LogoWordmark size={64} />
         </div>
         <div className="rounded-2xl bg-surface border border-border p-8 shadow-lg space-y-4">
           <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mx-auto">

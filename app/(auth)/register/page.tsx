@@ -40,7 +40,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8 gap-2">
-          <LogoWordmark size={52} />
+          <LogoWordmark size={64} />
           <p className="text-sm text-muted">Your personal AI training coach</p>
         </div>
 
