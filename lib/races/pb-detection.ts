@@ -12,19 +12,29 @@ interface BestEffortRow {
  * Pure decision: should this result be recorded as a RaceRecord?
  * - No prior record for the distance: only a flagged race seeds the first entry
  *   (avoids creating a whole new tracked distance from a casual training segment).
- * - A prior record exists: record if the new time is within `tolerancePct` of it
- *   (0% = strict PBs only; this also covers a strict new PB, since a faster time
- *   always satisfies `newTime <= currentBest * (1 + tolerancePct / 100)`).
+ * - No MANUAL record for the distance yet: only a flagged race may record at all,
+ *   improvement or not. A single auto-detected race-flagged entry isn't a reliable
+ *   enough anchor on its own (it may just be one segment of a much longer race) —
+ *   without this gate, a chain of noisy training splits each slightly faster than
+ *   the last can flood a distance with "new PBs" that aren't real (see
+ *   docs/planning/Planerattköra/PB_DETECTION_SETTINGS_CONSOLIDATION_PLAN_2026_06_24.md §4).
+ * - Once a manual baseline exists: record if the new time is within `tolerancePct`
+ *   of it (0% = strict PBs only), but cap non-improving near-PB matches to the last
+ *   365 days — a genuine new all-time best is always recorded regardless of age.
  */
 export function shouldRecordResult(opts: {
   newTimeSec: number;
   currentBestSec: number | null;
   tolerancePct: number;
   isRace: boolean;
+  withinLastYear: boolean;
+  distanceHasManualBaseline: boolean;
 }): boolean {
-  const { newTimeSec, currentBestSec, tolerancePct, isRace } = opts;
+  const { newTimeSec, currentBestSec, tolerancePct, isRace, withinLastYear, distanceHasManualBaseline } = opts;
   if (currentBestSec === null) return isRace;
-  return newTimeSec <= currentBestSec * (1 + tolerancePct / 100);
+  if (!distanceHasManualBaseline && !isRace) return false;
+  if (newTimeSec < currentBestSec) return true;
+  return withinLastYear && newTimeSec <= currentBestSec * (1 + tolerancePct / 100);
 }
 
 /**
@@ -63,17 +73,23 @@ export async function detectPBsForActivity(
     });
     if (already) continue;
 
-    const currentBest = await prisma.raceRecord.findFirst({
+    const distanceRecords = await prisma.raceRecord.findMany({
       where: { userId, distance: matched.label },
-      orderBy: { time: "asc" },
-      select: { time: true },
+      select: { time: true, isManual: true },
     });
+    const currentBestSec = distanceRecords.length > 0
+      ? Math.min(...distanceRecords.map((r: { time: number }) => r.time))
+      : null;
+    const distanceHasManualBaseline = distanceRecords.some((r: { isManual: boolean }) => r.isManual);
+    const withinLastYear = Date.now() - recordDate.getTime() <= 365 * 24 * 60 * 60 * 1000;
 
     const record = shouldRecordResult({
       newTimeSec: raw.elapsed_time,
-      currentBestSec: currentBest?.time ?? null,
+      currentBestSec,
       tolerancePct,
       isRace: activity.isRace,
+      withinLastYear,
+      distanceHasManualBaseline,
     });
     if (!record) continue;
 

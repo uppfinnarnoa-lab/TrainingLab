@@ -1,6 +1,6 @@
 # PB-detektering: striktare regel mot flödning + egen Settings-sektion + borttagningsknapp
 
-**Status:** Research klar, redo för implementation
+**Status:** ✅ Implementerad 2026-06-24 — se sessionspost "2026-06-24p" i `docs/planning/IMPLEMENTATION_PLAN.md` för exakt vad som byggdes och hur det validerades.
 **Skapad:** 2026-06-24
 
 ## 1. Bakgrund — detta är INTE en bugg i detekteringslogiken, det är en omdesign + en regelskärpning

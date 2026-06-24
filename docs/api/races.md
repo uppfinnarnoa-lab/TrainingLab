@@ -4,10 +4,11 @@
 
 When `AthleteProfile.pbDetectionMode === "automatic"`, every newly-synced running `Activity` is scanned for PBs and near-PB results by `lib/races/pb-detection.ts`, called from `lib/strava/sync.ts` after a genuinely new activity is created (bulk sync, smart resync, and the Strava webhook path all three call it). Source data is `Activity.bestEfforts` (Strava's own exact per-distance segment times), matched against the canonical distance list in `lib/races/distances.ts`. A result is recorded (`RaceRecord.isManual: false`, `eventName` set to the Strava activity's name) when:
 
-- it beats or is within `AthleteProfile.pbDetectionTolerancePct`% of the current best for that distance, or
-- there is no current best yet AND `Activity.isRace === true` (a flagged-race requirement that applies only to seeding the *first* record on a never-before-tracked distance).
+- there is no record at all yet for that distance: only seeded if `Activity.isRace === true` (avoids creating a whole new tracked distance from a casual training segment), or
+- there is a record but no **manual** (`isManual: true`) entry yet for that distance: only `Activity.isRace === true` activities can record (improvement or near-PB) — a single auto-detected race-flagged entry isn't a reliable enough anchor on its own (it may be one segment of a much longer race), so non-race training data is blocked entirely until the user has manually entered a real PB for that distance. This is what prevents short, frequently-repeated distances like 800m from flooding with noisy training splits, or
+- a manual baseline exists for that distance, and the result is a genuine all-time improvement (any age), or is within `AthleteProfile.pbDetectionTolerancePct`% of the current best **and** the activity happened within the last 365 days (near-PB matches are capped to recent results; all-time improvements are never age-limited).
 
-Only applies to activities synced **after** `pbDetectionMode` was last switched to `"automatic"` (`AthleteProfile.pbDetectionModeChangedAt`) — never retroactively, to avoid flooding the tracker on first activation. See `POST /api/races/scan-history` below for the explicit, user-initiated way to backfill historical results.
+Only applies to activities synced **after** `pbDetectionMode` was last switched to `"automatic"` (`AthleteProfile.pbDetectionModeChangedAt`) — never retroactively, to avoid flooding the tracker on first activation. See `POST /api/races/scan-history` below for the explicit, user-initiated way to backfill historical results, and `DELETE /api/races/auto-detected` for clearing out auto-detected results (e.g. ones recorded before this rule existed).
 
 ---
 
@@ -147,3 +148,19 @@ Explicit, user-initiated bulk scan of **all** past running activities for PBs an
 ```
 
 **Side effects:** Creates one `RaceRecord` per qualifying `bestEffort` across the user's entire running history (idempotent — running it twice never duplicates a result already recorded for the same activity + distance).
+
+---
+
+## DELETE /api/races/auto-detected
+
+Bulk-removes every auto-detected (`isManual: false`) `RaceRecord` for the user. Manual entries are never touched. Intended as the recovery action for a distance that accumulated unwanted auto-detected results (e.g. before the manual-baseline rule above existed) — delete, then re-run `POST /api/races/scan-history` to repopulate under the current rule.
+
+**Auth:** Required
+
+**Request:** No body.
+
+**Response (200):**
+
+```json
+{ "deleted": 12 }
+```

@@ -54,6 +54,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // A key absent from the request body must leave that field untouched (Prisma
+  // treats `undefined` in an update payload as "don't touch"), not get nulled —
+  // callers now legitimately send partial payloads (e.g. the PB-detection
+  // section only sends pbDetectionMode/pbDetectionTolerancePct).
+  const sentDateOfBirth = body && "dateOfBirth" in body
+    ? (profileData.dateOfBirth ? new Date(profileData.dateOfBirth) : null)
+    : undefined;
+  const sentSex = body && "sex" in body ? (profileData.sex || null) : undefined;
+
   await Promise.all([
     // Update display name on User
     name !== undefined ? prisma.user.update({ where: { id: session.user.id }, data: { name: name ?? undefined } }) : Promise.resolve(),
@@ -63,14 +72,14 @@ export async function POST(req: NextRequest) {
       create: {
         userId: session.user.id,
         ...profileData,
-        dateOfBirth: profileData.dateOfBirth ? new Date(profileData.dateOfBirth) : null,
-        sex: profileData.sex || null,
+        dateOfBirth: sentDateOfBirth ?? null,
+        sex: sentSex ?? null,
         ...(pbDetectionModeChangedAt ? { pbDetectionModeChangedAt } : {}),
       },
       update: {
         ...profileData,
-        dateOfBirth: profileData.dateOfBirth ? new Date(profileData.dateOfBirth) : null,
-        sex: profileData.sex || null,
+        dateOfBirth: sentDateOfBirth,
+        sex: sentSex,
         ...(pbDetectionModeChangedAt ? { pbDetectionModeChangedAt } : {}),
       },
     }),

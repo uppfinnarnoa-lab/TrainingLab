@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { AthleteProfileForm } from "../athlete-profile";
 import { ChangePasswordForm } from "../change-password";
 import { AppearanceSettings } from "../appearance-settings";
+import { PBDetectionSettings } from "../pb-detection";
 
 export default async function ProfileSettingsPage() {
   const session = await auth();
@@ -37,9 +38,19 @@ export default async function ProfileSettingsPage() {
           yearsTraining: athleteProfile?.yearsTraining,
           paceUnit: athleteProfile?.paceUnit ?? "min_per_km",
           annualGoals: (athleteProfile?.annualGoals as Record<string, Record<string, number>> | null) ?? null,
+        }} sports={sports.map((s: { name: string }) => s.name)} />
+      </section>
+
+      {/* ── PB detection ── */}
+      <section className="rounded-2xl bg-surface border border-border p-6 space-y-5">
+        <div>
+          <h2 className="font-semibold text-primary">Personal best detection</h2>
+          <p className="text-xs text-muted mt-0.5">Automatically track new race results from synced Strava activities, and backfill or clean up past results</p>
+        </div>
+        <PBDetectionSettings initial={{
           pbDetectionMode: athleteProfile?.pbDetectionMode ?? "manual",
           pbDetectionTolerancePct: athleteProfile?.pbDetectionTolerancePct ?? 5,
-        }} sports={sports.map((s: { name: string }) => s.name)} />
+        }} />
       </section>
 
       {/* ── Appearance ── */}
