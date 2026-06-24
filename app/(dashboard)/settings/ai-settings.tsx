@@ -200,21 +200,21 @@ export function AISettingsSection({
                   <td className="py-2 pr-4 font-medium">Groq</td>
                   <td className="py-2 pr-4 text-accent font-medium">Free</td>
                   <td className="py-2 pr-4">Fastest (LPU)</td>
-                  <td className="py-2 pr-4">30 RPM</td>
+                  <td className="py-2 pr-4">30 RPM, 1K/day</td>
                   <td className="py-2">Llama 3.3 70B</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 font-medium">NVIDIA NIM</td>
                   <td className="py-2 pr-4 text-accent font-medium">Free</td>
                   <td className="py-2 pr-4">Fast</td>
-                  <td className="py-2 pr-4">40 RPM</td>
+                  <td className="py-2 pr-4">40 RPM, no daily cap</td>
                   <td className="py-2">Kimi K2.6</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4 font-medium">Gemini Flash</td>
                   <td className="py-2 pr-4">~$0.05–0.20/mo</td>
                   <td className="py-2 pr-4">Fast</td>
-                  <td className="py-2 pr-4">25 req/day only</td>
+                  <td className="py-2 pr-4">25 req/day only*</td>
                   <td className="py-2">Gemini 2.5 Flash</td>
                 </tr>
                 <tr>
@@ -230,9 +230,13 @@ export function AISettingsSection({
           <p className="text-muted leading-relaxed">
             <strong className="text-primary">Groq</strong> is the best free option — fast LPU inference, no credit card required. Sign up at{" "}
             <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2">console.groq.com</a>.{" "}
-            <strong className="text-primary">NVIDIA NIM</strong> is also free and defaults to Kimi K2.6 — a larger, multimodal model with a 256K context window, at the cost of being slightly slower than Groq.{" "}
-            <strong className="text-primary">Gemini</strong> free tier is too limited (25 req/day) — use paid if you go this route.{" "}
+            <strong className="text-primary">NVIDIA NIM</strong> is also free and defaults to Kimi K2.6 — a larger, multimodal model with a 256K context window, at the cost of being slightly slower than Groq. Note: Kimi specifically is capped much tighter than the rest of NVIDIA's free tier (~30 requests/hour, not the general 40/min) — pick Nemotron 70B instead if you hit that often.{" "}
+            <strong className="text-primary">Gemini</strong> free tier is limited (*25 req/day per our last check — Google doesn't publish a fixed number for this, verify your actual quota at{" "}
+            <a href="https://aistudio.google.com/rate-limit" target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-2">aistudio.google.com/rate-limit</a>) — use paid if you go this route.{" "}
             <strong className="text-primary">Claude</strong> gives the best response quality but has a real cost.
+          </p>
+          <p className="text-muted leading-relaxed">
+            <strong className="text-primary">Automatic fallback:</strong> if your active provider/model hits a rate limit mid-conversation, the coach automatically retries that one reply with NVIDIA Nemotron 70B instead (the most generous free limit we have) and shows a small notice in the chat — your saved provider/model choice is unchanged for next time. Requires an NVIDIA API key on file; without one, a rate limit just shows as an error like before.
           </p>
         </div>
       )}
@@ -336,7 +340,7 @@ export function AISettingsSection({
           {hasNvidiaKey && <span className="ml-2 text-xs font-normal text-accent">✓ Registered</span>}
         </p>
         <p className="text-xs text-muted">
-          Free, rate-limited (40 req/min). Get your key at{" "}
+          Free, rate-limited (40 req/min, no daily cap — Kimi specifically is stricter, ~30 req/hour). Get your key at{" "}
           <a href="https://build.nvidia.com" target="_blank" rel="noopener noreferrer"
             className="text-accent underline underline-offset-2">build.nvidia.com</a>
           {" "}→ sign in → any model → Get API Key.

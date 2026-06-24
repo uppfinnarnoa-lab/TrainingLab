@@ -2,13 +2,19 @@ import OpenAI from "openai";
 import type { AIClient, AIMessage, StreamChunk } from "./client";
 
 export const GROQ_MODELS = [
-  { id: "llama-3.3-70b-versatile",              label: "Llama 3.3 70B (recommended)" },
-  { id: "llama3-groq-70b-8192-tool-use-preview", label: "Llama 70B Tool Use" },
-  { id: "mixtral-8x7b-32768",                   label: "Mixtral 8x7B (32K context)" },
-  { id: "llama-3.1-8b-instant",                 label: "Llama 3.1 8B (fastest)" },
+  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (recommended — 1K req/day)" },
+  { id: "openai/gpt-oss-120b",     label: "GPT-OSS 120B" },
+  { id: "llama-3.1-8b-instant",    label: "Llama 3.1 8B (fastest, 14.4K req/day)" },
 ] as const;
 
 export const GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile";
+
+// Groq retires model ids without redirecting too (llama3-groq-70b-8192-tool-use-preview
+// and mixtral-8x7b-32768 both 404 as of 2026-06) — same self-healing fallback as
+// resolveNvidiaModel() in lib/ai/nvidia.ts.
+export function resolveGroqModel(stored?: string | null): string {
+  return GROQ_MODELS.some(m => m.id === stored) ? (stored as string) : GROQ_DEFAULT_MODEL;
+}
 
 export class GroqClient implements AIClient {
   readonly provider = "groq" as const;

@@ -3,13 +3,14 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { GeminiClient } from "@/lib/ai/gemini";
 import { NvidiaClient, resolveNvidiaModel } from "@/lib/ai/nvidia";
-import { GroqClient, GROQ_DEFAULT_MODEL } from "@/lib/ai/groq";
+import { GroqClient, resolveGroqModel } from "@/lib/ai/groq";
 import { buildCoachContext } from "@/lib/ai/context-builder";
 import { buildSystemPrompt } from "@/lib/ai/prompts";
 import { estimateCost } from "@/lib/ai/client";
+import { getFallbackClient, isRateLimitError, modelDisplayName, FALLBACK_MODEL } from "@/lib/ai/fallback";
 import { safeDecrypt } from "@/lib/encrypt";
 import { COACH_TOOLS, toGeminiTools, toOpenAITools, executeCoachTool, WRITE_TOOLS } from "@/lib/ai/tools";
-import type { AIMessage } from "@/lib/ai/client";
+import type { AIClient, AIMessage } from "@/lib/ai/client";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
     JSON.stringify({ error: "no_api_key", provider }),
     { status: 400, headers: { "Content-Type": "application/json" } },
   );
+
+  // Cross-provider rate-limit fallback target — independent of the active
+  // provider's key, so e.g. a Claude or Groq rate limit can still seamlessly
+  // fall back to NVIDIA NIM if the user also has an NVIDIA key on file.
+  const nvidiaKeyForFallback = provider === "nvidia" ? apiKey : (safeDecrypt(aiSettings?.nvidiaApiKey) ?? null);
 
   // ── Monthly reset + budget check ────────────────────────────────────
   if (aiSettings) {
@@ -226,35 +232,50 @@ export async function POST(req: NextRequest) {
             : message
           });
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const finalStream = (anthropic.messages.stream as any)({
-            model: "claude-sonnet-4-6",
-            max_tokens: 4096,
-            system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-            messages: toolsUsed ? anthropicMsgs : [
-              ...textMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
-              { role: "user", content: message },
-            ],
+          const claudeFinalClient: AIClient = {
+            provider: "claude",
+            async *stream() {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const finalStream = (anthropic.messages.stream as any)({
+                model: "claude-sonnet-4-6",
+                max_tokens: 4096,
+                system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+                messages: toolsUsed ? anthropicMsgs : [
+                  ...textMessages.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+                  { role: "user", content: message },
+                ],
+              });
+              let in_ = 0, out_ = 0, cache_ = 0;
+              for await (const event of finalStream as AsyncIterable<Block>) {
+                if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+                  yield { text: event.delta.text as string, done: false };
+                }
+                if (event.type === "message_delta" && event.usage) {
+                  out_ = (event.usage.output_tokens as number) ?? 0;
+                }
+                if (event.type === "message_start") {
+                  const usage = event.message?.usage as Block | undefined;
+                  in_    = (usage?.input_tokens as number) ?? 0;
+                  cache_ = (usage?.cache_read_input_tokens as number) ?? 0;
+                }
+              }
+              yield { text: "", done: true, inputTokens: in_, outputTokens: out_, cacheReadTokens: cache_ };
+            },
+          };
+
+          const fallbackClient = getFallbackClient(nvidiaKeyForFallback, "claude");
+          const result = await streamWithFallback({
+            client: claudeFinalClient, clientModel: "claude-sonnet-4-6", primaryLabel: modelDisplayName("claude"),
+            fallbackClient, fallbackModel: FALLBACK_MODEL, fallbackLabel: modelDisplayName("nvidia", FALLBACK_MODEL),
+            systemPrompt, messages: [...textMessages, { role: "user", content: message }],
+            send, language: language as "en" | "sv",
           });
+          fullResponse = result.fullResponse;
+          inputTokens = result.inputTokens; outputTokens = result.outputTokens; cacheReadTokens = result.cacheReadTokens;
 
-          for await (const event of finalStream as AsyncIterable<Block>) {
-            if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-              fullResponse += event.delta.text as string;
-              send({ text: event.delta.text });
-            }
-            if (event.type === "message_delta" && event.usage) {
-              outputTokens = (event.usage.output_tokens as number) ?? 0;
-            }
-            if (event.type === "message_start") {
-              const usage = event.message?.usage as Block | undefined;
-              inputTokens     = (usage?.input_tokens as number) ?? 0;
-              cacheReadTokens = (usage?.cache_read_input_tokens as number) ?? 0;
-            }
-          }
-
-          await saveAssistantMessage(convId!, fullResponse, userId, provider, aiSettings?.nvidiaModel, aiSettings?.groqModel, inputTokens, outputTokens, cacheReadTokens);
-          const cost = estimateCost("claude", inputTokens, outputTokens, cacheReadTokens);
-          await updateSpend(userId, provider, cost);
+          await saveAssistantMessage(convId!, fullResponse, userId, result.provider, result.model, inputTokens, outputTokens, cacheReadTokens);
+          const cost = estimateCost(result.provider as "claude" | "gemini", inputTokens, outputTokens, cacheReadTokens);
+          await updateSpend(userId, result.provider, cost);
 
           send({ done: true, cost, inputTokens, outputTokens, cacheReadTokens });
           controller.close();
@@ -271,7 +292,7 @@ export async function POST(req: NextRequest) {
           try {
             const OpenAI  = (await import("openai")).default;
             const baseURL = provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.groq.com/openai/v1";
-            const model   = provider === "nvidia" ? resolveNvidiaModel(aiSettings?.nvidiaModel) : (aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL);
+            const model   = provider === "nvidia" ? resolveNvidiaModel(aiSettings?.nvidiaModel) : resolveGroqModel(aiSettings?.groqModel);
             const oai     = new OpenAI({ apiKey, baseURL });
             const tc      = await oai.chat.completions.create({
               model, max_tokens: 400, tools: toOpenAITools(), tool_choice: "auto",
@@ -336,26 +357,27 @@ export async function POST(req: NextRequest) {
         }
 
         // ── Stream response for non-Claude providers ─────────────────────────
+        const currentModel = provider === "nvidia" ? resolveNvidiaModel(aiSettings?.nvidiaModel)
+          : provider === "groq" ? resolveGroqModel(aiSettings?.groqModel)
+          : undefined;
         const aiClient = provider === "nvidia"
-          ? new NvidiaClient(apiKey, resolveNvidiaModel(aiSettings?.nvidiaModel))
+          ? new NvidiaClient(apiKey, currentModel)
           : provider === "groq"
-          ? new GroqClient(apiKey, aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL)
+          ? new GroqClient(apiKey, currentModel)
           : new GeminiClient(apiKey);
 
-        for await (const chunk of aiClient.stream(systemPrompt, messages, "")) {
-          if (chunk.done) {
-            inputTokens     = chunk.inputTokens ?? 0;
-            outputTokens    = chunk.outputTokens ?? 0;
-            cacheReadTokens = chunk.cacheReadTokens ?? 0;
-          } else {
-            fullResponse += chunk.text;
-            send({ text: chunk.text });
-          }
-        }
+        const fallbackClient = getFallbackClient(nvidiaKeyForFallback, provider, currentModel);
+        const result = await streamWithFallback({
+          client: aiClient, clientModel: currentModel ?? "gemini-2.5-flash", primaryLabel: modelDisplayName(provider, currentModel),
+          fallbackClient, fallbackModel: FALLBACK_MODEL, fallbackLabel: modelDisplayName("nvidia", FALLBACK_MODEL),
+          systemPrompt, messages, send, language: language as "en" | "sv",
+        });
+        fullResponse = result.fullResponse;
+        inputTokens = result.inputTokens; outputTokens = result.outputTokens; cacheReadTokens = result.cacheReadTokens;
 
-        await saveAssistantMessage(convId!, fullResponse, userId, provider, aiSettings?.nvidiaModel, aiSettings?.groqModel, inputTokens, outputTokens, cacheReadTokens);
-        const cost = estimateCost(provider as "claude" | "gemini", inputTokens, outputTokens, cacheReadTokens);
-        await updateSpend(userId, provider, cost);
+        await saveAssistantMessage(convId!, fullResponse, userId, result.provider, result.model, inputTokens, outputTokens, cacheReadTokens);
+        const cost = estimateCost(result.provider as "claude" | "gemini", inputTokens, outputTokens, cacheReadTokens);
+        await updateSpend(userId, result.provider, cost);
 
         send({ done: true, cost, inputTokens, outputTokens, cacheReadTokens });
         controller.close();
@@ -373,7 +395,42 @@ export async function POST(req: NextRequest) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-async function saveAssistantMessage(convId: string, content: string, userId: string, provider: string, nvidiaModel?: string | null, groqModel?: string | null, inputTokens?: number, outputTokens?: number, cacheReadTokens?: number) {
+// Streams `client`; if it fails with a rate-limit error before any text has
+// been sent, transparently retries with `fallbackClient` (if one is
+// available) and emits a `notice` event so the chat UI can show the user
+// what happened. A partial stream (some text already sent) is never retried
+// — there's no clean way to "unsend" text already on the wire.
+async function streamWithFallback(opts: {
+  client: AIClient; clientModel: string; primaryLabel: string;
+  fallbackClient: AIClient | null; fallbackModel: string; fallbackLabel: string;
+  systemPrompt: string; messages: AIMessage[];
+  send: (obj: Record<string, unknown>) => void;
+  language: "en" | "sv";
+}): Promise<{ fullResponse: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; provider: string; model: string }> {
+  const { client, clientModel, primaryLabel, fallbackClient, fallbackModel, fallbackLabel, systemPrompt, messages, send, language } = opts;
+  let fullResponse = "", inputTokens = 0, outputTokens = 0, cacheReadTokens = 0;
+  let provider = client.provider as string, model = clientModel;
+  try {
+    for await (const chunk of client.stream(systemPrompt, messages, "")) {
+      if (chunk.done) { inputTokens = chunk.inputTokens ?? 0; outputTokens = chunk.outputTokens ?? 0; cacheReadTokens = chunk.cacheReadTokens ?? 0; }
+      else { fullResponse += chunk.text; send({ text: chunk.text }); }
+    }
+  } catch (err) {
+    if (fullResponse || !fallbackClient || !isRateLimitError(err)) throw err;
+    console.warn(`[coach/chat] ${primaryLabel} rate-limited — falling back to ${fallbackLabel}`);
+    send({ notice: language === "sv"
+      ? `Nådde en begränsning hos ${primaryLabel} — svarade istället med ${fallbackLabel} (gratis, NVIDIA NIM) för det här meddelandet.`
+      : `Hit a rate limit on ${primaryLabel} — answered with ${fallbackLabel} (free, NVIDIA NIM) instead for this message.` });
+    provider = fallbackClient.provider; model = fallbackModel;
+    for await (const chunk of fallbackClient.stream(systemPrompt, messages, "")) {
+      if (chunk.done) { inputTokens = chunk.inputTokens ?? 0; outputTokens = chunk.outputTokens ?? 0; cacheReadTokens = chunk.cacheReadTokens ?? 0; }
+      else { fullResponse += chunk.text; send({ text: chunk.text }); }
+    }
+  }
+  return { fullResponse, inputTokens, outputTokens, cacheReadTokens, provider, model };
+}
+
+async function saveAssistantMessage(convId: string, content: string, userId: string, provider: string, modelUsed: string, inputTokens?: number, outputTokens?: number, cacheReadTokens?: number) {
   const cost = estimateCost(provider as "claude" | "gemini", inputTokens ?? 0, outputTokens ?? 0, cacheReadTokens ?? 0);
   await prisma.message.create({
     data: {
@@ -382,7 +439,7 @@ async function saveAssistantMessage(convId: string, content: string, userId: str
       content,
       tokensUsed: (inputTokens ?? 0) + (outputTokens ?? 0),
       estimatedCostUsd: cost,
-      modelUsed: provider === "claude" ? "claude-sonnet-4-6" : provider === "nvidia" ? resolveNvidiaModel(nvidiaModel) : provider === "groq" ? (groqModel ?? GROQ_DEFAULT_MODEL) : "gemini-2.5-flash",
+      modelUsed,
     },
   });
   void userId;

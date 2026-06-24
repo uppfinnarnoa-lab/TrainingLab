@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, Bot, User, Plus, Trash2, ChevronLeft, ChevronRight, CheckCircle2, XCircle, CalendarPlus, ClipboardList, UserCog, Undo2 } from "lucide-react";
+import { Send, Loader2, Bot, User, Plus, Trash2, ChevronLeft, ChevronRight, CheckCircle2, XCircle, CalendarPlus, ClipboardList, UserCog, Undo2, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
@@ -25,6 +25,7 @@ interface Message {
   modelUsed?: string;
   toolActions?: ToolAction[];
   statusLabel?: string;
+  notice?: string;
 }
 
 interface ConvSummary {
@@ -214,6 +215,9 @@ export function ChatInterface({
             ? { ...m, toolActions: [...(m.toolActions ?? []), tc], statusLabel: undefined }
             : m
           ));
+        }
+        if (data.notice) {
+          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, notice: data.notice as string } : m));
         }
         if (data.status === "thinking") {
           const label = language === "sv" ? "Tänker…" : "Thinking…";
@@ -424,6 +428,12 @@ export function ChatInterface({
                 {msg.role === "user" ? <User size={14} className="text-accent" /> : <Bot size={14} className="text-muted" />}
               </div>
               <div className={cn("max-w-[80%] space-y-1.5", msg.role === "user" ? "items-end" : "items-start")}>
+                {msg.notice && (
+                  <div className="flex items-start gap-1.5 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-warning/90">
+                    <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                    <span>{msg.notice}</span>
+                  </div>
+                )}
                 {/* Tool action cards */}
                 {(msg.toolActions ?? []).map((ta, i) => (
                   <ToolActionCard

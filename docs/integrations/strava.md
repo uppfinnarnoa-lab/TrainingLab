@@ -42,7 +42,7 @@
 - **Docs**: `https://docs.anthropic.com`
 
 ## Gemini Flash (Google AI)
-- **Model**: `gemini-2.5-flash` — free tier: 15 RPM, 1M TPM, 1500 RPD.
+- **Model**: `gemini-2.5-flash` — free tier: 15 RPM, 1M TPM, 1500 RPD. ⚠️ This number predates this doc's first commit and was never independently re-verified; the Settings UI separately says "25 req/day", and Google's own rate-limits/pricing pages don't publish a fixed free-tier number (account/tier-dependent — check `aistudio.google.com/rate-limit`). Don't trust either number without checking there first (see `FREE_AI_MODEL_RESEARCH_2026_06_24.md`).
 - **Context caching**: Use Gemini's context cache API for system prompt (equivalent to Claude's prompt caching).
 - **Cost tracking**: Free tier tracked by request count per day (shown in UI). Paid tier by token if user upgrades.
 - **SDK**: `@google/generative-ai`
@@ -53,8 +53,11 @@
 - **SDK**: `openai` SDK pointed at `https://integrate.api.nvidia.com/v1` (`lib/ai/nvidia.ts`).
 
 ## Groq
-- **Model**: `llama-3.3-70b-versatile` (default, OpenAI-compatible endpoint).
+- **Model**: `llama-3.3-70b-versatile` (default — 30 RPM, 1K req/day, OpenAI-compatible endpoint). Other options: `openai/gpt-oss-120b`, `llama-3.1-8b-instant` (14.4K req/day — far more generous daily cap, but an 8B model). `llama3-groq-70b-8192-tool-use-preview` and `mixtral-8x7b-32768` were removed from `GROQ_MODELS` 2026-06-24 — both 404 on Groq's current API, same dead-model-id bug class as NVIDIA's Kimi K2.5 retirement. `resolveGroqModel()` in `lib/ai/groq.ts` falls back to the current default if a user's saved model ID is no longer in `GROQ_MODELS`.
 - **SDK**: `openai` SDK pointed at `https://api.groq.com/openai/v1` (`lib/ai/groq.ts`). Requires `stream_options` to get usage data back.
+
+## Rate-limit fallback (coach chat only)
+If the active provider/model in `app/api/coach/chat/route.ts` hits a 429, `streamWithFallback()` retries that one reply with NVIDIA Nemotron 70B (`lib/ai/fallback.ts` — `FALLBACK_MODEL`, chosen for having the airiest verified limit of anything integrated: 40 RPM, no daily cap) and emits a `notice` SSE event the chat UI shows as a small warning banner. Only retries if no text has been streamed yet for that reply (no clean way to retry mid-stream), and only if the user has an NVIDIA API key on file — otherwise the rate limit surfaces as a normal error like before. The user's saved provider/model setting is never changed by this — it's a per-reply fallback only. See `docs/planning/FREE_AI_MODEL_RESEARCH_2026_06_24.md` for why Nemotron 70B was picked over Groq/Cerebras/Gemini as the fallback target.
 
 ## AI Provider Abstraction
 All four providers implement the same `AIClient` interface in `lib/ai/client.ts` (`"claude" | "gemini" | "nvidia" | "groq"`). Switching is a user setting in `AISettings.provider`. Never call provider SDKs directly from components — always go through `lib/ai/`.

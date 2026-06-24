@@ -210,10 +210,10 @@ Din JSON med rätt värden:`;
       rawText = res.choices[0]?.message?.content ?? "";
     } else if (aiSettings?.provider === "groq") {
       const OpenAI = (await import("openai")).default;
-      const { GROQ_DEFAULT_MODEL } = await import("@/lib/ai/groq");
+      const { resolveGroqModel } = await import("@/lib/ai/groq");
       const oaiClient = new OpenAI({ apiKey: apiKey!, baseURL: "https://api.groq.com/openai/v1" });
       const res = await oaiClient.chat.completions.create({
-        model: aiSettings.groqModel ?? GROQ_DEFAULT_MODEL,
+        model: resolveGroqModel(aiSettings.groqModel),
         max_tokens: 600,
         messages: [{ role: "user", content: prompt }],
       });

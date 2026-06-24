@@ -158,10 +158,10 @@ This is an interval/quality session. Analyze: (1) interval execution — pace co
     return new Response(readable, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } else if (provider === "groq") {
     const OpenAI = (await import("openai")).default;
-    const { GROQ_DEFAULT_MODEL } = await import("@/lib/ai/groq");
+    const { resolveGroqModel } = await import("@/lib/ai/groq");
     const oaiClient = new OpenAI({ apiKey, baseURL: "https://api.groq.com/openai/v1" });
     const stream = await oaiClient.chat.completions.create({
-      model: aiSettings?.groqModel ?? GROQ_DEFAULT_MODEL,
+      model: resolveGroqModel(aiSettings?.groqModel),
       max_tokens: 500,
       messages: [{ role: "user", content: prompt }],
       stream: true,
