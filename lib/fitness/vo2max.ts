@@ -14,6 +14,8 @@
  *   Fitness decay applied when no quality session in last 14+ days.
  */
 
+import { RACE_DISTANCES } from "./paces";
+
 export interface VO2maxEstimate {
   value: number;
   vdot: number;
@@ -69,9 +71,12 @@ export function riegelPredict(t1Sec: number, d1M: number, d2M: number, exponent 
   return Math.round(t1Sec * Math.pow(d2M / d1M, exponent));
 }
 
-/** ±% confidence interval based on empirical error margins */
-export function predictionRange(predictedSec: number, distM: number): { lo: number; hi: number } {
-  const pct = distM >= 42000 ? 0.06 : distM >= 21000 ? 0.04 : distM >= 10000 ? 0.03 : 0.025;
+/** ±% confidence interval based on empirical error margins.
+ *  uncertaintyMultiplier widens the band for predictions that lean heavily on an
+ *  extrapolation with no nearby real result (see blendedRacePrediction). */
+export function predictionRange(predictedSec: number, distM: number, uncertaintyMultiplier = 1): { lo: number; hi: number } {
+  const basePct = distM >= 42000 ? 0.06 : distM >= 21000 ? 0.04 : distM >= 10000 ? 0.03 : 0.025;
+  const pct = Math.min(0.30, basePct * uncertaintyMultiplier);
   return {
     lo: Math.round(predictedSec * (1 - pct)),
     hi: Math.round(predictedSec * (1 + pct)),
@@ -255,7 +260,21 @@ export function vdotFromTempoRun(
 export function personalizedFatigueExponent(
   bestEfforts: Array<{ distance: number; elapsed_time: number }>,
 ): number | null {
-  const valid = bestEfforts.filter(e => e.distance >= 1000 && e.distance <= 42200 && e.elapsed_time > 0);
+  // Beyond 10K, a bestEffort segment is almost never a genuine flat maximal effort for
+  // this kind of runner — it's either a submaximal segment pulled from an ordinary long
+  // training run, or (verified against real data, see RACE_ESTIMATE_PERSONALIZATION_PLAN)
+  // a race-flagged orienteering result, whose pace reflects terrain/navigation, not road
+  // speed, at ANY distance. Activity.isRace can't be used to rescue long-distance points
+  // here: for this dataset literally every isRace=true activity is an orienteering event
+  // (verified — zero road races are ever flagged isRace), so trusting "isRace" beyond
+  // 10K would feed in slow technical-terrain pace as if it were road race data. Implied
+  // VDOT from this runner's own bestEfforts stays consistent (53.8-60) through 10K, then
+  // crashes hard beyond it (≈41 at 15K, ≈36 at 20-21K, ≈27 at marathon distance) — that
+  // gap is terrain/pacing, not real fatigue. RaceRecord PBs (separate, user-confirmed,
+  // already validated clean for this runner) remain the only trusted source beyond 10K.
+  const valid = bestEfforts.filter(e =>
+    e.distance >= 1000 && e.distance <= 10000 && e.elapsed_time > 0
+  );
 
   // Keep only fastest per distance
   const byDistance = new Map<number, number>();
@@ -282,6 +301,164 @@ export function personalizedFatigueExponent(
   // Plausible physiological range (outside → bad data or model misfit)
   if (k > -0.01 || k < -0.20) return null;
   return k;
+}
+
+// ── Local/bracket-based personalized race prediction ────────────────────────
+
+export interface KnownPerformance { distanceM: number; timeSec: number }
+
+/**
+ * Merges race PBs (RaceRecord — authoritative, always trusted at any distance) with
+ * activity bestEfforts (Strava rolling-window segments — trusted only up to 10K; see
+ * personalizedFatigueExponent for why Activity.isRace can't rescue longer segments)
+ * into one deduplicated set of real performances, keyed by rounded distance. Race PBs
+ * win ties at the same distance since they're a confirmed result, not a segment pulled
+ * from inside a longer activity.
+ */
+export function buildKnownPerformances(
+  racePBs: Array<{ distanceM: number; timeSec: number }>,
+  bestEfforts: Array<{ distance: number; elapsed_time: number }>,
+): KnownPerformance[] {
+  const merged = new Map<number, number>();
+  for (const e of bestEfforts) {
+    if (e.distance < 1000 || e.distance > 10000 || e.elapsed_time <= 0) continue;
+    const d = Math.round(e.distance);
+    if (!merged.has(d) || merged.get(d)! > e.elapsed_time) merged.set(d, e.elapsed_time);
+  }
+  for (const p of racePBs) {
+    if (p.distanceM < 1000 || p.timeSec <= 0) continue;
+    const d = Math.round(p.distanceM);
+    if (!merged.has(d) || merged.get(d)! > p.timeSec) merged.set(d, p.timeSec);
+  }
+  return [...merged.entries()].map(([distanceM, timeSec]) => ({ distanceM, timeSec }));
+}
+
+interface LocalPrediction { timeSec: number; exponent: number; anchor: KnownPerformance; bracketed: boolean }
+
+/**
+ * Predicts race time at targetM from the runner's own nearby real results, instead of
+ * one fixed anchor + one global exponent applied across the whole distance range.
+ *
+ * When real results exist on both sides of targetM, fits a LOCAL Riegel exponent
+ * between just those two — this never mixes physiologically different regimes (e.g. a
+ * 1K race-pace effort and a submaximal marathon-pace long run) into one slope, because
+ * it only ever looks at the two points immediately bracketing the target. When only one
+ * side has data, falls back to `fallbackExponent` from that single anchor — bracketed:
+ * false signals the caller this is an extrapolation, not an interpolation.
+ */
+export function personalizedRacePrediction(
+  targetM: number,
+  knownPerformances: KnownPerformance[],
+  fallbackExponent: number,
+): LocalPrediction | null {
+  const valid = knownPerformances.filter(p => p.timeSec > 0 && p.distanceM > 0);
+  if (valid.length === 0) return null;
+
+  const sorted = [...valid].sort((a, b) => a.distanceM - b.distanceM);
+  const below = [...sorted].reverse().find(p => p.distanceM <= targetM) ?? null;
+  const above = sorted.find(p => p.distanceM >= targetM) ?? null;
+
+  const closerOf = (a: KnownPerformance, b: KnownPerformance) =>
+    Math.abs(Math.log(targetM / a.distanceM)) <= Math.abs(Math.log(targetM / b.distanceM)) ? a : b;
+
+  // Real results on both sides, far enough apart to fit a stable local slope (an
+  // extremely tight bracket would amplify GPS/segment noise into a wild exponent):
+  // interpolate between them rather than extrapolating from a single global exponent.
+  if (below && above && below !== above && above.distanceM / below.distanceM >= 1.02) {
+    const localExp = Math.log(above.timeSec / below.timeSec) / Math.log(above.distanceM / below.distanceM);
+    const exponent = Math.min(1.25, Math.max(0.95, localExp));
+    const anchor = closerOf(below, above);
+    const timeSec = Math.round(anchor.timeSec * Math.pow(targetM / anchor.distanceM, exponent));
+    return { timeSec, exponent, anchor, bracketed: true };
+  }
+
+  const anchor = below && above ? closerOf(below, above) : (below ?? above!);
+  const timeSec = Math.round(anchor.timeSec * Math.pow(targetM / anchor.distanceM, fallbackExponent));
+  return { timeSec, exponent: fallbackExponent, anchor, bracketed: false };
+}
+
+export interface RacePrediction {
+  peak: number;
+  riegel: number | null;
+  rangeLo: number;
+  rangeHi: number;
+  lowConfidenceShort: boolean;
+}
+
+/**
+ * Single canonical race-time prediction for one target distance. Blends the global
+ * Daniels VDOT curve ("peak" — a population-average %VO2max-vs-duration table) with the
+ * local bracket-based personalized model above.
+ *
+ * The global curve is only as good as the assumption that this runner's endurance
+ * profile matches the population average through the WHOLE distance range — verified
+ * false for distances where it diverges from a runner's own real results (e.g. this
+ * model overestimated 10K speed by 6-16% for a runner with a spikier short-vs-long
+ * profile, see RACE_ESTIMATE_PERSONALIZATION_PLAN). Real nearby results are direct
+ * evidence and dominate the blend whenever they exist close to (or bracketing) the
+ * target; the global curve fills in for distances with no nearby real data (e.g.
+ * marathon for a runner whose longest real effort is a 15K) — there the blend leans
+ * back on the global curve AND widens predictionRange(), instead of presenting an
+ * overconfident sharp number built on a long single-sided extrapolation.
+ */
+export function blendedRacePrediction(
+  targetM: number,
+  vdot: number,
+  knownPerformances: KnownPerformance[],
+  fallbackExponent: number,
+): RacePrediction {
+  const peak = predictRaceTime(vdot, targetM);
+  const local = personalizedRacePrediction(targetM, knownPerformances, fallbackExponent);
+
+  if (!local) {
+    const range = predictionRange(peak, targetM);
+    return { peak, riegel: null, rangeLo: range.lo, rangeHi: range.hi, lowConfidenceShort: peak < 210 };
+  }
+
+  let weight: number;
+  if (local.bracketed) {
+    weight = 0.85;
+  } else {
+    // ratio === 1 means targetM IS (essentially) a known real result — there's no
+    // extrapolation at all, so trust it almost completely rather than capping at the
+    // same 0.85 used for a genuine two-point interpolation.
+    const ratio = Math.max(targetM, local.anchor.distanceM) / Math.min(targetM, local.anchor.distanceM);
+    weight = Math.max(0.15, Math.min(0.95, 0.95 - (ratio - 1) * 0.3));
+  }
+  // Daniels' %VO2max-vs-duration table flatlines below ~3.5min (percentVO2maxFromDuration) —
+  // it's an approximation never calibrated for sprint-duration efforts, so for short
+  // predicted durations the global curve is the unreliable half of the blend regardless
+  // of how well-bracketed the local model is.
+  const lowConfidenceShort = local.timeSec < 210 || peak < 210;
+  if (lowConfidenceShort) weight = Math.max(weight, 0.9);
+
+  const blended = Math.round(weight * local.timeSec + (1 - weight) * peak);
+  const uncertaintyMultiplier = 1 + (1 - weight) * 1.5;
+  const range = predictionRange(blended, targetM, uncertaintyMultiplier);
+
+  return { peak: blended, riegel: local.timeSec, rangeLo: range.lo, rangeHi: range.hi, lowConfidenceShort };
+}
+
+/**
+ * Computes one predictionsJson row per RACE_DISTANCES entry — the single shared
+ * implementation used by both FitnessCache update paths (cache.ts) and the stats page's
+ * cache-miss fallback, so they can never drift apart (see Bug 11/14/15 in
+ * IMPLEMENTATION_PLAN.md for what happens when the same computation is hand-duplicated).
+ */
+export function computeRacePredictions(
+  vdot: number,
+  tsb: number,
+  racePBs: Array<{ distanceM: number; timeSec: number }>,
+  bestEfforts: Array<{ distance: number; elapsed_time: number }>,
+): Array<{ label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort: boolean }> {
+  const personalK = personalizedFatigueExponent(bestEfforts);
+  const fallbackExponent = personalK !== null ? (1 - personalK) : 1.06;
+  const knownPerformances = buildKnownPerformances(racePBs, bestEfforts);
+
+  return RACE_DISTANCES.map(({ label, meters }) => {
+    const { peak, riegel, rangeLo, rangeHi, lowConfidenceShort } = blendedRacePrediction(meters, vdot, knownPerformances, fallbackExponent);
+    return { label, meters, peak, today: tsbAdjustedRaceTime(peak, tsb), riegel, rangeLo, rangeHi, lowConfidenceShort };
+  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

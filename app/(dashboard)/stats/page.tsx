@@ -5,7 +5,8 @@ import { StatsClient } from "./stats-client";
 import { StatsErrorBoundary } from "./stats-error-boundary";
 import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, ltBoundaries, computeZoneTime, type ZoneTimeActivity, type HRZones } from "@/lib/fitness/zones";
 import { computeTSS, buildLoadCurve, computeACWR } from "@/lib/fitness/training-load";
-import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace } from "@/lib/fitness/vo2max";
+import { estimateVO2max, predictRaceTime, riegelPredict, vdotFromRace, computeRacePredictions } from "@/lib/fitness/vo2max";
+import { loadBestEffortsForRacePredictions } from "@/lib/fitness/cache";
 import { RACE_DISTANCES } from "@/lib/fitness/paces";
 import { computeHrvBaseline, computeRestingHRBaseline, computeReadinessScore, type HrvBaseline } from "@/lib/garmin/insights";
 import { subDays, format, startOfWeek, startOfYear } from "date-fns";
@@ -188,7 +189,7 @@ export default async function StatsPage() {
     const weeklyVolumes = (fitnessCache.weeklyVolumeJson ?? {}) as Record<string, Record<string, { km: number; timeSec: number }>>;
     const zoneSeconds   = (fitnessCache.zoneSecondsJson ?? { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 }) as Record<string, number>;
     const polarisation  = (fitnessCache.polarisationJson ?? null) as { z1Pct: number; z2Pct: number; z3Pct: number } | null;
-    const predictions   = (fitnessCache.predictionsJson ?? []) as { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number }[];
+    const predictions   = (fitnessCache.predictionsJson ?? []) as { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean }[];
     const todayLoad = {
       atl: fitnessCache.atl ?? 0, ctl: fitnessCache.ctl ?? 0, tsb: fitnessCache.tsb ?? 0,
       tss: 0, date: format(now, "yyyy-MM-dd"),
@@ -523,42 +524,10 @@ export default async function StatsPage() {
     return Object.values(weeklyVolumes[key] ?? {}).reduce((s, v) => s + v.km, 0);
   });
 
-  // Distance-specific anchor PB for Riegel predictions:
-  // Use closest PB to each target distance — avoids marathon being extrapolated
-  // from a 3K PB (which overestimates endurance) or 3K from a marathon (overestimates speed).
-  // Riegel exponent varies by distance ratio: larger extrapolations get larger exponent.
-  function bestAnchorFor(targetM: number): { timeSec: number; distanceM: number } | null {
-    const usable = racePBs.filter(p => p.timeSec > 60 && p.distanceM >= 800);
-    if (usable.length === 0) return null;
-    // For distances ≤ 5K: prefer PBs ≤ 5K (speed-specific)
-    // For distances > 5K: prefer PBs ≥ 5K (endurance-specific)
-    const preferred = targetM <= 5000
-      ? usable.filter(p => p.distanceM <= 10000)
-      : usable.filter(p => p.distanceM >= 5000);
-    const pool = preferred.length > 0 ? preferred : usable;
-    // Pick the PB closest in distance to target (log scale)
-    return pool.reduce((best, p) =>
-      Math.abs(Math.log(p.distanceM / targetM)) < Math.abs(Math.log(best.distanceM / targetM)) ? p : best
-    );
-  }
-
-  // Riegel exponent: longer extrapolations need higher exponent (more fatigue penalty)
-  function riegelExponent(fromM: number, toM: number): number {
-    const ratio = Math.max(fromM, toM) / Math.min(fromM, toM);
-    if (toM >= 42000) return 1.08;   // marathon: extra fatigue/nutrition penalty
-    if (ratio > 5)    return 1.07;   // large extrapolation
-    return 1.06;                      // standard
-  }
-
-  const predictions = RACE_DISTANCES.map(({ label, meters }) => {
-    const peak = predictRaceTime(vo2max.vdot, meters);
-    const anchor = bestAnchorFor(meters);
-    const riegel = anchor
-      ? riegelPredict(anchor.timeSec, anchor.distanceM, meters, riegelExponent(anchor.distanceM, meters))
-      : null;
-    const range = predictionRange(peak, meters);
-    return { label, meters, peak, today: tsbAdjustedRaceTime(peak, todayLoad.tsb), riegel, rangeLo: range.lo, rangeHi: range.hi };
-  });
+  // Shared with both FitnessCache update paths (lib/fitness/cache.ts) — see
+  // computeRacePredictions() doc comment for why this must stay a single implementation.
+  const bestEffortsForPredictions = await loadBestEffortsForRacePredictions(userId);
+  const predictions = computeRacePredictions(vo2max.vdot, todayLoad.tsb, racePBs, bestEffortsForPredictions);
 
   // Per-model predictions — lets user see output of each individual model
   const modelVdots: Record<string, number> = {
@@ -917,7 +886,7 @@ function renderStats(
   hrZones: import("@/lib/fitness/zones").HRZones,
   vo2max: import("@/lib/fitness/vo2max").VO2maxEstimate,
   paceZones: import("@/lib/fitness/zones").PaceZones,
-  predictions: { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number }[],
+  predictions: { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean }[],
   polarisation: { z1Pct: number; z2Pct: number; z3Pct: number } | null,
   acwr: number | null,
   overviewRun?: OverviewData,

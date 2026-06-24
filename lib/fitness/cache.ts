@@ -15,11 +15,10 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromActivities, estimatePersonalizedArtifactCap, ensureValidZones, computeZoneTime, type ZoneTimeActivity } from "./zones";
-import { estimateVO2max, predictRaceTime, tsbAdjustedRaceTime, riegelPredict, predictionRange, vdotFromRace, personalizedFatigueExponent, type RacePB } from "./vo2max";
+import { estimateVO2max, computeRacePredictions, type RacePB } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
 import { estimateCriticalSpeed } from "./critical-speed";
 import { computeTSS, buildLoadCurve, computeACWR } from "./training-load";
-import { RACE_DISTANCES } from "./paces";
 import { subDays, format, startOfWeek } from "date-fns";
 
 type Act = {
@@ -57,6 +56,22 @@ async function loadActivitiesLight(userId: string) {
       laps: true, weatherTemp: true,
     },
   });
+}
+
+// bestEfforts only — used for the race-prediction model (personalizedFatigueExponent /
+// computeRacePredictions). Separate from loadActivitiesLight() since that query
+// deliberately omits bestEfforts; this one fetches only that field, so it stays cheap
+// even though loadActivitiesLight's callers don't need the rest of the row duplicated.
+// Exported so the stats page's cache-miss fallback can use the exact same input as both
+// FitnessCache update paths above — see computeRacePredictions() doc comment.
+export async function loadBestEffortsForRacePredictions(userId: string) {
+  const rows: Array<{ sportType: string; bestEfforts: unknown }> = await prisma.activity.findMany({
+    where: { userId, startDate: { gte: subDays(new Date(), 5 * 365) } },
+    select: { sportType: true, bestEfforts: true },
+  });
+  return rows
+    .filter(a => /run|trail/i.test(a.sportType) && Array.isArray(a.bestEfforts))
+    .flatMap(a => a.bestEfforts as Array<{ distance: number; elapsed_time: number }>);
 }
 
 async function loadRacePBs(userId: string): Promise<RacePB[]> {
@@ -224,20 +239,13 @@ export async function updateVO2maxAndPaces(userId: string) {
     : null;
 
   // ── Race predictions ───────────────────────────────────────────────────
-  const anchorPB = racePBs
-    .filter(p => p.timeSec > 60 && p.distanceM >= 1500)
-    .reduce<RacePB | null>((best, p) => {
-      if (!best) return p;
-      return vdotFromRace(p.distanceM, p.timeSec) > vdotFromRace(best.distanceM, best.timeSec) ? p : best;
-    }, null);
-
-  // Personalized fatigue exponent from log-log regression on best efforts across all runs.
-  // Falls back to standard Riegel 1.06 if insufficient data.
+  // Best efforts feed both the personalized fatigue exponent and the bracket-based
+  // local model (computeRacePredictions) — capped at 10K, see personalizedFatigueExponent
+  // for why longer segments (submaximal long runs, or for this kind of athlete often
+  // orienteering results — terrain pace, not road pace) can't be trusted as race-pace data.
   const allBestEfforts = (activities as Act[])
     .filter(a => /run|trail/i.test(a.sportType) && Array.isArray(a.bestEfforts))
     .flatMap(a => a.bestEfforts as Array<{ distance: number; elapsed_time: number }>);
-  const personalK = personalizedFatigueExponent(allBestEfforts);
-  const riegelExponent = personalK !== null ? (1 - personalK) : 1.06;
 
   // ── Critical Speed from best efforts + race PBs (LT2 proxy) ─────────
   const csResult = estimateCriticalSpeed(allBestEfforts, racePBs);
@@ -250,12 +258,7 @@ export async function updateVO2maxAndPaces(userId: string) {
   });
   const decouplingResult = estimateLT1FromDecoupling(decouplingRuns, maxHR);
 
-  const predictionsJson = RACE_DISTANCES.map(({ label, meters }) => {
-    const peak = predictRaceTime(vo2maxResult.vdot, meters);
-    const riegel = anchorPB ? riegelPredict(anchorPB.timeSec, anchorPB.distanceM, meters, riegelExponent) : null;
-    const range = predictionRange(peak, meters);
-    return { label, meters, peak, today: tsbAdjustedRaceTime(peak, todayLoad.tsb), riegel, rangeLo: range.lo, rangeHi: range.hi };
-  });
+  const predictionsJson = computeRacePredictions(vo2maxResult.vdot, todayLoad.tsb, racePBs, allBestEfforts);
 
   // ── Extra visualizations — derived from activity data, updated every sync ──
   type ZM = { z3: [number, number]; z4: [number, number] };
@@ -632,19 +635,9 @@ export async function updateHRZones(userId: string) {
   );
   const paceZones = buildPaceZones(vo2maxResult.vdot);
 
-  const anchorPB = racePBs
-    .filter(p => p.timeSec > 60 && p.distanceM >= 1500)
-    .reduce<RacePB | null>((best, p) => {
-      if (!best) return p;
-      return vdotFromRace(p.distanceM, p.timeSec) > vdotFromRace(best.distanceM, best.timeSec) ? p : best;
-    }, null);
   const cachedTsb = existingCacheForZones?.tsb ?? 0;
-  const predictionsJson = RACE_DISTANCES.map(({ label, meters }) => {
-    const peak = predictRaceTime(vo2maxResult.vdot, meters);
-    const riegel = anchorPB ? riegelPredict(anchorPB.timeSec, anchorPB.distanceM, meters) : null;
-    const range = predictionRange(peak, meters);
-    return { label, meters, peak, today: tsbAdjustedRaceTime(peak, cachedTsb), riegel, rangeLo: range.lo, rangeHi: range.hi };
-  });
+  const bestEffortsForZones = await loadBestEffortsForRacePredictions(userId);
+  const predictionsJson = computeRacePredictions(vo2maxResult.vdot, cachedTsb, racePBs, bestEffortsForZones);
 
   // Recompute zone distribution with the newly calibrated zones so charts update immediately.
   // Lap-aware: see computeZoneTime() doc comment.

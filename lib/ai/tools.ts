@@ -683,9 +683,9 @@ export async function executeCoachTool(
         const fc = await prisma.fitnessCache.findUnique({ where: { userId } });
         if (!fc) return { success: true, message: "Fitness summary", data: "No fitness data cached yet. Sync Strava to generate." };
 
-        type Pred = { label: string; peak: number; today?: number };
+        type Pred = { label: string; peak: number; today?: number; lowConfidenceShort?: boolean };
         const preds = fc.predictionsJson as Pred[] | null;
-        const predStr = preds ? preds.map(p => `  ${p.label}: ${Math.floor(p.peak / 60)}:${String(p.peak % 60).padStart(2, "0")}`).join("\n") : "none";
+        const predStr = preds ? preds.map(p => `  ${p.label}: ${Math.floor(p.peak / 60)}:${String(p.peak % 60).padStart(2, "0")}${p.lowConfidenceShort ? " (outside model's calibrated range — sub-3.5min effort, treat as rough)" : ""}`).join("\n") : "none";
 
         type WeekVol = Record<string, Record<string, { km: number; timeSec: number }>>;
         const wvol = fc.weeklyVolumeJson as WeekVol | null;

@@ -451,7 +451,7 @@ model FitnessCache {
   weeklyVolumeJson Json?    // { weekKey: { sport: { km, timeSec } } } last 16 weeks
   zoneSecondsJson  Json?    // { z1, z2, z3, z4, z5 } seconds last 12 weeks
   polarisationJson Json?    // { z1Pct, z2Pct, z3Pct } Seiler 3-zone
-  predictionsJson      Json?    // [{ label, meters, peak, today, riegel, rangeLo, rangeHi }]
+  predictionsJson      Json?    // [{ label, meters, peak, today, riegel, rangeLo, rangeHi, lowConfidenceShort }]
   vo2maxBreakdownJson  Json?    // { modelName: vdot, ... } — per-model VDOT breakdown
   extraVizJson         Json?    // { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear }
   statZonesJson        Json?    // StatisticalZoneResult | null — activity+laps combined
