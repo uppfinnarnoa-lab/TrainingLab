@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
-import { Logo, LogoText } from "./logo";
+import { Logo, LogoText, logoPullIn } from "./logo";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar_collapsed";
 const ICON_SIZE = 18;
@@ -76,8 +76,8 @@ export function Sidebar() {
   const sidebarContent = (
     <>
       {/* Logo — icon stays fixed size/position, wordmark text clips away */}
-      <div className="flex h-16 items-end px-3 pb-3 border-b border-border shrink-0">
-        <Logo size={LOGO_SIZE} className="shrink-0" />
+      <div className={cn("flex h-16 items-end px-3 pb-3 border-b border-border shrink-0", rail && "justify-center")}>
+        <Logo size={LOGO_SIZE} className="shrink-0" style={rail ? undefined : { marginRight: logoPullIn(LOGO_SIZE) }} />
         <span className={labelClass(rail)}>
           <LogoText size={LOGO_SIZE} />
         </span>
@@ -100,7 +100,7 @@ export function Sidebar() {
               title={rail ? label : undefined}
               className={cn(
                 "flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                rail ? "gap-0" : "gap-3",
+                rail ? "gap-0 justify-center" : "gap-3",
                 active
                   ? "bg-accent/10 text-accent"
                   : "text-muted hover:bg-surface-2 hover:text-primary"
@@ -121,28 +121,33 @@ export function Sidebar() {
           title={rail ? "Settings" : undefined}
           className={cn(
             "flex items-center rounded-xl px-3 py-2.5 text-sm text-muted hover:bg-surface-2 hover:text-primary transition-colors",
-            rail ? "gap-0" : "gap-3"
+            rail ? "gap-0 justify-center" : "gap-3"
           )}
         >
           <Settings size={ICON_SIZE} className="shrink-0" />
           <span className={labelClass(rail)}>Settings</span>
         </Link>
 
-        <ThemeToggle className="w-full flex justify-start rounded-xl px-3 py-2.5" />
+        {/* Theme toggle + collapse sit side by side when expanded; stack (each
+            full-width) when collapsed, since two icon buttons don't fit the
+            narrow rail side by side. */}
+        <div className={cn("flex gap-1", rail && "flex-col")}>
+          <ThemeToggle className={rail ? "w-full flex justify-center px-3 py-2.5 rounded-xl" : "flex-1 flex justify-start px-3 py-2.5 rounded-xl"} />
 
-        {!mobileOpen && (
-          <button
-            onClick={toggleCollapsed}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={cn(
-              "hidden md:flex items-center w-full rounded-xl px-3 py-2.5 text-sm text-muted hover:bg-surface-2 hover:text-primary transition-colors",
-              rail ? "gap-0" : "gap-3"
-            )}
-          >
-            {collapsed ? <PanelLeftOpen size={ICON_SIZE} className="shrink-0" /> : <PanelLeftClose size={ICON_SIZE} className="shrink-0" />}
-            <span className={labelClass(rail)}>{collapsed ? "Expand sidebar" : "Collapse sidebar"}</span>
-          </button>
-        )}
+          {!mobileOpen && (
+            <button
+              onClick={toggleCollapsed}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className={cn(
+                "hidden md:flex items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-primary transition-colors shrink-0",
+                rail ? "w-full px-3 py-2.5" : "px-3 py-2.5"
+              )}
+            >
+              {collapsed ? <PanelLeftOpen size={ICON_SIZE} className="shrink-0" /> : <PanelLeftClose size={ICON_SIZE} className="shrink-0" />}
+            </button>
+          )}
+        </div>
       </div>
     </>
   );

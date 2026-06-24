@@ -1,9 +1,10 @@
 interface Props {
   size?: number;
   className?: string;
+  style?: React.CSSProperties;
 }
 
-export function Logo({ size = 32, className }: Props) {
+export function Logo({ size = 32, className, style }: Props) {
   return (
     <svg
       width={size}
@@ -12,6 +13,7 @@ export function Logo({ size = 32, className }: Props) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
+      style={style}
       aria-label="T"
     >
       <defs>
@@ -37,22 +39,32 @@ export function Logo({ size = 32, className }: Props) {
 }
 
 /**
+ * Gap between the T-icon and the text that follows it — SVG right margin
+ * (2/40=5%) + font left bearing - one letter-width gap, targeting the same
+ * visual gap as between "r" and "a" in "rainingLab".
+ *
+ * Applied as a negative margin on the ICON's trailing edge (see LogoWordmark
+ * and Sidebar), not as a negative leading margin on the text itself — a
+ * leading negative margin pulls content past its own box's start, which is
+ * harmless in a plain flex row but gets clipped if the text is ever wrapped
+ * in its own `overflow-hidden` container (e.g. a collapsible sidebar label).
+ */
+export function logoPullIn(size: number): number {
+  return -(size * 0.20);
+}
+
+/**
  * Text half of the wordmark, split out so layouts that need to animate
  * the label away (e.g. a collapsible sidebar) can wrap just this part
  * without re-deriving the size math below.
- * Negative left margin compensates for the ~5% empty space on the
- * right side of the SVG viewbox after the T shape ends.
  */
 export function LogoText({ size = 32, className }: Props) {
   const fontSize = size * 0.52;
-  // SVG right margin (2/40=5%) + font left bearing - one letter-width gap
-  // Target: same visual gap as between "r" and "a" in "rainingLab".
-  const pullIn = -(size * 0.20);
 
   return (
     <span
       className={`font-semibold tracking-tight text-primary leading-none whitespace-nowrap ${className ?? ""}`}
-      style={{ fontSize, marginLeft: pullIn, paddingBottom: size * 0.03 }}
+      style={{ fontSize, paddingBottom: size * 0.03 }}
     >
       raining<span className="text-accent">Lab</span>
     </span>
@@ -63,7 +75,7 @@ export function LogoText({ size = 32, className }: Props) {
 export function LogoWordmark({ size = 32, className }: Props) {
   return (
     <div className={`flex items-end ${className ?? ""}`} style={{ gap: 0 }}>
-      <Logo size={size} />
+      <Logo size={size} style={{ marginRight: logoPullIn(size) }} />
       <LogoText size={size} />
     </div>
   );
