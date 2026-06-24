@@ -116,26 +116,25 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom */}
-      <div className="border-t border-border p-3 space-y-1">
-        <Link
-          href="/settings"
-          onClick={close}
-          title={rail ? "Settings" : undefined}
-          className={cn(
-            "flex items-center rounded-xl px-3 py-2.5 text-sm text-muted hover:bg-surface-2 hover:text-primary transition-colors",
-            rail ? "gap-0 justify-center" : "gap-3"
-          )}
-        >
-          <Settings size={ICON_SIZE} className="shrink-0" />
-          <span className={labelClass(rail)}>Settings</span>
-        </Link>
+      {/* Bottom — Settings, theme toggle, and collapse sit on one row when
+          expanded; stack (each full-width) when collapsed, since three icon
+          buttons don't fit the narrow rail side by side. */}
+      <div className="border-t border-border px-2 py-3">
+        <div className={cn("flex items-center gap-1", rail && "flex-col")}>
+          <Link
+            href="/settings"
+            onClick={close}
+            title={rail ? "Settings" : undefined}
+            className={cn(
+              "flex items-center rounded-xl py-2.5 text-sm text-muted hover:bg-surface-2 hover:text-primary transition-colors min-w-0",
+              rail ? "w-full px-3 gap-0 justify-center" : "flex-1 px-2 gap-2"
+            )}
+          >
+            <Settings size={ICON_SIZE} className="shrink-0" />
+            <span className={labelClass(rail)}>Settings</span>
+          </Link>
 
-        {/* Theme toggle + collapse sit side by side when expanded; stack (each
-            full-width) when collapsed, since two icon buttons don't fit the
-            narrow rail side by side. */}
-        <div className={cn("flex gap-1", rail && "flex-col")}>
-          <ThemeToggle className={rail ? "w-full flex justify-center px-3 py-2.5 rounded-xl" : "flex-1 flex justify-start px-3 py-2.5 rounded-xl"} />
+          <ThemeToggle className={rail ? "w-full flex justify-center px-3 py-2.5 rounded-xl" : "flex justify-center px-2 py-2.5 rounded-xl shrink-0"} />
 
           {!mobileOpen && (
             <button
@@ -144,7 +143,7 @@ export function Sidebar() {
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               className={cn(
                 "hidden md:flex items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-primary transition-colors shrink-0",
-                rail ? "w-full px-3 py-2.5" : "px-3 py-2.5"
+                rail ? "w-full px-3 py-2.5" : "px-2 py-2.5"
               )}
             >
               {collapsed ? <PanelLeftOpen size={ICON_SIZE} className="shrink-0" /> : <PanelLeftClose size={ICON_SIZE} className="shrink-0" />}
