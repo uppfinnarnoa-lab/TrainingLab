@@ -50,7 +50,7 @@ Trigger activity sync from Strava.
 ```
 
 **Side effects:**
-- `resync: true` → calls `resyncRecentActivities(userId, 3)`, re-fetching the last 3 days regardless of `lastSyncAt` (catches edits/deletes Strava's webhook may have missed).
+- `resync: true` → calls `resyncRecentActivities(userId, 3)`, re-fetching the last 3 days regardless of `lastSyncAt` (catches edits/deletes Strava's webhook may have missed). Re-fetches and writes `name`/`description`/`workoutType`/`isRace`/`splitsMetric`/`laps`/`bestEfforts`/`sufferScore`/`perceivedExertion` whenever the description, race flag, or workout type changed on Strava since the last sync — until 2026-06-25, `workoutType`/`isRace` were never refreshed on an already-synced activity by this path (or by the daily incremental sync / webhook update event below), so retroactively flagging/unflagging a race on Strava never propagated locally.
 - Otherwise upserts `Activity` rows from Strava (paginated, 200/page): `full: true` → fetches all history; `full: false` → fetches since `lastSyncAt`.
 - Updates `StravaAccount.lastSyncAt` and `totalSynced` on success.
 - Respects Strava rate limit (200 req/15 min). Backs off with 1s delay per page.

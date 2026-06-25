@@ -30,10 +30,13 @@ The core fix. Instead of one global exponent extrapolated from one fixed anchor,
 ### `buildKnownPerformances(racePBs, bestEfforts)`
 
 Merges two sources into one deduplicated set, keyed by rounded distance:
-- `RaceRecord` PBs — user-confirmed, trusted at **any** distance.
+
+- `RaceRecord` PBs — trusted at **any** distance only when `isManual: true`. Beyond 10K, an auto-detected (`isManual: false`) entry is excluded entirely *before* it reaches this function — see `lib/fitness/cache.ts::loadRacePBs()` and the equivalent block in `app/(dashboard)/stats/page.tsx`, both of which must apply the same filter.
 - `Activity.bestEfforts` — trusted only **≤10K**.
 
-**Why `Activity.isRace` is not used to extend trust beyond 10K:** verified against real data that for at least one athlete using this app, `isRace=true` is set exclusively on orienteering events (forest terrain, navigation stops) — *zero* of that athlete's logged road race PBs come from an `isRace`-flagged `Activity`. Orienteering pace at a given distance reflects terrain and navigation, not road race speed, so trusting "race-flagged" segments beyond 10K would feed in misleadingly slow pace data labeled as if it were a fast road effort. `RaceRecord` (a separate, user-confirmed table) doesn't have this problem and remains the only trusted source for long distances.
+**Why `Activity.isRace` is not used to extend trust beyond 10K:** verified against real data that for at least one athlete using this app, `isRace=true` is set exclusively on orienteering events (forest terrain, navigation stops) — *zero* of that athlete's logged road race PBs come from an `isRace`-flagged `Activity`. Orienteering pace at a given distance reflects terrain and navigation, not road race speed, so trusting "race-flagged" segments beyond 10K would feed in misleadingly slow pace data labeled as if it were a fast road effort.
+
+**`RaceRecord` used to be exempt from this problem unconditionally** ("a separate, user-confirmed table" — true when it only ever held manually-entered PBs). That stopped being true once automatic PB detection shipped (2026-06-24): an `isRace=true` orienteering result can be auto-recorded as a "PB" exactly like any other `Activity`, so the *same* isRace-isn't-road-pace caveat now applies to `RaceRecord` beyond 10K too — gated on `isManual` rather than excluded outright, since a *manually*-entered PB is still the user vouching for it as a real result. Confirmed via real data: two auto-detected orienteering results ("Åland 2-dagars lång!" → 15K, "Natt SM!" → 10 Mile) fed straight into this function before the `isManual` filter existed, dragging the 15K/Half-Marathon/Marathon predictions far too slow (Half Marathon point estimate moved from 2:08:27 to a much more plausible 1:24:04 after filtering them out — see `docs/planning/IMPLEMENTATION_PLAN.md` 2026-06-25 session entry).
 
 ### `criticalSpeedVote(targetM, cs)` — third, physiologically-independent vote
 

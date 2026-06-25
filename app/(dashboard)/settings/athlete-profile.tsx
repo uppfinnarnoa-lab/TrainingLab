@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { annualGoalMetricForSport, type AnnualGoal } from "@/lib/sports/annual-goal-metric";
 
 interface Profile {
   name?: string | null;
@@ -17,7 +18,7 @@ interface Profile {
   primaryGoal?: string | null;
   yearsTraining?: number | null;
   paceUnit?: string | null;
-  annualGoals?: Record<string, Record<string, number>> | null;
+  annualGoals?: Record<string, Record<string, AnnualGoal>> | null;
 }
 
 export function AthleteProfileForm({ initial, sports }: { initial: Profile; sports: string[] }) {
@@ -36,14 +37,16 @@ export function AthleteProfileForm({ initial, sports }: { initial: Profile; spor
   }
 
   function setGoal(sport: string, value: string) {
-    const km = value === "" ? undefined : parseFloat(value);
+    const entered = value === "" ? undefined : parseFloat(value);
+    const metric = annualGoalMetricForSport(sport);
     setForm(f => {
       const existing = f.annualGoals ?? {};
       const yearGoals = { ...(existing[currentYear] ?? {}) };
-      if (km === undefined || isNaN(km)) {
+      if (entered === undefined || isNaN(entered)) {
         delete yearGoals[sport];
       } else {
-        yearGoals[sport] = km;
+        // Time goals are entered in hours but stored in minutes — see AnnualGoal doc comment.
+        yearGoals[sport] = { metric, target: metric === "time" ? entered * 60 : entered };
       }
       return { ...f, annualGoals: { ...existing, [currentYear]: yearGoals } };
     });
@@ -174,23 +177,28 @@ export function AthleteProfileForm({ initial, sports }: { initial: Profile; spor
       {/* Annual goals */}
       {sports.length > 0 && (
         <div className="sm:col-span-2">
-          <label className="block text-sm font-medium text-primary mb-1">Annual distance goals {currentYear}</label>
-          <p className="text-xs text-muted mb-3">Target km per sport for {currentYear}. Leave blank to skip a sport.</p>
+          <label className="block text-sm font-medium text-primary mb-1">Annual goals {currentYear}</label>
+          <p className="text-xs text-muted mb-3">Target km (distance sports) or hours (Strength, Yoga, etc.) per sport for {currentYear}. Leave blank to skip a sport.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {sports.map(sport => (
+            {sports.map(sport => {
+              const metric = annualGoalMetricForSport(sport);
+              const stored = form.annualGoals?.[currentYear]?.[sport];
+              const displayValue = stored?.target == null ? "" : (metric === "time" ? stored.target / 60 : stored.target);
+              return (
               <div key={sport} className="flex items-center gap-3">
                 <span className="text-sm text-primary min-w-[90px] truncate">{sport}</span>
                 <input
                   type="number"
                   min={0}
-                  step={100}
-                  value={form.annualGoals?.[currentYear]?.[sport] ?? ""}
+                  step={metric === "time" ? 1 : 100}
+                  value={displayValue}
                   onChange={e => setGoal(sport, e.target.value)}
-                  placeholder="km"
+                  placeholder={metric === "time" ? "hours" : "km"}
                   className={inputCls}
                 />
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

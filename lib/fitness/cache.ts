@@ -76,11 +76,18 @@ export async function loadBestEffortsForRacePredictions(userId: string) {
 async function loadRacePBs(userId: string): Promise<RacePB[]> {
   const records = await prisma.raceRecord.findMany({
     where: { userId, date: { gte: subDays(new Date(), 5 * 365) } },
-    select: { distanceM: true, time: true, date: true },
+    select: { distanceM: true, time: true, date: true, isManual: true },
     orderBy: { time: "asc" },
   });
   const bestPerDist = new Map<number, RacePB>();
   for (const r of records) {
+    // Beyond 10K, only a manually-entered PB is trusted as genuine road-race pace — an
+    // auto-detected RaceRecord can come from any isRace=true activity, and for this app's
+    // primary athlete that's exclusively orienteering (terrain/navigation pace, not road
+    // pace; see personalizedFatigueExponent's identical rule for bestEfforts). RaceRecord
+    // used to be safe to trust unconditionally because it only ever held manually-vetted
+    // entries — no longer true now that automatic PB detection exists.
+    if (r.distanceM > 10000 && !r.isManual) continue;
     const d = Math.round(r.distanceM);
     if (!bestPerDist.has(d) || bestPerDist.get(d)!.timeSec > r.time)
       bestPerDist.set(d, { distanceM: r.distanceM, timeSec: r.time, date: r.date });

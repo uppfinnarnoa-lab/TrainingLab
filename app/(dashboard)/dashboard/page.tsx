@@ -9,6 +9,7 @@ import { generateInsights } from "@/lib/fitness/insights";
 import { computeHrvBaseline, computeRestingHRBaseline, computeReadinessScore, readinessLabel } from "@/lib/garmin/insights";
 import { formatDuration } from "@/lib/utils";
 import { format } from "date-fns";
+import { normalizeAnnualGoalsYear } from "@/lib/sports/annual-goal-metric";
 
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -142,16 +143,20 @@ export default async function DashboardPage() {
     : null;
 
   // Annual goals
-  const annualGoalsRaw = athleteProfile?.annualGoals as Record<string, Record<string, number>> | null;
-  const goalsThisYear = annualGoalsRaw?.[currentYear] ?? {};
-  const ytdBySport: Record<string, number> = {};
+  const goalsThisYear = normalizeAnnualGoalsYear(
+    (athleteProfile?.annualGoals as Record<string, Record<string, unknown>> | null)?.[currentYear]
+  );
+  const ytdBySport: Record<string, { distanceM: number; movingTimeSec: number }> = {};
   if (Object.keys(goalsThisYear).length > 0) {
     const ytdActivities = await prisma.activity.findMany({
       where: { userId, startDateLocal: { gte: yearStart } },
-      select: { sportType: true, distance: true },
+      select: { sportType: true, distance: true, movingTime: true },
     });
     for (const act of ytdActivities) {
-      ytdBySport[act.sportType] = (ytdBySport[act.sportType] ?? 0) + act.distance;
+      const e = ytdBySport[act.sportType] ?? { distanceM: 0, movingTimeSec: 0 };
+      e.distanceM += act.distance;
+      e.movingTimeSec += act.movingTime;
+      ytdBySport[act.sportType] = e;
     }
   }
 
@@ -159,9 +164,12 @@ export default async function DashboardPage() {
   type GoalProgress = { sport: string; metric: string; period: string; target: number; actual: number };
   const goalProgress: GoalProgress[] = [];
   if (trainingGoals.length > 0) {
-    const earliestStart = weekStart < monthStart ? weekStart : monthStart;
+    // yearStart is always the earliest of the three period boundaries (year ⊇ month ⊇ week) —
+    // fetch from there directly. A prior double-ternary here could never actually resolve to
+    // yearStart (month/week start are always chronologically after year start), so it silently
+    // queried from monthStart instead — making "year" progress identical to "month" progress.
     const goalActivities = await prisma.activity.findMany({
-      where: { userId, startDateLocal: { gte: earliestStart < yearStart ? yearStart : earliestStart } },
+      where: { userId, startDateLocal: { gte: yearStart } },
       select: { sportType: true, distance: true, movingTime: true, startDateLocal: true },
     });
     const bySportPeriod: Record<string, Record<string, { km: number; min: number }>> = {};
@@ -380,8 +388,8 @@ export default async function DashboardPage() {
               const onTrack = pct >= 80;
               const periodLabel = g.period === "week" ? "week" : g.period === "month" ? "month" : "year";
               const sportLabel = g.sport === "" ? "All sports" : g.sport;
-              const actualStr = g.metric === "distance" ? `${g.actual.toFixed(0)} km` : `${Math.round(g.actual)} min`;
-              const targetStr = g.metric === "distance" ? `${g.target} km` : `${g.target} min`;
+              const actualStr = g.metric === "distance" ? `${g.actual.toFixed(0)} km` : `${Math.round(g.actual / 60 * 10) / 10} hours`;
+              const targetStr = g.metric === "distance" ? `${g.target} km` : `${Math.round(g.target / 60 * 10) / 10} hours`;
               return (
                 <div key={`${g.sport}-${g.metric}-${g.period}`} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
@@ -411,18 +419,23 @@ export default async function DashboardPage() {
             <a href="/settings/profile" className="text-xs text-muted hover:text-accent transition">Edit →</a>
           </div>
           <div className="space-y-3">
-            {Object.entries(goalsThisYear).map(([sport, goalKm]) => {
-              const ytdKm = Math.round((ytdBySport[sport] ?? 0) / 1000);
-              const pct = Math.min(Math.round((ytdKm / goalKm) * 100), 100);
-              const projectedKm = Math.round((ytdKm / dayOfYear) * 365);
-              const onTrack = projectedKm >= goalKm * 0.95;
+            {Object.entries(goalsThisYear).map(([sport, goal]) => {
+              if (!goal.target || goal.target <= 0) return null; // no real target set — skip rather than show NaN%
+              const isTime = goal.metric === "time";
+              const ytd = ytdBySport[sport] ?? { distanceM: 0, movingTimeSec: 0 };
+              const ytdDisplay = isTime ? Math.round(ytd.movingTimeSec / 60 / 60 * 10) / 10 : Math.round(ytd.distanceM / 1000);
+              const targetDisplay = isTime ? Math.round(goal.target / 60 * 10) / 10 : goal.target;
+              const unit = isTime ? "hours" : "km";
+              const pct = Math.min(Math.round((ytdDisplay / targetDisplay) * 100), 100);
+              const projected = Math.round((ytdDisplay / dayOfYear) * 365 * 10) / 10;
+              const onTrack = projected >= targetDisplay * 0.95;
               return (
                 <div key={sport} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted">{sport}</span>
                     <span className={onTrack ? "text-accent" : "text-warning"}>
-                      {ytdKm} / {goalKm} km ({pct}%)
-                      {onTrack ? " ✓" : ` — projected ${projectedKm} km`}
+                      {ytdDisplay} / {targetDisplay} {unit} ({pct}%)
+                      {onTrack ? " ✓" : ` — projected ${projected} ${unit}`}
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">

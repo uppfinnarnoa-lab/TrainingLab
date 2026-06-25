@@ -104,6 +104,8 @@ export async function syncActivities(
           create: data,
           update: {
             name: data.name,
+            workoutType: data.workoutType,
+            isRace: data.isRace,
             averageHeartrate: data.averageHeartrate,
             maxHeartrate: data.maxHeartrate,
             sufferScore: data.sufferScore,
@@ -170,7 +172,7 @@ export async function resyncRecentActivities(
 
       const existing = await prisma.activity.findUnique({
         where: { stravaId: data.stravaId },
-        select: { description: true },
+        select: { description: true, workoutType: true, isRace: true },
       });
 
       if (!existing) {
@@ -178,14 +180,24 @@ export async function resyncRecentActivities(
         const saved = await prisma.activity.create({ data });
         detectAndRecordPBs(userId, saved.id).catch(e => console.error("[resync] PB detection error:", e));
         synced++;
-      } else if (existing.description !== data.description) {
-        // Description has been updated — sync the new text and other fields
+      } else if (
+        existing.description !== data.description ||
+        existing.workoutType !== data.workoutType ||
+        existing.isRace !== data.isRace
+      ) {
+        // Description, race flag, or workout type has changed on Strava — sync the new
+        // values. workoutType/isRace must be checked here too, not just description: a
+        // user can retroactively flag/unflag a race or change its workout type without
+        // touching the description, and that change needs to propagate on resync.
         await prisma.activity.update({
           where: { stravaId: data.stravaId },
           data: {
             name: data.name,
             description: data.description,
+            workoutType: data.workoutType,
+            isRace: data.isRace,
             splitsMetric: data.splitsMetric,
+            laps: data.laps,
             bestEfforts: data.bestEfforts,
             sufferScore: data.sufferScore,
             perceivedExertion: data.perceivedExertion,
@@ -227,6 +239,8 @@ export async function syncSingleActivity(userId: string, stravaActivityId: numbe
     update: {
       name: data.name,
       description: data.description,
+      workoutType: data.workoutType,
+      isRace: data.isRace,
       splitsMetric: data.splitsMetric,
       laps: data.laps,
       bestEfforts: data.bestEfforts,

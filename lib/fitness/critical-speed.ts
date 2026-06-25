@@ -8,7 +8,13 @@ export interface CriticalSpeedResult {
 /**
  * Estimate Critical Speed from a combined pool of:
  *  - Activity best-effort segments (from Strava JSON)
- *  - Race PBs from RaceRecord table (more reliable for longer distances)
+ *  - Race PBs from RaceRecord table
+ *
+ * `racePBs` beyond 10K must already be filtered by the caller to manually-entered entries
+ * only (see lib/fitness/vo2max.ts::buildKnownPerformances doc comment for why — an
+ * auto-detected RaceRecord beyond 10K isn't trustworthy road-race pace, and since it
+ * overrides bestEfforts for the same distance below, an untrusted point here would
+ * silently win over a possibly-better bestEffort).
  *
  * Linear regression: time/distance = CS_inv + W'/distance
  * CS = 1/intercept (m/s), W' = slope (meters of anaerobic capacity)

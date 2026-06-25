@@ -20,7 +20,7 @@ const PERIODS = ["week", "month", "year"] as const;
 const METRICS = ["distance", "time"] as const;
 
 const periodLabel = { week: "Week", month: "Month", year: "Year" };
-const metricLabel = { distance: "Distance (km)", time: "Time (min)" };
+const metricLabel = { distance: "Distance (km)", time: "Time (hours)" };
 
 export function GoalsManager({ initialGoals, sports }: Props) {
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
@@ -33,8 +33,11 @@ export function GoalsManager({ initialGoals, sports }: Props) {
   const [newTarget, setNewTarget] = useState("");
 
   async function addGoal() {
-    const target = parseFloat(newTarget);
-    if (!target || target <= 0) return;
+    const entered = parseFloat(newTarget);
+    if (!entered || entered <= 0) return;
+    // Time goals are entered in hours but stored in minutes (matches Activity.movingTime-based
+    // progress tracking, which is computed in minutes) — convert at the boundary only.
+    const target = newMetric === "time" ? entered * 60 : entered;
     setSaving(true);
     const res = await fetch("/api/settings/goals", {
       method: "POST",
@@ -85,7 +88,7 @@ export function GoalsManager({ initialGoals, sports }: Props) {
                         {g.sport === "" ? "All sports" : g.sport}
                       </p>
                       <p className="text-xs text-muted">
-                        {g.metric === "distance" ? `${g.target} km` : `${g.target} min`} per {periodLabel[g.period as keyof typeof periodLabel].toLowerCase()}
+                        {g.metric === "distance" ? `${g.target} km` : `${Math.round(g.target / 60 * 10) / 10} hours`} per {periodLabel[g.period as keyof typeof periodLabel].toLowerCase()}
                       </p>
                     </div>
                     <button
@@ -130,7 +133,7 @@ export function GoalsManager({ initialGoals, sports }: Props) {
               className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
             >
               <option value="distance">Distance (km)</option>
-              <option value="time">Time (min)</option>
+              <option value="time">Time (hours)</option>
             </select>
           </div>
           <div>
@@ -151,9 +154,9 @@ export function GoalsManager({ initialGoals, sports }: Props) {
               type="number"
               value={newTarget}
               onChange={e => setNewTarget(e.target.value)}
-              placeholder={newMetric === "distance" ? "km" : "min"}
+              placeholder={newMetric === "distance" ? "km" : "hours"}
               min={0}
-              step={newMetric === "distance" ? 5 : 30}
+              step={newMetric === "distance" ? 5 : 0.5}
               className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-primary focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>

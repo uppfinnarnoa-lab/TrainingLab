@@ -37,7 +37,7 @@ export default async function StatsPage() {
     }),
     prisma.raceRecord.findMany({
       where: { userId, date: { gte: subDays(now, 5 * 365) } },
-      select: { distanceM: true, time: true, date: true },
+      select: { distanceM: true, time: true, date: true, isManual: true },
       orderBy: { time: "asc" },
     }),
     // Weather profile: last 4 years only — older data reflects a different fitness level
@@ -57,6 +57,10 @@ export default async function StatsPage() {
 
   const bestPerDist = new Map<number, { distanceM: number; timeSec: number; date: Date }>();
   for (const r of allRacePBs) {
+    // See lib/fitness/cache.ts::loadRacePBs() for why isManual gates trust beyond 10K —
+    // both implementations must apply the same rule, see vo2max.ts doc comment on
+    // computeRacePredictions() for why this can never be allowed to drift apart.
+    if (r.distanceM > 10000 && !r.isManual) continue;
     const d = Math.round(r.distanceM);
     if (!bestPerDist.has(d) || bestPerDist.get(d)!.timeSec > r.time)
       bestPerDist.set(d, { distanceM: r.distanceM, timeSec: r.time, date: r.date });

@@ -4,6 +4,16 @@ import { AthleteProfileForm } from "../athlete-profile";
 import { ChangePasswordForm } from "../change-password";
 import { AppearanceSettings } from "../appearance-settings";
 import { PBDetectionSettings } from "../pb-detection";
+import { normalizeAnnualGoalsYear, type AnnualGoal } from "@/lib/sports/annual-goal-metric";
+
+function normalizeAllYears(raw: unknown): Record<string, Record<string, AnnualGoal>> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const out: Record<string, Record<string, AnnualGoal>> = {};
+  for (const [year, yearGoals] of Object.entries(raw as Record<string, Record<string, unknown>>)) {
+    out[year] = normalizeAnnualGoalsYear(yearGoals);
+  }
+  return out;
+}
 
 export default async function ProfileSettingsPage() {
   const session = await auth();
@@ -37,7 +47,7 @@ export default async function ProfileSettingsPage() {
           primaryGoal: athleteProfile?.primaryGoal,
           yearsTraining: athleteProfile?.yearsTraining,
           paceUnit: athleteProfile?.paceUnit ?? "min_per_km",
-          annualGoals: (athleteProfile?.annualGoals as Record<string, Record<string, number>> | null) ?? null,
+          annualGoals: normalizeAllYears(athleteProfile?.annualGoals),
         }} sports={sports.map((s: { name: string }) => s.name)} />
       </section>
 

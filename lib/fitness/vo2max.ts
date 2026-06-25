@@ -309,12 +309,20 @@ export function personalizedFatigueExponent(
 export interface KnownPerformance { distanceM: number; timeSec: number }
 
 /**
- * Merges race PBs (RaceRecord — authoritative, always trusted at any distance) with
- * activity bestEfforts (Strava rolling-window segments — trusted only up to 10K; see
- * personalizedFatigueExponent for why Activity.isRace can't rescue longer segments)
- * into one deduplicated set of real performances, keyed by rounded distance. Race PBs
- * win ties at the same distance since they're a confirmed result, not a segment pulled
- * from inside a longer activity.
+ * Merges race PBs (RaceRecord) with activity bestEfforts (Strava rolling-window segments)
+ * into one deduplicated set of real performances, keyed by rounded distance. Race PBs win
+ * ties at the same distance since they're a confirmed result, not a segment pulled from
+ * inside a longer activity.
+ *
+ * Both sources are trusted up to 10K unconditionally. Beyond 10K, bestEfforts are never
+ * trusted (see personalizedFatigueExponent for why Activity.isRace can't rescue longer
+ * segments) — and since automatic PB detection was added, RaceRecord beyond 10K is ONLY
+ * trusted when manually entered (callers must already filter `racePBs` to isManual-only
+ * beyond 10K, see lib/fitness/cache.ts::loadRacePBs() and the equivalent block in
+ * app/(dashboard)/stats/page.tsx). RaceRecord used to be safe to trust unconditionally at
+ * any distance because it only ever held manually-vetted entries — an auto-detected entry
+ * can come from any isRace=true activity, and for this app's primary athlete that's
+ * exclusively orienteering (terrain/navigation pace, not road pace).
  */
 export function buildKnownPerformances(
   racePBs: Array<{ distanceM: number; timeSec: number }>,
