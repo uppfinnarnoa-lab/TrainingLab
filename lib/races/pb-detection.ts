@@ -111,6 +111,100 @@ export async function detectPBsForActivity(
 }
 
 /**
+ * Bulk backfill for POST /api/races/scan-history — deliberately NOT built on
+ * detectPBsForActivity() in a loop. That per-activity function does its own
+ * activity refetch plus two queries per qualifying bestEffort; looped over a
+ * user's entire running history (thousands of activities, several bestEfforts
+ * each) that's tens of thousands of sequential round trips and times out in
+ * production. This fetches the user's full RaceRecord + Activity sets ONCE,
+ * replays the exact same shouldRecordResult()/matchTrackedDistance() decision
+ * rule in memory (oldest-first, so each result is judged against the true
+ * best-so-far at that point in time), and writes everything in one batch.
+ */
+export async function bulkDetectPBs(userId: string, tolerancePct: number): Promise<{ created: number }> {
+  const existing = await prisma.raceRecord.findMany({
+    where: { userId },
+    select: { distance: true, time: true, isManual: true, stravaActivityId: true },
+  });
+
+  const bestByDistance = new Map<string, number>();
+  const manualByDistance = new Set<string>();
+  const existingKeys = new Set<string>(); // `${distance}|${stravaActivityId}` — mirrors detectPBsForActivity's idempotency check
+  for (const r of existing) {
+    const cur = bestByDistance.get(r.distance);
+    if (cur === undefined || r.time < cur) bestByDistance.set(r.distance, r.time);
+    if (r.isManual) manualByDistance.add(r.distance);
+    if (r.stravaActivityId) existingKeys.add(`${r.distance}|${r.stravaActivityId}`);
+  }
+
+  const activities = await prisma.activity.findMany({
+    where: {
+      userId,
+      OR: [
+        { sportType: { contains: "run", mode: "insensitive" } },
+        { sportType: { contains: "trail", mode: "insensitive" } },
+      ],
+    },
+    select: { stravaId: true, name: true, isRace: true, bestEfforts: true, startDateLocal: true },
+    orderBy: { startDate: "asc" },
+  });
+
+  const toCreate: {
+    userId: string; distance: string; distanceM: number; time: number;
+    date: Date; eventName: string; stravaActivityId: string; isManual: boolean;
+  }[] = [];
+
+  for (const activity of activities) {
+    if (!Array.isArray(activity.bestEfforts) || activity.bestEfforts.length === 0) continue;
+    const stravaActivityId = activity.stravaId.toString();
+    const recordDate = new Date(activity.startDateLocal.toISOString().split("T")[0]);
+    const withinLastYear = Date.now() - recordDate.getTime() <= 365 * 24 * 60 * 60 * 1000;
+
+    for (const raw of activity.bestEfforts as BestEffortRow[]) {
+      if (typeof raw?.distance !== "number" || typeof raw?.elapsed_time !== "number") continue;
+      const matched = matchTrackedDistance(raw.distance);
+      if (!matched) continue;
+
+      const key = `${matched.label}|${stravaActivityId}`;
+      if (existingKeys.has(key)) continue;
+
+      const currentBestSec = bestByDistance.get(matched.label) ?? null;
+      const distanceHasManualBaseline = manualByDistance.has(matched.label);
+
+      const shouldRecord = shouldRecordResult({
+        newTimeSec: raw.elapsed_time,
+        currentBestSec,
+        tolerancePct,
+        isRace: activity.isRace,
+        withinLastYear,
+        distanceHasManualBaseline,
+      });
+      if (!shouldRecord) continue;
+
+      existingKeys.add(key);
+      if (currentBestSec === null || raw.elapsed_time < currentBestSec) {
+        bestByDistance.set(matched.label, raw.elapsed_time);
+      }
+      toCreate.push({
+        userId,
+        distance: matched.label,
+        distanceM: matched.meters,
+        time: Math.round(raw.elapsed_time),
+        date: recordDate,
+        eventName: activity.name,
+        stravaActivityId,
+        isManual: false,
+      });
+    }
+  }
+
+  if (toCreate.length > 0) {
+    await prisma.raceRecord.createMany({ data: toCreate });
+  }
+  return { created: toCreate.length };
+}
+
+/**
  * Live-sync hook — call after a genuinely new Activity is created. Checks
  * pbDetectionMode and the enable-timestamp backfill guard itself, so call
  * sites don't need to duplicate that logic.

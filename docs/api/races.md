@@ -133,18 +133,15 @@ Delete a race record.
 
 Explicit, user-initiated bulk scan of **all** past running activities for PBs and near-PB results, using the same logic and `pbDetectionTolerancePct` as automatic detection — but bypassing `pbDetectionMode` and the `pbDetectionModeChangedAt` guard entirely, since this endpoint *is* the deliberate, reviewable alternative to automatic backfilling. Activities are processed oldest-first so each result is compared against the true best-so-far at that point in time.
 
+Implemented by `bulkDetectPBs()` ([lib/races/pb-detection.ts](../../lib/races/pb-detection.ts)), not by looping `detectPBsForActivity()` — fetches the user's full `RaceRecord` and `Activity` sets in two queries, replays the decision rule in memory, and writes everything in a single `createMany`. The original loop (an activity refetch plus two queries per qualifying `bestEffort`) was tens of thousands of sequential round trips over a multi-year history and timed out in production.
+
 **Auth:** Required
 
 **Request:** No body.
 
 **Response (200):**
 ```json
-{
-  "created": 3,
-  "records": [
-    { "id": "cuid", "distance": "5K", "distanceM": 5000, "time": 1185, "date": "2025-09-14T00:00:00.000Z", "eventName": "Tuesday track session", "stravaActivityId": "123456789", "notes": null, "isManual": false }
-  ]
-}
+{ "created": 3 }
 ```
 
 **Side effects:** Creates one `RaceRecord` per qualifying `bestEffort` across the user's entire running history (idempotent — running it twice never duplicates a result already recorded for the same activity + distance).
