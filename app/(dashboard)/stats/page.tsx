@@ -7,6 +7,7 @@ import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces
 import { computeTSS, buildLoadCurve, computeACWR } from "@/lib/fitness/training-load";
 import { estimateVO2max, predictRaceTime, riegelPredict, vdotFromRace, computeRacePredictions } from "@/lib/fitness/vo2max";
 import { loadBestEffortsForRacePredictions } from "@/lib/fitness/cache";
+import { loadCachedHRStreams } from "@/lib/strava/stream-backfill";
 import { RACE_DISTANCES } from "@/lib/fitness/paces";
 import { computeHrvBaseline, computeRestingHRBaseline, computeReadinessScore, type HrvBaseline } from "@/lib/garmin/insights";
 import { subDays, format, startOfWeek, startOfYear } from "date-fns";
@@ -508,8 +509,12 @@ export default async function StatsPage() {
   for (const wk of Object.values(weeklyVolumes))
     for (const s of Object.values(wk)) s.km = Math.round(s.km * 10) / 10;
 
-  // Lap-aware: see computeZoneTime() doc comment in lib/fitness/zones.ts.
-  const { zoneSeconds, polZ1, polZ2, polZ3 } = computeZoneTime(activities as ZoneTimeActivity[], computedHrZones, twelveWeeksAgo);
+  // Prefers cached per-second HR streams over lap averages — see computeZoneTime() doc
+  // comment in lib/fitness/zones.ts. Read-only: this page load only reads streams already
+  // cached by updateVO2maxAndPaces()'s background backfill, never fetches new ones itself.
+  const zoneWindowActivities = (activities as A[]).filter(a => a.startDate >= twelveWeeksAgo);
+  const zoneStreams = await loadCachedHRStreams(zoneWindowActivities.map(a => a.id));
+  const { zoneSeconds, polZ1, polZ2, polZ3 } = computeZoneTime(activities as ZoneTimeActivity[], computedHrZones, twelveWeeksAgo, zoneStreams);
 
   // Pace zone seconds (last 12 weeks, running only)
   // Zones are [slow_boundary, fast_boundary] (higher sec/km = slower pace).

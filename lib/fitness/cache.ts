@@ -18,9 +18,11 @@ import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estima
 import { estimateVO2max, computeRacePredictions, type RacePB } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
 import { computeTSS, buildLoadCurve, computeACWR } from "./training-load";
+import { ensureActivityStreams, loadCachedHRStreams } from "@/lib/strava/stream-backfill";
 import { subDays, format, startOfWeek } from "date-fns";
 
 type Act = {
+  id: string; stravaId: bigint;
   sportType: string; name: string; distance: number; movingTime: number;
   averageHeartrate: number | null; maxHeartrate: number | null;
   averageSpeed: number | null; isRace: boolean; bestEfforts: unknown;
@@ -34,6 +36,7 @@ async function loadActivities(userId: string) {
     where: { userId, startDate: { gte: subDays(new Date(), 5 * 365) } },
     orderBy: { startDate: "asc" },
     select: {
+      id: true, stravaId: true,
       sportType: true, name: true, distance: true, movingTime: true,
       averageHeartrate: true, maxHeartrate: true, totalElevationGain: true,
       averageSpeed: true, isRace: true, bestEfforts: true, startDate: true,
@@ -49,6 +52,7 @@ async function loadActivitiesLight(userId: string) {
     where: { userId, startDate: { gte: subDays(new Date(), 5 * 365) } },
     orderBy: { startDate: "asc" },
     select: {
+      id: true, stravaId: true,
       sportType: true, name: true, distance: true, movingTime: true,
       averageHeartrate: true, maxHeartrate: true, totalElevationGain: true,
       averageSpeed: true, isRace: true, startDate: true,
@@ -235,12 +239,18 @@ export async function updateVO2maxAndPaces(userId: string) {
     for (const s of Object.values(wk)) s.km = Math.round(s.km * 10) / 10;
 
   // ── Zone seconds & polarisation (last 12 weeks) ─────────────────────────
-  // Lap-aware: a mixed-effort session (warmup/hard/cooldown) gets its time split across
-  // the zones actually experienced, instead of bucketed wholesale by the blended average.
+  // Prefers actual per-second HR stream data over lap averages — see computeZoneTime() doc
+  // comment. This is the only call site allowed to actively fetch missing streams from
+  // Strava (one API call per activity lacking a cached stream): updateVO2maxAndPaces() runs
+  // in the background, never awaited by its callers (see docs/api/strava.md), so the
+  // occasional 350ms/activity catch-up cost here never blocks a user-facing request.
   type ZoneMap = { z1: [number,number]; z2: [number,number]; z3: [number,number]; z4: [number,number]; z5: [number,number] };
   const hz = existingZones as ZoneMap;
   const twelveWeeksAgo = subDays(now, 84);
-  const { zoneSeconds: zoneSecondsJson, polZ1, polZ2, polZ3 } = computeZoneTime(activities as ZoneTimeActivity[], hz, twelveWeeksAgo);
+  const zoneWindowActs = (activities as Act[]).filter(a => a.startDate >= twelveWeeksAgo);
+  await ensureActivityStreams(userId, zoneWindowActs);
+  const zoneStreams = await loadCachedHRStreams(zoneWindowActs.map(a => a.id));
+  const { zoneSeconds: zoneSecondsJson, polZ1, polZ2, polZ3 } = computeZoneTime(activities as ZoneTimeActivity[], hz, twelveWeeksAgo, zoneStreams);
   const polTotal = polZ1 + polZ2 + polZ3;
   const polarisationJson = polTotal > 0
     ? { z1Pct: Math.round(polZ1/polTotal*100), z2Pct: Math.round(polZ2/polTotal*100), z3Pct: Math.round(polZ3/polTotal*100) }
@@ -654,11 +664,16 @@ export async function updateHRZones(userId: string) {
     computeRacePredictions(vo2maxResult.vdot, cachedTsb, racePBs, bestEffortsForZones, zonesLongestRunM);
 
   // Recompute zone distribution with the newly calibrated zones so charts update immediately.
-  // Lap-aware: see computeZoneTime() doc comment.
+  // Prefers cached per-second HR streams over lap averages — see computeZoneTime() doc
+  // comment. This function is awaited inside the "Apply zones" button's request, so it only
+  // ever READS already-cached streams (no Strava API calls) — fetching missing ones is
+  // updateVO2maxAndPaces()'s job, since that one runs in the background.
   const twelveWeeksAgo = subDays(new Date(), 84);
   type ZoneMap2 = { z1:[number,number]; z2:[number,number]; z3:[number,number]; z4:[number,number]; z5:[number,number] };
   const hz2 = zonesJson as ZoneMap2;
-  const { zoneSeconds: zoneSecondsJson, polZ1, polZ2, polZ3 } = computeZoneTime(acts as ZoneTimeActivity[], hz2, twelveWeeksAgo);
+  const zoneWindowActs2 = acts.filter(a => a.startDate >= twelveWeeksAgo);
+  const zoneStreams2 = await loadCachedHRStreams(zoneWindowActs2.map(a => a.id));
+  const { zoneSeconds: zoneSecondsJson, polZ1, polZ2, polZ3 } = computeZoneTime(acts as ZoneTimeActivity[], hz2, twelveWeeksAgo, zoneStreams2);
   const polTotal2 = polZ1 + polZ2 + polZ3;
   const polarisationJson = polTotal2 > 0
     ? { z1Pct: Math.round(polZ1/polTotal2*100), z2Pct: Math.round(polZ2/polTotal2*100), z3Pct: Math.round(polZ3/polTotal2*100) }

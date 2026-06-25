@@ -773,11 +773,14 @@ export function classifyHRZone(avgHR: number | null, zones: HRZones): number {
 }
 
 export interface ZoneTimeActivity {
+  id?: string;
   startDate: Date;
   movingTime: number;
   averageHeartrate: number | null;
   laps?: unknown;
 }
+
+export interface ActivityHRStream { time?: number[] | null; heartrate: number[] }
 
 export interface ZoneTimeResult {
   zoneSeconds: Record<string, number>; // z1..z5
@@ -787,17 +790,21 @@ export interface ZoneTimeResult {
 type ZoneBoundaries = Pick<HRZones, "z1" | "z2" | "z3" | "z4" | "z5">;
 
 /**
- * Time-in-zone from activities since `windowStart`, using lap-level HR when an activity
- * has laps (so a session that mixes warmup/hard intervals/cooldown gets its time split
- * across the zones actually experienced) and falling back to the whole-activity average
- * HR only when no laps exist. Classifying by whole-activity average alone systematically
- * hides time in the extreme zones (Z1 and Z4/Z5) for any mixed-effort session, since the
- * blended average gets pulled toward the middle zones.
+ * Time-in-zone from activities since `windowStart`. Prefers the actual per-second HR
+ * stream when cached (`streamsByActivityId`, see lib/strava/stream-backfill.ts) — the most
+ * accurate source, since every sample gets classified individually. Falls back to lap-level
+ * HR when an activity has laps but no cached stream (so a session that mixes warmup/hard
+ * intervals/cooldown still gets its time split across the zones actually experienced
+ * instead of one blended number), and to the whole-activity average HR only when neither
+ * exists. Classifying by whole-activity average alone systematically hides time in the
+ * extreme zones (Z1 and Z4/Z5) for any mixed-effort session, since the blended average gets
+ * pulled toward the middle zones.
  */
 export function computeZoneTime(
   activities: ZoneTimeActivity[],
   zones: ZoneBoundaries,
   windowStart: Date,
+  streamsByActivityId?: Map<string, ActivityHRStream>,
 ): ZoneTimeResult {
   const zoneSeconds: Record<string, number> = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
   let polZ1 = 0, polZ2 = 0, polZ3 = 0;
@@ -814,6 +821,22 @@ export function computeZoneTime(
 
   for (const a of activities) {
     if (a.startDate < windowStart) continue;
+
+    const stream = a.id ? streamsByActivityId?.get(a.id) : undefined;
+    if (stream?.heartrate && stream.heartrate.length > 1) {
+      const time = stream.time;
+      for (let i = 0; i < stream.heartrate.length; i++) {
+        const hr = stream.heartrate[i];
+        if (!hr) continue;
+        // Duration this sample represents: gap to the next timestamp, or 1s for the last
+        // sample / when no time stream exists. Guard against bogus gaps from a paused
+        // recording (a long pause shouldn't get attributed wholesale to one HR sample).
+        const dt = time && i < time.length - 1 ? time[i + 1] - time[i] : 1;
+        if (dt > 0 && dt <= 30) accumulate(hr, dt);
+      }
+      continue;
+    }
+
     const laps = Array.isArray(a.laps)
       ? (a.laps as { average_heartrate?: number; moving_time: number }[])
           .filter(l => l.average_heartrate && l.moving_time > 0)

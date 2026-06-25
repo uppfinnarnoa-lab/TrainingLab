@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { stravaFetch } from "./client";
+import { backfillOneActivityStream } from "./stream-backfill";
 
 const PER_WINDOW     = 170;
 const WINDOW_MS      = 15 * 60_000;
@@ -150,6 +151,22 @@ export async function runHistoricalBackfill(
             splitDetailFetched:   true,
           },
         });
+
+        // Also cache the full stream (time/distance/heartrate/velocity/altitude/cadence) for
+        // this activity — best-effort: the detail data above is the primary goal of this
+        // backfill, so a stream-fetch failure (e.g. no stream data for this activity at all)
+        // doesn't fail it. A rate/daily limit must propagate to the same pause/retry handling
+        // as the detail fetch below, though, or the two calls would respond inconsistently.
+        try {
+          await backfillOneActivityStream(userId, act.id, act.stravaId);
+          windowCount++; // a second request consumed from this window's budget
+          await new Promise(r => setTimeout(r, BETWEEN_REQ_MS));
+        } catch (streamErr) {
+          if (streamErr instanceof Error && (streamErr.message === "STRAVA_RATE_LIMIT" || streamErr.message === "STRAVA_DAILY_LIMIT")) {
+            throw streamErr;
+          }
+          console.error(`[backfill] stream fetch failed for ${act.stravaId} (non-fatal):`, streamErr);
+        }
 
         done++;
         windowCount++;

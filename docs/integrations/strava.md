@@ -4,10 +4,10 @@
 - **Purpose**: Primary source for ALL activity data. Activities, GPS, HR, splits, and critically — user-written names and descriptions (used as AI context).
 - **Auth**: OAuth 2.0. Tokens stored in `StravaAccount`. Middleware auto-refreshes on expiry.
 - **Rate limits**: 200 req/15min, 2000 req/day. Respected in sync logic with automatic backoff.
-- **Sync**: Initial full history (paginated, 200/page). Daily incremental cron at 06:00. Historical backfill (split detail) resumes automatically each night at 00:30 UTC until complete. Manual trigger via UI.
+- **Sync**: Initial full history (paginated, 200/page). Daily incremental cron at 06:00. Historical backfill (split detail) resumes automatically each night at 00:30 UTC until complete — now also fetches and caches each activity's full stream (2026-06-26), so `splitDetailFetched: true` activities get both. Manual trigger via UI.
 - **Webhook**: Optional real-time sync via Strava webhook (requires public URL — already available).
 - **Key fields used**: `name`, `description`, `sport_type`, `start_date`, `distance`, `moving_time`, `average_heartrate`, `max_heartrate`, `average_cadence`, `total_elevation_gain`, `suffer_score`, `workout_type`, `splits_metric`, `laps`, `best_efforts`, `map.summary_polyline`
-- **Activity streams**: Per-second data fetched on-demand only (single activity detail view), cached after first fetch.
+- **Activity streams**: Per-second data (`time`/`distance`/`heartrate`/`velocity_smooth`/`altitude`/`cadence`), cached to `ActivityStream` after first fetch. Three paths populate it: on-demand (viewing an activity's detail page), the historical backfill above (every activity, eventually), and a background-only proactive fetch for the rolling 12-week HR-zone window after every sync (`ensureActivityStreams()`, `lib/strava/stream-backfill.ts`) — used to classify actual per-second HR into zones instead of lap averages.
 - **Docs**: Strava API v3 — `https://developers.strava.com/docs/reference/`
 
 ## Garmin Connect
