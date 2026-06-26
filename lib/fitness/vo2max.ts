@@ -323,10 +323,22 @@ export interface KnownPerformance { distanceM: number; timeSec: number }
  * any distance because it only ever held manually-vetted entries — an auto-detected entry
  * can come from any isRace=true activity, and for this app's primary athlete that's
  * exclusively orienteering (terrain/navigation pace, not road pace).
+ *
+ * `racePBs`' floor is 200m (not 1000m) — a genuine sub-1000m PB (e.g. a 400m) is the
+ * strongest available evidence of anaerobic speed reserve and was previously thrown away
+ * entirely (see RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §3.1/§5.5). `bestEfforts`
+ * keeps its 1000m floor — sub-1000m segments pulled from inside a longer activity are
+ * noisier (acceleration phases, GPS lag) than a runner's own logged PB at that distance.
+ *
+ * `lowerTierCandidates` (optional) — estimated, lower-confidence anchors from
+ * extractTempoRunAnchors()/extractIntervalLapCandidates() (§5.4/§5.10): only used to fill a
+ * distance bucket that has NO trusted racePB/bestEffort coverage, never allowed to override
+ * or compete with measured data.
  */
 export function buildKnownPerformances(
   racePBs: Array<{ distanceM: number; timeSec: number }>,
   bestEfforts: Array<{ distance: number; elapsed_time: number }>,
+  lowerTierCandidates?: KnownPerformance[],
 ): KnownPerformance[] {
   const merged = new Map<number, number>();
   for (const e of bestEfforts) {
@@ -335,14 +347,49 @@ export function buildKnownPerformances(
     if (!merged.has(d) || merged.get(d)! > e.elapsed_time) merged.set(d, e.elapsed_time);
   }
   for (const p of racePBs) {
-    if (p.distanceM < 1000 || p.timeSec <= 0) continue;
+    if (p.distanceM < 200 || p.timeSec <= 0) continue;
     const d = Math.round(p.distanceM);
     if (!merged.has(d) || merged.get(d)! > p.timeSec) merged.set(d, p.timeSec);
+  }
+  if (lowerTierCandidates) {
+    const trustedDistances = [...merged.keys()]; // snapshot before lower-tier ever touches `merged`
+    const trustedBuckets = new Set(trustedDistances);
+    // A lower-tier candidate is only useful where it fills a genuine gap. Verified necessary
+    // against real data: dropping one in right next to an already-trusted point (e.g. a 791m
+    // interval lap sitting between trusted 400m and 1000m PBs) doesn't add coverage — it just
+    // out-competes the closer, higher-quality trusted point for any target distance that lands
+    // between them, because bracket selection only looks at proximity, not source confidence
+    // (see RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md implementation notes).
+    const MIN_GAP_RATIO = 1.5;
+    const tooCloseToTrusted = (d: number) =>
+      trustedDistances.some(t => Math.max(d, t) / Math.min(d, t) < MIN_GAP_RATIO);
+    const lowerTierMerged = new Map<number, number>();
+    for (const c of lowerTierCandidates) {
+      if (c.distanceM <= 0 || c.timeSec <= 0) continue;
+      const d = Math.round(c.distanceM);
+      if (trustedBuckets.has(d) || tooCloseToTrusted(d)) continue; // never overrides or crowds trusted data above
+      // Among multiple lower-tier candidates landing on the same untrusted bucket, keep the
+      // fastest, not just whichever happened to come first in the input array.
+      if (!lowerTierMerged.has(d) || lowerTierMerged.get(d)! > c.timeSec) lowerTierMerged.set(d, c.timeSec);
+    }
+    for (const [d, t] of lowerTierMerged) merged.set(d, t);
   }
   return [...merged.entries()].map(([distanceM, timeSec]) => ({ distanceM, timeSec }));
 }
 
 interface LocalPrediction { timeSec: number; exponent: number; anchor: KnownPerformance; bracketed: boolean }
+
+// Anaerobic/aerobic energy-contribution crossover (Péronnet & Thibault, 1989: aerobic share
+// of total energy passes 50% at ~100s, ≈800m) — below this, a runner's fatigue profile is
+// dominated by anaerobic capacity, not aerobic endurance. A bracket spanning this boundary
+// (e.g. a 400m anchor paired with a 5000m anchor) would fit ONE exponent across two different
+// physiological regimes — exactly the mixing problem this whole local-bracket model exists to
+// avoid (see RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §5.5). Only relevant once
+// buildKnownPerformances' lowered 200m floor can actually produce a sub-800m anchor.
+const REGIME_BOUNDARY_M = 800;
+// Literature range for speed-oriented/anaerobic-leaning runners (vs. standard Riegel 1.06) —
+// used only when extrapolating from a sub-800m anchor, never for the existing 1000m+ regime.
+const SHORT_REGIME_FALLBACK_EXPONENT = 1.04;
 
 /**
  * Predicts race time at targetM from the runner's own nearby real results, instead of
@@ -369,11 +416,15 @@ export function personalizedRacePrediction(
 
   const closerOf = (a: KnownPerformance, b: KnownPerformance) =>
     Math.abs(Math.log(targetM / a.distanceM)) <= Math.abs(Math.log(targetM / b.distanceM)) ? a : b;
+  const spansRegimeBoundary = (a: KnownPerformance, b: KnownPerformance) =>
+    (a.distanceM < REGIME_BOUNDARY_M) !== (b.distanceM < REGIME_BOUNDARY_M);
 
   // Real results on both sides, far enough apart to fit a stable local slope (an
-  // extremely tight bracket would amplify GPS/segment noise into a wild exponent):
-  // interpolate between them rather than extrapolating from a single global exponent.
-  if (below && above && below !== above && above.distanceM / below.distanceM >= 1.02) {
+  // extremely tight bracket would amplify GPS/segment noise into a wild exponent), and not
+  // straddling the anaerobic/aerobic crossover: interpolate between them rather than
+  // extrapolating from a single global exponent.
+  if (below && above && below !== above && above.distanceM / below.distanceM >= 1.02
+      && !spansRegimeBoundary(below, above)) {
     const localExp = Math.log(above.timeSec / below.timeSec) / Math.log(above.distanceM / below.distanceM);
     const exponent = Math.min(1.25, Math.max(0.95, localExp));
     const anchor = closerOf(below, above);
@@ -382,8 +433,152 @@ export function personalizedRacePrediction(
   }
 
   const anchor = below && above ? closerOf(below, above) : (below ?? above!);
-  const timeSec = Math.round(anchor.timeSec * Math.pow(targetM / anchor.distanceM, fallbackExponent));
-  return { timeSec, exponent: fallbackExponent, anchor, bracketed: false };
+  const exponentForAnchor = anchor.distanceM < REGIME_BOUNDARY_M ? SHORT_REGIME_FALLBACK_EXPONENT : fallbackExponent;
+  const timeSec = Math.round(anchor.timeSec * Math.pow(targetM / anchor.distanceM, exponentForAnchor));
+  return { timeSec, exponent: exponentForAnchor, anchor, bracketed: false };
+}
+
+// ── §5.9: detect and exclude mid-race splits mistakenly entered as standalone PBs ────────
+//
+// Verified against real data (RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §2.3): every
+// manually-entered RaceRecord sharing a stravaActivityId with a LONGER-distance entry from
+// the same activity is a progressive checkpoint time, not an independent maximal effort —
+// e.g. a "3000m PB" that's actually the 3K split inside a 10K race reflects 10K pacing, not
+// all-out 3K speed. Only the longest distance in such a group is a genuine result at its own
+// target distance; shorter ones are excluded entirely (the blend already degrades gracefully
+// to the population curve when a distance has no trusted anchor — see blendedRacePrediction).
+export interface RaceRecordForTrust {
+  distanceM: number;
+  timeSec: number;
+  date: Date;
+  isManual: boolean;
+  stravaActivityId?: string | null;
+}
+
+export function buildTrustedRacePBs(records: RaceRecordForTrust[]): RacePB[] {
+  // Existing rule (BUG_AUDIT_2026_06_25): beyond 10K, only a manually-entered PB is trusted.
+  const candidates = records.filter(r => !(r.distanceM > 10000 && !r.isManual));
+
+  const byActivity = new Map<string, RaceRecordForTrust[]>();
+  const standalone: RaceRecordForTrust[] = [];
+  for (const r of candidates) {
+    if (r.stravaActivityId) {
+      if (!byActivity.has(r.stravaActivityId)) byActivity.set(r.stravaActivityId, []);
+      byActivity.get(r.stravaActivityId)!.push(r);
+    } else {
+      standalone.push(r);
+    }
+  }
+  const trusted = [...standalone];
+  for (const group of byActivity.values()) {
+    trusted.push(group.length === 1 ? group[0] : group.reduce((a, b) => a.distanceM > b.distanceM ? a : b));
+  }
+
+  const bestPerDist = new Map<number, RacePB>();
+  for (const r of trusted) {
+    if (r.distanceM <= 0 || r.timeSec <= 0) continue;
+    const d = Math.round(r.distanceM);
+    if (!bestPerDist.has(d) || bestPerDist.get(d)!.timeSec > r.timeSec)
+      bestPerDist.set(d, { distanceM: r.distanceM, timeSec: r.timeSec, date: r.date });
+  }
+  return [...bestPerDist.values()];
+}
+
+// ── §5.10: mine fast laps from interval sessions as a new, lowest-priority anchor tier ────
+//
+// isQualitySession()/looksLikeIntervals() correctly exclude whole-interval-activity pace from
+// quality-session analysis (the activity average is diluted by recovery jogs between reps) —
+// but nothing previously extracted the FAST reps themselves as evidence. Verified against real
+// data (§2.4): "400ingar"/"5x4" work-lap paces are meaningfully faster than this athlete's only
+// available 3K "PB" (itself contaminated, see buildTrustedRacePBs), and exist at moderate, not
+// maximal, HR — real, currently-unused evidence of short-distance speed.
+export interface LapForIntervalMining { distance: number; moving_time: number }
+
+// No legitimate training rep (even an elite sprinter's flying 100m) sustains faster than this —
+// anything quicker is GPS/lap-button noise (e.g. a 631m "lap" timed at 33s implies 68km/h).
+// Verified necessary against real data: very short (<300m) laps include exactly this kind of
+// implausible outlier alongside genuine fast reps, and the median-pace work/recovery split
+// alone doesn't catch it (noise can land on either side of the session median).
+const MIN_PLAUSIBLE_PACE_SEC_PER_KM = 135; // ~7.4 m/s, faster than sustained elite 800m pace
+
+// "interval"-named sessions in this dataset range from sharp track work to easy fartlek —
+// far too heterogeneous to trust every lap that merely beats its own session's median pace
+// (verified necessary: an early version of this function kept every such lap and produced
+// ~250 candidates densely clustered around 300-1300m, several mutually inconsistent by
+// 20+ implied VDOT points, which corrupted nearby brackets — see implementation notes in
+// RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md). Keeping only the SINGLE fastest qualifying
+// lap per session caps this at roughly one candidate per interval session, and the VDOT floor
+// below rejects a session whose "fastest lap" still wasn't a genuinely hard effort.
+const MIN_PLAUSIBLE_VDOT_FOR_INTERVAL_REP = 40;
+
+export function extractIntervalLapCandidates(
+  activities: Array<{ name: string; laps?: unknown }>,
+): KnownPerformance[] {
+  const candidates: KnownPerformance[] = [];
+  for (const a of activities) {
+    if (!looksLikeIntervals(a.name ?? "") || !Array.isArray(a.laps)) continue;
+    const laps = (a.laps as LapForIntervalMining[]).filter(l => l.distance > 100 && l.moving_time > 0);
+    if (laps.length < 3) continue;
+    const paces = laps.map(l => l.moving_time / (l.distance / 1000)).sort((x, y) => x - y);
+    const medianPace = paces[Math.floor(paces.length / 2)];
+
+    let best: { distanceM: number; timeSec: number; pace: number } | null = null;
+    for (const l of laps) {
+      if (l.distance < 300 || l.distance > 2000 || l.moving_time < 40) continue; // plausible single-rep distance/duration
+      const pace = l.moving_time / (l.distance / 1000);
+      if (pace < MIN_PLAUSIBLE_PACE_SEC_PER_KM) continue; // GPS/lap-button noise, not a real pace
+      // A "work" rep is meaningfully faster than this session's own median lap pace — separates
+      // reps from recovery jogs without needing a fixed duration/distance cutoff per workout type.
+      if (pace > medianPace * 0.92) continue;
+      if (!best || pace < best.pace) best = { distanceM: l.distance, timeSec: l.moving_time, pace };
+    }
+    if (best && vdotFromRace(best.distanceM, best.timeSec) >= MIN_PLAUSIBLE_VDOT_FOR_INTERVAL_REP) {
+      candidates.push({ distanceM: best.distanceM, timeSec: best.timeSec });
+    }
+  }
+  return candidates;
+}
+
+// ── §5.4: convert the single best qualifying tempo/threshold run into one equivalent
+// maximal-effort anchor ──────────────────────────────────────────────────────────────────
+//
+// vo2maxFromSubmaxEffort() already exists but was never called anywhere — it's exactly the
+// missing conversion step: submax HR/pace at a real run's own distance → an estimated VO2max
+// → an equivalent ALL-OUT time at that same distance via predictRaceTime(). Gives the bracket
+// model a real (if lower-confidence, ~10-15% SEE per Åstrand-Ryhming-style submax extrapolation)
+// anchor in the 10-25K range from training data alone, instead of extrapolating one exponent
+// from a single distant race PB. Same HR-fraction band as vdotFromTempoRun (82-92% maxHR).
+//
+// Deliberately returns AT MOST ONE point, not a dense per-distance sweep: verified necessary
+// against real data — several independently-estimated submax points (each already carrying
+// ~10-15% uncertainty) can land close enough together to form a tight, falsely-confident
+// bracket with each other, which is worse than a single-sided extrapolation from real data
+// (see RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md implementation notes).
+export interface TempoRunForAnchoring {
+  distanceM: number;
+  timeSec: number;
+  avgHR: number | null;
+  totalElevationGain?: number | null;
+  name?: string;
+}
+
+export function extractTempoRunAnchors(
+  runs: TempoRunForAnchoring[],
+  maxHR: number,
+): KnownPerformance[] {
+  let best: { distanceM: number; vEst: number } | null = null;
+  for (const r of runs) {
+    if (!r.avgHR || r.distanceM < 10000 || r.distanceM > 25000 || r.timeSec < 40 * 60) continue;
+    if (looksLikeIntervals(r.name ?? "") || looksLikeRace(r.name ?? "")) continue;
+    const hrFraction = r.avgHR / maxHR;
+    if (hrFraction < 0.82 || hrFraction > 0.92) continue;
+    const rawPace = r.timeSec / (r.distanceM / 1000);
+    const gap = gradeAdjustedPace(rawPace, r.totalElevationGain ?? 0, r.distanceM);
+    const vEst = vo2maxFromSubmaxEffort(gap, r.avgHR, maxHR);
+    if (!(vEst > 30 && vEst < 90)) continue;
+    if (!best || vEst > best.vEst) best = { distanceM: r.distanceM, vEst };
+  }
+  return best ? [{ distanceM: best.distanceM, timeSec: predictRaceTime(best.vEst, best.distanceM) }] : [];
 }
 
 export interface RacePrediction {
@@ -392,6 +587,8 @@ export interface RacePrediction {
   rangeLo: number;
   rangeHi: number;
   lowConfidenceShort: boolean;
+  /** Individual model votes for this distance (§5.8 UI model selector) — keyed by display name. */
+  models: Record<string, number>;
 }
 
 // ── Critical Speed/W' as a third, physiologically-independent vote ──────────
@@ -405,8 +602,7 @@ export interface RacePrediction {
 // for a marathon POINT estimate, so beyond half-marathon it only widens the uncertainty
 // range (see blendedRacePrediction), it never votes on the number itself.
 const CS_VOTE_MAX_DIST_HYPERBOLA = 15000; // mirrors critical-speed.ts's own CS_MAX_DIST fitting cutoff
-const CS_VOTE_MAX_DIST_FRACTION  = 22000; // covers the half-marathon row only
-const HM_CS_FRACTION             = 0.973;
+const CS_VOTE_MAX_DIST_FRACTION  = 22000; // marathon-only range-widening guard (excludes HM itself)
 const MARATHON_CS_FRACTION_ELITE = 0.95;
 const MARATHON_CS_FRACTION_AVG   = 0.848;
 
@@ -414,17 +610,84 @@ interface CSVote { timeSec: number; confidence: number }
 
 function criticalSpeedVote(targetM: number, cs: CriticalSpeedResult | null | undefined): CSVote | null {
   if (!cs || cs.csMetersPerSec <= 0) return null;
+  if (targetM > CS_VOTE_MAX_DIST_HYPERBOLA) return null; // beyond this, use thresholdAnchoredVote() instead
   const confidence = Math.max(0, Math.min(1, cs.rSquared));
-  if (targetM <= CS_VOTE_MAX_DIST_HYPERBOLA) {
-    const t = (targetM - cs.wPrimeMeters) / cs.csMetersPerSec;
-    return t > 0 ? { timeSec: t, confidence } : null;
+  const t = (targetM - cs.wPrimeMeters) / cs.csMetersPerSec;
+  return t > 0 ? { timeSec: t, confidence } : null;
+}
+
+// ── §5.1/§5.2: anchor HM/Marathon to the athlete's own measured LT2 pace, not a population
+// fraction-of-CS constant alone ──────────────────────────────────────────────────────────
+//
+// Verified against real data (RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §2): this
+// athlete's statistically-estimated LT2 pace (FitnessCache.statZonesJson, R²=0.99 — derived
+// from training data via breakpoint analysis, independent of race PBs) is a meaningfully
+// better threshold estimate than the CS/W' regression (R²=0.582, degraded by submaximal
+// "LT!" session contamination in its 10-15K input — see §3.2). Below this distance, running
+// AT OR ABOVE LT2 pace is physiologically normal (LT2/MLSS is sustainable for roughly
+// 30-60 min, which covers up to ~10-15K for most runners) — the vote and hard ceiling below
+// only apply from Half Marathon upward, where sustained duration clearly exceeds that window.
+const LT2_VOTE_MIN_DIST     = 21097; // Half Marathon and beyond
+const LT2_VOTE_MIN_RSQUARED = 0.7;   // below this, the statistical zone fit itself isn't trustworthy enough to anchor on
+const HM_LT2_FRACTION_BASE       = 0.973; // field-based CS-testing review: HM ≈ 97.3% of CS/LT2
+const MARATHON_LT2_FRACTION_BASE = 0.848; // same review, population-average marathon caliber — this
+  // athlete's profile (strong short distance, comparatively weaker long-distance endurance,
+  // established in the original 06-23 diagnosis) leans toward "average," not elite (0.95)
+const MAX_PERSONAL_SUSTAIN_ADJUSTMENT = 0.04;
+
+export interface ThresholdPaceSource { paceSecPerKm: number; confidence: number }
+
+/** Prefers the statistical LT2 estimate when reliable; falls back to CS pace otherwise. */
+function pickThresholdSource(
+  lt2: { paceSecPerKm: number; rSquared: number } | null | undefined,
+  cs: CriticalSpeedResult | null | undefined,
+): ThresholdPaceSource | null {
+  if (lt2 && lt2.paceSecPerKm > 0 && lt2.rSquared >= LT2_VOTE_MIN_RSQUARED) {
+    return { paceSecPerKm: lt2.paceSecPerKm, confidence: lt2.rSquared };
   }
-  if (targetM <= CS_VOTE_MAX_DIST_FRACTION) {
-    // Beyond the model's own fitted range — an extra assumption layer (a published fraction
-    // of CS, not the directly-fitted hyperbola), so confidence is discounted further.
-    return { timeSec: targetM / (cs.csMetersPerSec * HM_CS_FRACTION), confidence: confidence * 0.8 };
+  if (cs && cs.csMetersPerSec > 0) {
+    return { paceSecPerKm: 1000 / cs.csMetersPerSec, confidence: Math.max(0, Math.min(1, cs.rSquared)) };
   }
   return null;
+}
+
+/**
+ * Long-run-history-derived nudge to the literature base fraction (Vickers & Vertosick, 2016,
+ * BMC, N=2,303: weekly mileage/long-run history predicts marathon-specific fade independently
+ * of any PB-derived exponent) — capped small, this only ever fine-tunes the literature base,
+ * never dominates it.
+ */
+function personalSustainAdjustment(longestRunLast8wM: number | undefined, targetM: number): number {
+  if (longestRunLast8wM === undefined || longestRunLast8wM <= 0) return 0;
+  const ratio = longestRunLast8wM / targetM;
+  const raw = ratio >= 0.7 ? 0.02 : ratio <= 0.25 ? -0.03 : -0.03 + (ratio - 0.25) / 0.45 * 0.05;
+  return Math.max(-MAX_PERSONAL_SUSTAIN_ADJUSTMENT, Math.min(MAX_PERSONAL_SUSTAIN_ADJUSTMENT, raw));
+}
+
+function sustainFraction(targetM: number, longestRunLast8wM: number | undefined): number {
+  const base = targetM >= 30000 ? MARATHON_LT2_FRACTION_BASE : HM_LT2_FRACTION_BASE;
+  const adj = personalSustainAdjustment(longestRunLast8wM, targetM);
+  return Math.min(0.97, Math.max(0.75, base + adj));
+}
+
+/** The pace this athlete's own measured threshold implies they can never exceed for `targetM`. */
+function thresholdCeilingTimeSec(
+  targetM: number,
+  source: ThresholdPaceSource | null,
+  longestRunLast8wM: number | undefined,
+): number | null {
+  if (!source || targetM < LT2_VOTE_MIN_DIST) return null;
+  const paceSecPerKm = source.paceSecPerKm / sustainFraction(targetM, longestRunLast8wM);
+  return paceSecPerKm * (targetM / 1000);
+}
+
+function thresholdAnchoredVote(
+  targetM: number,
+  source: ThresholdPaceSource | null,
+  longestRunLast8wM: number | undefined,
+): CSVote | null {
+  const timeSec = thresholdCeilingTimeSec(targetM, source, longestRunLast8wM);
+  return timeSec !== null && source ? { timeSec, confidence: source.confidence } : null;
 }
 
 /**
@@ -467,27 +730,32 @@ export function blendedRacePrediction(
   fallbackExponent: number,
   cs?: CriticalSpeedResult | null,
   longestRunLast8wM?: number,
+  lt2?: { paceSecPerKm: number; rSquared: number } | null,
 ): RacePrediction {
-  const peak = predictRaceTime(vdot, targetM);
+  const danielsRaw = predictRaceTime(vdot, targetM);
   const local = personalizedRacePrediction(targetM, knownPerformances, fallbackExponent);
-  const csVote = criticalSpeedVote(targetM, cs);
+  // ≤15K: raw CS/W' hyperbola (criticalSpeedVote). ≥HM: the athlete's own measured LT2 pace
+  // when reliable, else CS pace as fallback — see thresholdAnchoredVote doc comment. The two
+  // ranges never overlap, so at most one of these is ever non-null for a given targetM.
+  const physVote = criticalSpeedVote(targetM, cs)
+    ?? thresholdAnchoredVote(targetM, pickThresholdSource(lt2, cs), longestRunLast8wM);
 
   let blended: number;
   let riegelOut: number | null;
   let lowConfidenceShort: boolean;
-  let groundedWeight: number; // local + CS share — scales the uncertainty band below
+  let groundedWeight: number; // local + physVote share — scales the uncertainty band below
 
   if (!local) {
-    if (csVote) {
-      const wCS = csVote.confidence * 0.5; // no personal bracket at all — lean on CS, but stay cautious
-      blended = Math.round(wCS * csVote.timeSec + (1 - wCS) * peak);
-      groundedWeight = wCS;
+    if (physVote) {
+      const wVote = physVote.confidence * 0.5; // no personal bracket at all — lean on the vote, but stay cautious
+      blended = Math.round(wVote * physVote.timeSec + (1 - wVote) * danielsRaw);
+      groundedWeight = wVote;
     } else {
-      blended = peak;
+      blended = danielsRaw;
       groundedWeight = 0;
     }
     riegelOut = null;
-    lowConfidenceShort = peak < 210;
+    lowConfidenceShort = danielsRaw < 210;
   } else {
     let wLocal: number;
     if (local.bracketed) {
@@ -503,20 +771,28 @@ export function blendedRacePrediction(
     // it's an approximation never calibrated for sprint-duration efforts, so for short
     // predicted durations the global curve is the unreliable half of the blend regardless
     // of how well-bracketed the local model is.
-    lowConfidenceShort = local.timeSec < 210 || peak < 210;
+    lowConfidenceShort = local.timeSec < 210 || danielsRaw < 210;
     if (lowConfidenceShort) wLocal = Math.max(wLocal, 0.9);
 
     const peakShare = 1 - wLocal;
-    // CS gets more room when local is only a one-sided extrapolation (no real bracket) — that's
-    // exactly where an independent physiological cross-check is most valuable; less room when a
-    // real two-point bracket already pins the estimate down directly from this runner's own data.
-    const wCS = csVote ? peakShare * csVote.confidence * (local.bracketed ? 0.3 : 0.6) : 0;
-    const wPeak = peakShare - wCS;
+    // The vote gets more room when local is only a one-sided extrapolation (no real bracket) —
+    // that's exactly where an independent physiological cross-check is most valuable; less room
+    // when a real two-point bracket already pins the estimate down directly from this runner's
+    // own data.
+    const wVote = physVote ? peakShare * physVote.confidence * (local.bracketed ? 0.3 : 0.6) : 0;
+    const wPeak = peakShare - wVote;
 
-    blended = Math.round(wLocal * local.timeSec + wCS * (csVote?.timeSec ?? 0) + wPeak * peak);
+    blended = Math.round(wLocal * local.timeSec + wVote * (physVote?.timeSec ?? 0) + wPeak * danielsRaw);
     riegelOut = local.timeSec;
-    groundedWeight = wLocal + wCS;
+    groundedWeight = wLocal + wVote;
   }
+
+  // Hard ceiling (§5.1): this athlete's own measured threshold pace bounds how fast HM/Marathon
+  // can plausibly be, regardless of what the blend above produced — verified necessary against
+  // real data (a 38:41 10K runner's blended marathon estimate implied 99.5% of their own LT2
+  // pace sustained for 42.195km, which is unrealistic at any caliber).
+  const ceilingTimeSec = thresholdCeilingTimeSec(targetM, pickThresholdSource(lt2, cs), longestRunLast8wM);
+  if (ceilingTimeSec !== null && blended < ceilingTimeSec) blended = Math.round(ceilingTimeSec);
 
   const uncertaintyMultiplier = 1 + (1 - groundedWeight) * 1.5;
   let range = predictionRange(blended, targetM, uncertaintyMultiplier);
@@ -539,8 +815,15 @@ export function blendedRacePrediction(
       };
     }
   }
+  // The ceiling is a hard physiological floor on time — never let range-widening pull rangeLo
+  // back below it either.
+  if (ceilingTimeSec !== null) range = { ...range, lo: Math.max(range.lo, Math.round(ceilingTimeSec)) };
 
-  return { peak: blended, riegel: riegelOut, rangeLo: range.lo, rangeHi: range.hi, lowConfidenceShort };
+  const models: Record<string, number> = { "Daniels (population)": danielsRaw };
+  if (riegelOut !== null) models["Riegel (your PBs)"] = riegelOut;
+  if (physVote) models["Critical Speed / Threshold"] = Math.round(physVote.timeSec);
+
+  return { peak: blended, riegel: riegelOut, rangeLo: range.lo, rangeHi: range.hi, lowConfidenceShort, models };
 }
 
 /**
@@ -557,19 +840,21 @@ export function computeRacePredictions(
   racePBs: Array<{ distanceM: number; timeSec: number }>,
   bestEfforts: Array<{ distance: number; elapsed_time: number }>,
   longestRunLast8wM?: number,
+  lt2?: { paceSecPerKm: number; rSquared: number } | null,
+  lowerTierCandidates?: KnownPerformance[],
 ): {
-  predictions: Array<{ label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort: boolean }>;
+  predictions: Array<{ label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort: boolean; models: Record<string, number> }>;
   criticalSpeed: CriticalSpeedResult | null;
 } {
   const personalK = personalizedFatigueExponent(bestEfforts);
   const fallbackExponent = personalK !== null ? (1 - personalK) : 1.06;
-  const knownPerformances = buildKnownPerformances(racePBs, bestEfforts);
+  const knownPerformances = buildKnownPerformances(racePBs, bestEfforts, lowerTierCandidates);
   const criticalSpeed = estimateCriticalSpeed(bestEfforts, racePBs);
 
   const predictions = RACE_DISTANCES.map(({ label, meters }) => {
-    const { peak, riegel, rangeLo, rangeHi, lowConfidenceShort } =
-      blendedRacePrediction(meters, vdot, knownPerformances, fallbackExponent, criticalSpeed, longestRunLast8wM);
-    return { label, meters, peak, today: tsbAdjustedRaceTime(peak, tsb), riegel, rangeLo, rangeHi, lowConfidenceShort };
+    const { peak, riegel, rangeLo, rangeHi, lowConfidenceShort, models } =
+      blendedRacePrediction(meters, vdot, knownPerformances, fallbackExponent, criticalSpeed, longestRunLast8wM, lt2);
+    return { label, meters, peak, today: tsbAdjustedRaceTime(peak, tsb), riegel, rangeLo, rangeHi, lowConfidenceShort, models };
   });
 
   return { predictions, criticalSpeed };
@@ -577,12 +862,12 @@ export function computeRacePredictions(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function looksLikeRace(name: string): boolean {
+export function looksLikeRace(name: string): boolean {
   return /tävl|race|lopp|mila|stafett|sic\b|parkrun|time.?trial|tt\b|halvmara|half.?marathon/i
     .test(name);
 }
 
-function looksLikeIntervals(name: string): boolean {
+export function looksLikeIntervals(name: string): boolean {
   return /intervall|interval|fartlek|tisdagsbana|bana\b|x\s*\d|\d+\s*[×x]\s*\d+|rep(etition)?|varvlopp/i
     .test(name ?? "");
 }
@@ -738,7 +1023,6 @@ export function estimateVO2max(
   maxHR: number,
   restHR: number,
   racePBs?: RacePB[],
-  tsb?: number,
   avgWeeklyRunKm?: number,
 ): VO2maxEstimate {
   const isRunning = (a: ActivitySample) => /run|trail/i.test(a.sportType);
@@ -898,14 +1182,6 @@ export function estimateVO2max(
     if (cs && cs.vdot > 35 && cs.vdot < 90) model6Vdot = cs.vdot;
   }
 
-  // ── MODEL 7: TSB-adjusted VDOT (Banister form model) ─────────────────────
-  // Adjusts the PB-based estimate up/down based on current training stress balance.
-  // TSB +15 ≈ peak form (+4.5%); TSB −30 ≈ heavy fatigue (−9%).
-  let model7Vdot: number | null = null;
-  if (model1Vdot && tsb !== undefined && tsb !== null) {
-    model7Vdot = tsbAdjustedVdot(model1Vdot, tsb);
-  }
-
   // ── MODEL 8: HR-form signal from easy runs ────────────────────────────────
   // If HR at easy pace has drifted vs 90-day baseline, adjust VDOT accordingly.
   let model8Vdot: number | null = null;
@@ -926,10 +1202,13 @@ export function estimateVO2max(
   }
 
   // ── WEIGHTED MEAN — race PBs contribute but do not dominate ─────────────
+  // TSB no longer contributes a model here (§5.6 — it was being applied twice: once via this
+  // blend, again via tsbAdjustedRaceTime() for the race-prediction "Today" column). The base
+  // VDOT/"peak" blend is now TSB-neutral; tsbAdjustedRaceTime() is the only place TSB shifts
+  // a number, exactly the "Today" column it already names.
   const hasRacePBs = racePBCandidates.length > 0 || model6Vdot !== null;
-  const tsbWeight    = model7Vdot !== null ? 0.25 : 0.00;
   const hrFormWeight = model8Vdot !== null ? 0.20 : 0.00;
-  const hasCurrent   = tsbWeight + hrFormWeight > 0;
+  const hasCurrent   = hrFormWeight > 0;
 
   // Age-decay VDOT weight: fresh PB (≤90d) → full; stale (540+d) → 35% floor.
   // Prevents an 18-month-old PB from dominating current-fitness signals.
@@ -948,7 +1227,6 @@ export function estimateVO2max(
   type ModelEntry = [number | null, number, string];
   const models: ModelEntry[] = [
     [model1Vdot,  vdotWeight,               "VDOT (race PBs)"],
-    [model7Vdot,  tsbWeight,                "TSB-adjusted (form)"],
     [model8Vdot,  hrFormWeight,             "HR-form signal"],
     [model4Vdot,  varWeight,                "Volume-Adjusted Riegel"],
     [model6Vdot,  csWeight,                 "Critical Speed"],

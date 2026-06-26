@@ -3,12 +3,11 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@prisma/client";
 import { StatsClient } from "./stats-client";
 import { StatsErrorBoundary } from "./stats-error-boundary";
-import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, ltBoundaries, computeZoneTime, type ZoneTimeActivity, type HRZones } from "@/lib/fitness/zones";
+import { buildHRZones, buildPaceZones, buildPaceZonesFromLT, estimateLTFromRaces, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, ltBoundaries, computeZoneTime, type ZoneTimeActivity, type HRZones, type StatisticalZoneResult } from "@/lib/fitness/zones";
 import { computeTSS, buildLoadCurve, computeACWR } from "@/lib/fitness/training-load";
-import { estimateVO2max, predictRaceTime, riegelPredict, vdotFromRace, computeRacePredictions } from "@/lib/fitness/vo2max";
+import { estimateVO2max, computeRacePredictions, buildTrustedRacePBs, extractTempoRunAnchors, extractIntervalLapCandidates, type KnownPerformance } from "@/lib/fitness/vo2max";
 import { loadBestEffortsForRacePredictions } from "@/lib/fitness/cache";
 import { loadCachedHRStreams } from "@/lib/strava/stream-backfill";
-import { RACE_DISTANCES } from "@/lib/fitness/paces";
 import { computeHrvBaseline, computeRestingHRBaseline, computeReadinessScore, type HrvBaseline } from "@/lib/garmin/insights";
 import { subDays, format, startOfWeek, startOfYear } from "date-fns";
 
@@ -38,7 +37,7 @@ export default async function StatsPage() {
     }),
     prisma.raceRecord.findMany({
       where: { userId, date: { gte: subDays(now, 5 * 365) } },
-      select: { distanceM: true, time: true, date: true, isManual: true },
+      select: { distanceM: true, time: true, date: true, isManual: true, stravaActivityId: true },
       orderBy: { time: "asc" },
     }),
     // Weather profile: last 4 years only — older data reflects a different fitness level
@@ -56,17 +55,12 @@ export default async function StatsPage() {
     }),
   ]);
 
-  const bestPerDist = new Map<number, { distanceM: number; timeSec: number; date: Date }>();
-  for (const r of allRacePBs) {
-    // See lib/fitness/cache.ts::loadRacePBs() for why isManual gates trust beyond 10K —
-    // both implementations must apply the same rule, see vo2max.ts doc comment on
-    // computeRacePredictions() for why this can never be allowed to drift apart.
-    if (r.distanceM > 10000 && !r.isManual) continue;
-    const d = Math.round(r.distanceM);
-    if (!bestPerDist.has(d) || bestPerDist.get(d)!.timeSec > r.time)
-      bestPerDist.set(d, { distanceM: r.distanceM, timeSec: r.time, date: r.date });
-  }
-  const racePBs = [...bestPerDist.values()];
+  // See lib/fitness/cache.ts::loadRacePBs() for the shared isManual/stravaActivityId trust
+  // rules — both implementations must call the same buildTrustedRacePBs(), see vo2max.ts doc
+  // comment on computeRacePredictions() for why this can never be allowed to drift apart.
+  const racePBs = buildTrustedRacePBs(allRacePBs.map((r: { distanceM: number; time: number; date: Date; isManual: boolean; stravaActivityId: string | null }) => ({
+    distanceM: r.distanceM, timeSec: r.time, date: r.date, isManual: r.isManual, stravaActivityId: r.stravaActivityId,
+  })));
 
   // ── Overview: always-fresh aggregates (fast queries, no activity rows needed) ──
   const weekStart  = startOfWeek(now, { weekStartsOn: 1 });
@@ -194,7 +188,7 @@ export default async function StatsPage() {
     const weeklyVolumes = (fitnessCache.weeklyVolumeJson ?? {}) as Record<string, Record<string, { km: number; timeSec: number }>>;
     const zoneSeconds   = (fitnessCache.zoneSecondsJson ?? { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 }) as Record<string, number>;
     const polarisation  = (fitnessCache.polarisationJson ?? null) as { z1Pct: number; z2Pct: number; z3Pct: number } | null;
-    const predictions   = (fitnessCache.predictionsJson ?? []) as { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean }[];
+    const predictions   = (fitnessCache.predictionsJson ?? []) as { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean; models?: Record<string, number> }[];
     const todayLoad = {
       atl: fitnessCache.atl ?? 0, ctl: fitnessCache.ctl ?? 0, tsb: fitnessCache.tsb ?? 0,
       tss: 0, date: format(now, "yyyy-MM-dd"),
@@ -272,40 +266,6 @@ export default async function StatsPage() {
       else                                              fastPaceZoneSeconds.repetition += a.movingTime;
     }
 
-    // Per-model predictions from the cached VO2max breakdown
-    const cachedBreakdown = (fitnessCache.vo2maxBreakdownJson ?? {}) as Record<string, number>;
-    const fastModelVdots: Record<string, number> = {
-      "Weighted (default)": vo2max.vdot,
-      ...Object.fromEntries(
-        Object.entries(cachedBreakdown)
-          .filter(([, v]) => v > 30 && v < 90)
-          .map(([name, v]) => [name, Math.round(v * 10) / 10])
-      ),
-    };
-    const fastModelPredictions = Object.fromEntries(
-      Object.entries(fastModelVdots).map(([model, vdot]) => [
-        model,
-        RACE_DISTANCES.map(({ label, meters }) => ({ label, meters, peak: predictRaceTime(vdot, meters) })),
-      ])
-    );
-
-    // Volume-Adjusted Riegel (Alex Gascón model)
-    const varAnchorFast = racePBs.reduce<{ timeSec: number; distanceM: number; date: Date } | null>((best, p) => {
-      if (!best) return p;
-      return vdotFromRace(p.distanceM, p.timeSec) > vdotFromRace(best.distanceM, best.timeSec) ? p : best;
-    }, null);
-    const avgWeeklyRunKmFast = Array.from({ length: 8 }, (_, i) => {
-      const wkStart = startOfWeek(subDays(now, (7 - i) * 7), { weekStartsOn: 1 });
-      const key = format(wkStart, "yyyy-MM-dd");
-      return (weeklyVolumes[key]?.["Running"] ?? { km: 0 }).km;
-    }).reduce((s, v) => s + v, 0) / 8;
-    const varDFast = Math.max(1.05, Math.min(1.18, 1.18 - 0.0015 * avgWeeklyRunKmFast));
-    if (varAnchorFast) {
-      fastModelVdots["Volume-Adjusted Riegel"] = varDFast;
-      fastModelPredictions["Volume-Adjusted Riegel"] = RACE_DISTANCES.map(({ label, meters }) => ({
-        label, meters, peak: riegelPredict(varAnchorFast.timeSec, varAnchorFast.distanceM, meters, varDFast),
-      }));
-    }
 
     // Compute analytics from recentForCurve (24-week data already fetched)
     const fpLt1HR = hrZones.z3[0];
@@ -419,7 +379,7 @@ export default async function StatsPage() {
 
     return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
       fastZoneSeconds, hrZones, vo2max, effectivePaceZones, predictions, fastPolarisation, acwr,
-      overviewRun, fastAnalytics, fastPaceZoneSeconds, fastModelPredictions, fastModelVdots, extraVizFresh,
+      overviewRun, fastAnalytics, fastPaceZoneSeconds, extraVizFresh,
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
       fpEasyPaceTrend, statZonesLapsCached,
       fpCadenceScatter, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length,
@@ -478,7 +438,7 @@ export default async function StatsPage() {
       avgHR: a.averageHeartrate, isRace: a.isRace,
       sportType: a.sportType, name: a.name, startDate: a.startDate,
     })),
-    computedMaxHR, restHR, racePBs, undefined, slowAvgWeeklyRunKm,
+    computedMaxHR, restHR, racePBs, slowAvgWeeklyRunKm,
   );
   const paceZones = buildPaceZones(vo2max.vdot);
   const ltSlow = estimateLTFromRaces(racePBs, computedMaxHR, restHR);
@@ -538,48 +498,19 @@ export default async function StatsPage() {
   // Shared with both FitnessCache update paths (lib/fitness/cache.ts) — see
   // computeRacePredictions() doc comment for why this must stay a single implementation.
   const bestEffortsForPredictions = await loadBestEffortsForRacePredictions(userId);
-  const { predictions } =
-    computeRacePredictions(vo2max.vdot, todayLoad.tsb, racePBs, bestEffortsForPredictions, slowLongestRunM);
-
-  // Per-model predictions — lets user see output of each individual model
-  const modelVdots: Record<string, number> = {
-    "Weighted (default)": vo2max.vdot,
-    ...Object.fromEntries(
-      Object.entries(vo2max.breakdown ?? {})
-        .filter(([, v]) => v > 30 && v < 90)
-        .map(([name, v]) => [name, Math.round(v * 10) / 10])
+  const lt2 = statZonesLapsCached
+    ? { paceSecPerKm: statZonesLapsCached.lt2PaceSecPerKm, rSquared: statZonesLapsCached.rSquared }
+    : null;
+  const runningActsSlow = (activities as (A & { laps?: unknown })[]).filter(a => /run|trail/i.test(a.sportType));
+  const lowerTierCandidatesSlow: KnownPerformance[] = [
+    ...extractTempoRunAnchors(
+      runningActsSlow.map(a => ({ distanceM: a.distance, timeSec: a.movingTime, avgHR: a.averageHeartrate, totalElevationGain: a.totalElevationGain, name: a.name })),
+      computedMaxHR,
     ),
-  };
-  const modelPredictions = Object.fromEntries(
-    Object.entries(modelVdots).map(([model, vdot]) => [
-      model,
-      RACE_DISTANCES.map(({ label, meters }) => ({
-        label, meters,
-        peak: predictRaceTime(vdot, meters),
-      })),
-    ])
-  );
-
-  // Volume-Adjusted Riegel (Alex Gascón model)
-  const varAnchor = racePBs.reduce<{ timeSec: number; distanceM: number; date: Date } | null>((best, p) => {
-    if (!best) return p;
-    return vdotFromRace(p.distanceM, p.timeSec) > vdotFromRace(best.distanceM, best.timeSec) ? p : best;
-  }, null);
-  const eightWeeksAgo = subDays(now, 56);
-  const weeklyRunKmMap = new Map<string, number>();
-  for (const a of activities as A[]) {
-    if (!/run|trail/i.test(a.sportType) || a.startDate < eightWeeksAgo) continue;
-    const wk = format(startOfWeek(a.startDate, { weekStartsOn: 1 }), "yyyy-MM-dd");
-    weeklyRunKmMap.set(wk, (weeklyRunKmMap.get(wk) ?? 0) + a.distance / 1000);
-  }
-  const avgWeeklyRunKm = [...weeklyRunKmMap.values()].reduce((s, v) => s + v, 0) / 8;
-  const varD = Math.max(1.05, Math.min(1.18, 1.18 - 0.0015 * avgWeeklyRunKm));
-  if (varAnchor) {
-    modelVdots["Volume-Adjusted Riegel"] = varD;
-    modelPredictions["Volume-Adjusted Riegel"] = RACE_DISTANCES.map(({ label, meters }) => ({
-      label, meters, peak: riegelPredict(varAnchor.timeSec, varAnchor.distanceM, meters, varD),
-    }));
-  }
+    ...extractIntervalLapCandidates(runningActsSlow.map(a => ({ name: a.name, laps: a.laps }))),
+  ];
+  const { predictions } =
+    computeRacePredictions(vo2max.vdot, todayLoad.tsb, racePBs, bestEffortsForPredictions, slowLongestRunM, lt2, lowerTierCandidatesSlow);
 
   const polTotal = polZ1 + polZ2 + polZ3;
   const polarisation = polTotal > 0 ? {
@@ -867,7 +798,6 @@ export default async function StatsPage() {
   return renderStats(totalCount, overview, sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, computedHrZones, vo2max, effectivePaceZones, predictions, polarisation, acwr, overviewRun,
     { aeiByWeek, reByWeek, rampRate, injuryRisk, activeStreak, tempSensitivity }, paceZoneSeconds,
-    modelPredictions, modelVdots,
     { heatmapData, monthlyOverlay, intensityProfile, vdotTrend, terrainFactor, perfByDistYear, ltPaceTrend: existingLtPaceTrend as { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[] },
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
     easyPaceTrend, statZonesLapsCached,
@@ -898,14 +828,12 @@ function renderStats(
   hrZones: import("@/lib/fitness/zones").HRZones,
   vo2max: import("@/lib/fitness/vo2max").VO2maxEstimate,
   paceZones: import("@/lib/fitness/zones").PaceZones,
-  predictions: { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean }[],
+  predictions: { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean; models?: Record<string, number> }[],
   polarisation: { z1Pct: number; z2Pct: number; z3Pct: number } | null,
   acwr: number | null,
   overviewRun?: OverviewData,
   analytics?: Analytics1A | null,
   paceZoneSeconds?: Record<string, number>,
-  modelPredictions?: Record<string, { label: string; meters: number; peak: number }[]>,
-  modelVdots?: Record<string, number>,
   extraViz?: {
     heatmapData: { week: string; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
     monthlyOverlay: { month: string; year: number; km: number; timeSec?: number; bySport?: Record<string, { km: number; timeSec: number }> }[];
@@ -963,8 +891,6 @@ function renderStats(
         overviewRun={overviewRun ?? overview}
         analytics={analytics ?? null}
         paceZoneSeconds={paceZoneSeconds ?? {}}
-        modelPredictions={modelPredictions ?? {}}
-        modelVdots={modelVdots ?? {}}
         extraViz={extraViz ?? null}
         manualMaxHR={manualMaxHR ?? null}
         manualRestHR={manualRestHR ?? null}

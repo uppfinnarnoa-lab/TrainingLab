@@ -5,13 +5,13 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { MetricTooltip } from "./metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
-import { secPerKmToPaceStr, secToTimeStr, RACE_DISTANCES } from "@/lib/fitness/paces";
+import { secPerKmToPaceStr, secToTimeStr } from "@/lib/fitness/paces";
 import type { PaceZones } from "@/lib/fitness/zones";
 import type { VO2maxEstimate } from "@/lib/fitness/vo2max";
 import type { DailyLoad } from "@/lib/fitness/training-load";
 import { tsbLabel } from "@/lib/fitness/training-load";
 
-interface RacePred { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean }
+interface RacePred { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; lowConfidenceShort?: boolean; models?: Record<string, number> }
 
 interface Props {
   vo2max: VO2maxEstimate;
@@ -19,13 +19,19 @@ interface Props {
   todayLoad: DailyLoad;
   predictions: RacePred[];
   acwr: number | null;
-  modelPredictions?: Record<string, { label: string; meters: number; peak: number }[]>;
-  modelVdots?: Record<string, number>;
 }
 
-export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr, modelPredictions, modelVdots }: Props) {
+const DEFAULT_MODEL = "Riegel (your PBs)";
+
+export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr }: Props) {
   const form = tsbLabel(todayLoad.tsb);
-  const [selectedModel, setSelectedModel] = useState<string>("Weighted (default)");
+  // Union of every individual model that has a value for at least one distance — composite
+  // ("Estimate") and "Today" are always their own fixed columns regardless of this selection
+  // (see RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §5.8: selecting a model here must only
+  // ever change this one column, never hide the composite/TSB-adjusted numbers).
+  const availableModels = Array.from(new Set(predictions.flatMap(p => Object.keys(p.models ?? {}))));
+  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
+  const activeModel = availableModels.includes(selectedModel) ? selectedModel : (availableModels[0] ?? DEFAULT_MODEL);
   const acwrColor = !acwr ? "#94A3B8" : acwr > 1.5 ? "#F87171" : acwr > 1.3 ? "#FBBF24" : "#6EE7B7";
   const acwrLabel = !acwr ? "—" : acwr > 1.5 ? "Injury risk" : acwr > 1.3 ? "High load" : acwr >= 0.8 ? "Green zone" : "Too low";
 
@@ -118,81 +124,61 @@ export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr
             <thead>
               <tr className="border-b border-border bg-surface-2">
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-muted">Distance</th>
-                <th className="text-right px-4 py-2.5 text-xs font-medium text-muted">
-                  {selectedModel === "Weighted (default)" ? "Estimate (personalized)" : selectedModel}
-                </th>
-                {selectedModel === "Weighted (default)" && <>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-muted hidden sm:table-cell">Riegel (your PBs)</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-muted">Today (TSB {todayLoad.tsb > 0 ? "+" : ""}{todayLoad.tsb.toFixed(0)})</th>
-                </>}
+                <th className="text-right px-4 py-2.5 text-xs font-medium text-muted hidden sm:table-cell">{activeModel}</th>
+                <th className="text-right px-4 py-2.5 text-xs font-medium text-muted">Estimate (personalized)</th>
+                <th className="text-right px-4 py-2.5 text-xs font-medium text-muted">Today (TSB {todayLoad.tsb > 0 ? "+" : ""}{todayLoad.tsb.toFixed(0)})</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {selectedModel === "Weighted (default)"
-                ? predictions.map(p => (
-                  <tr key={p.label} className="hover:bg-surface-2 transition-colors">
-                    <td className="px-4 py-2.5 font-medium text-primary">
-                      {p.label}
-                      {p.lowConfidenceShort && (
-                        <span className="text-warning text-[10px] ml-1" title="Outside the model's calibrated range (sub-3.5min effort) — treat with extra caution">*</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-primary">
-                      {secToTimeStr(p.peak)}
-                      <span className="text-muted text-[10px] ml-1 hidden sm:inline">±{secToTimeStr(Math.round((p.rangeHi - p.rangeLo) / 2))}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-muted hidden sm:table-cell">
-                      {p.riegel ? secToTimeStr(p.riegel) : "—"}
-                      {p.meters >= 42000 && p.riegel && <span className="text-[10px] ml-1 text-warning">+8 min</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-muted">{secToTimeStr(p.today)}</td>
-                  </tr>
-                ))
-                : (modelPredictions?.[selectedModel] ?? []).map(p => (
-                  <tr key={p.label} className="hover:bg-surface-2 transition-colors">
-                    <td className="px-4 py-2.5 font-medium text-primary">{p.label}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-primary">{secToTimeStr(p.peak)}</td>
-                  </tr>
-                ))
-              }
+              {predictions.map(p => (
+                <tr key={p.label} className="hover:bg-surface-2 transition-colors">
+                  <td className="px-4 py-2.5 font-medium text-primary">
+                    {p.label}
+                    {p.lowConfidenceShort && (
+                      <span className="text-warning text-[10px] ml-1" title="Outside the model's calibrated range (sub-3.5min effort) — treat with extra caution">*</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-muted hidden sm:table-cell">
+                    {p.models?.[activeModel] !== undefined ? secToTimeStr(p.models[activeModel]) : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-primary">
+                    {secToTimeStr(p.peak)}
+                    <span className="text-muted text-[10px] ml-1 hidden sm:inline">±{secToTimeStr(Math.round((p.rangeHi - p.rangeLo) / 2))}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-muted">{secToTimeStr(p.today)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
 
-        {/* Model selector */}
-        {modelVdots && Object.keys(modelVdots).length > 1 && (
+        {/* Model selector — changes ONLY the leftmost data column above; Estimate/Today
+            always stay visible regardless of what's selected here. */}
+        {availableModels.length > 1 && (
           <div className="mt-3 rounded-xl border border-border bg-surface-2 p-3 space-y-2">
-            <p className="text-xs font-medium text-muted">Show predictions from:</p>
+            <p className="text-xs font-medium text-muted">Compare against:</p>
             <div className="flex flex-wrap gap-1.5">
-              {Object.entries(modelVdots).map(([model, vdot]) => (
+              {availableModels.map(model => (
                 <button
                   key={model}
+                  type="button"
                   onClick={() => setSelectedModel(model)}
                   className={cn(
                     "px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors",
-                    selectedModel === model
+                    activeModel === model
                       ? "border-accent/40 bg-accent/10 text-accent"
                       : "border-border text-muted hover:text-primary hover:border-border"
                   )}
                 >
                   {model}
-                  <span className="ml-1.5 font-mono text-[10px] opacity-70">{vdot < 2 ? `exp ${vdot.toFixed(3)}` : `VDOT ${vdot}`}</span>
                 </button>
               ))}
             </div>
-            {selectedModel !== "Weighted (default)" && (
-              <p className="text-[10px] text-muted">
-                {(modelVdots[selectedModel] ?? 0) < 2
-                  ? <>Showing <strong>{selectedModel}</strong> predictions — exponent {(modelVdots[selectedModel] ?? 0).toFixed(3)} based on your weekly running volume.</>
-                  : <>Showing raw output from <strong>{selectedModel}</strong> model only — no weighting applied. VDOT {modelVdots[selectedModel]?.toFixed(1)} vs weighted {vo2max.vdot.toFixed(1)}.</>
-                }
-              </p>
-            )}
           </div>
         )}
 
         <p className="text-xs text-muted mt-2">
-          Estimate blends the global VDOT curve with your own nearby race results — distances close to a real PB lean on that PB; distances far from any real result (e.g. marathon with no marathon PB) widen the ± range instead of guessing precisely. Riegel column shows the personalized-only projection for comparison.
+          Estimate blends the global VDOT curve, your own nearby race results, and your measured threshold pace — distances close to a real PB lean on that PB; distances far from any real result (e.g. marathon with no marathon PB) widen the ± range instead of guessing precisely. Use &quot;Compare against&quot; above to see one individual model&apos;s raw output alongside the composite.
           {predictions.some(p => p.lowConfidenceShort) && <> <span className="text-warning">*</span> outside the model&apos;s calibrated range (sub-3.5min effort).</>}
         </p>
       </div>

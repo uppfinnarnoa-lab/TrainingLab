@@ -33,7 +33,7 @@ import { readinessLabel, type ReadinessResult, type HrvBaseline } from "@/lib/ga
 import { cn } from "@/lib/utils";
 
 interface SumData { km: number; timeSec: number; count: number }
-interface RacePred { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number }
+interface RacePred { label: string; meters: number; peak: number; today: number; riegel: number | null; rangeLo: number; rangeHi: number; models?: Record<string, number> }
 interface Polarisation { z1Pct: number; z2Pct: number; z3Pct: number }
 
 interface Props {
@@ -66,8 +66,6 @@ interface Props {
     tempSensitivity: number | null;
   } | null;
   paceZoneSeconds: Record<string, number>;
-  modelPredictions: Record<string, { label: string; meters: number; peak: number }[]>;
-  modelVdots: Record<string, number>;
   manualMaxHR: number | null;
   manualRestHR: number | null;
   weatherStats: WeatherStats | null;
@@ -106,7 +104,7 @@ export function StatsClient(props: Props) {
   const o = sportMode === "run" ? props.overviewRun : props.overview;
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZonesLaps, analytics, paceZoneSeconds,
-    modelPredictions, modelVdots, extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend,
+    extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend,
     cadenceScatter, efByWeek, monotony, strain, avgRecoveryDays, recoveryDaysCount, garminWellness,
     readiness, hrvBaseline } = props;
   const [section, setSection] = useState<Section>("Overview");
@@ -353,8 +351,7 @@ export function StatsClient(props: Props) {
       {/* ── Fitness ── */}
       {section === "Fitness" && (
         <div className="space-y-6">
-          <FitnessMetrics vo2max={vo2max} paceZones={paceZones} todayLoad={todayLoad} predictions={predictions} acwr={acwr}
-            modelPredictions={modelPredictions} modelVdots={modelVdots} />
+          <FitnessMetrics vo2max={vo2max} paceZones={paceZones} todayLoad={todayLoad} predictions={predictions} acwr={acwr} />
 
           {/* Analytics 1A: AEI trend + ramp rate + active streak */}
           {analytics && (

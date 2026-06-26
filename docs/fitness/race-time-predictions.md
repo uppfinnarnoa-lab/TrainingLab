@@ -1,6 +1,6 @@
 # Race Time Predictions — Model
 
-> **Purpose**: How `FitnessCache.predictionsJson` (the Stats page "Race Time Predictions" table and the AI coach's `get_fitness_summary` tool) is computed. Implemented 2026-06-24, replacing a single-global-exponent Riegel model — see [docs/planning/archive/RACE_ESTIMATE_PERSONALIZATION_PLAN_2026_06_23.md](../planning/archive/RACE_ESTIMATE_PERSONALIZATION_PLAN_2026_06_23.md) for the original diagnosis and design rationale. Extended 2026-06-24 (same day, follow-up session) to wire in a Critical Speed/W′ vote and long-run-history confidence signal — see [docs/planning/archive/RACE_ESTIMATE_ACADEMIC_RESEARCH_PLAN_2026_06_24.md](../planning/archive/RACE_ESTIMATE_ACADEMIC_RESEARCH_PLAN_2026_06_24.md).
+> **Purpose**: How `FitnessCache.predictionsJson` (the Stats page "Race Time Predictions" table and the AI coach's `get_fitness_summary` tool) is computed. Implemented 2026-06-24, replacing a single-global-exponent Riegel model — see [docs/planning/archive/RACE_ESTIMATE_PERSONALIZATION_PLAN_2026_06_23.md](../planning/archive/RACE_ESTIMATE_PERSONALIZATION_PLAN_2026_06_23.md) for the original diagnosis and design rationale. Extended 2026-06-24 (same day, follow-up session) to wire in a Critical Speed/W′ vote and long-run-history confidence signal — see [docs/planning/archive/RACE_ESTIMATE_ACADEMIC_RESEARCH_PLAN_2026_06_24.md](../planning/archive/RACE_ESTIMATE_ACADEMIC_RESEARCH_PLAN_2026_06_24.md). Substantially extended again 2026-06-26 — LT2-anchored ceiling for HM/Marathon, mid-race-split detection, tempo-run and interval-lap anchors, UI model selector — see [docs/planning/archive/RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md](../planning/archive/RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md).
 
 ---
 
@@ -13,54 +13,92 @@ Two models used to run in parallel:
 
 For a runner with a "spikier" profile (strong short, weaker relative long endurance), this produced exactly the complaint: "short a little too slow, long way too fast" for Peak, and an even worse over-correction for Riegel (predicted 10K times +17–30% too slow) — because the regression mixed two different effort regimes (anaerobic/VO2max-dominant short efforts vs. submaximal long-run segments) into one straight line.
 
-## 2. The current model
+## 2. The bracket/blend model (2026-06-24)
 
 ### `personalizedFatigueExponent(bestEfforts)`
 
-Log-log regression of pace vs. distance, same as before, but **capped at 10K**. Beyond 10K, a `bestEffort` segment is essentially never a genuine maximal flat-road effort — see §3 below for why `Activity.isRace` can't rescue it. Empirically verified per-athlete: implied VDOT from `bestEfforts` stays consistent (53.8–60 in the original validation case) through 10K, then crashes hard beyond it. Falls back to standard Riegel (1.06) if fewer than 3 distinct distances survive the filter.
+Log-log regression of pace vs. distance, capped at 10K — beyond 10K, a `bestEffort` segment is essentially never a genuine maximal flat-road effort (see §3 of the 2026-06-23 plan). Falls back to standard Riegel (1.06) if fewer than 3 distinct distances survive the filter.
 
 ### `personalizedRacePrediction(targetM, knownPerformances, fallbackExponent)`
 
-The core fix. Instead of one global exponent extrapolated from one fixed anchor, this finds the runner's own real results bracketing `targetM`:
+Instead of one global exponent extrapolated from one fixed anchor, finds the runner's own real results bracketing `targetM`:
 
-- **Two real results, one below and one above** the target (and far enough apart to avoid amplifying noise into a wild slope): fits a *local* Riegel exponent between just those two points, clamped to `[0.95, 1.25]`. This is a true interpolation — it never mixes physiologically different regimes, because it only ever looks at the two points nearest the target.
-- **Only one side has data** (extrapolation): falls back to `fallbackExponent` (the personalized global exponent above, or standard 1.06) applied from that single nearest anchor. Returns `bracketed: false` so the caller knows this is less certain.
+- **Two real results bracketing the target, on the same side of the anaerobic/aerobic regime boundary** (800m — see §4 below) **and far enough apart to avoid amplifying noise into a wild slope**: fits a *local* Riegel exponent between just those two points, clamped to `[0.95, 1.25]`. A bracket straddling 800m (e.g. a 400m anchor paired with a 5000m anchor) is deliberately **not** treated as a stable interpolation — see §4.
+- **Only one side has data** (extrapolation): falls back to `fallbackExponent` (the personalized global exponent, or standard 1.06) — or, when the single anchor itself is under 800m, a literature-based short-regime exponent (1.04) instead, since `fallbackExponent` is fit entirely from 1000m+ data and isn't representative of anaerobic-dominated fatigue. Returns `bracketed: false`.
 - **No real results at all**: returns `null`.
 
-### `buildKnownPerformances(racePBs, bestEfforts)`
+### `buildKnownPerformances(racePBs, bestEfforts, lowerTierCandidates?)`
 
-Merges two sources into one deduplicated set, keyed by rounded distance:
+Merges three tiers into one deduplicated set, keyed by rounded distance:
 
-- `RaceRecord` PBs — trusted at **any** distance only when `isManual: true`. Beyond 10K, an auto-detected (`isManual: false`) entry is excluded entirely *before* it reaches this function — see `lib/fitness/cache.ts::loadRacePBs()` and the equivalent block in `app/(dashboard)/stats/page.tsx`, both of which must apply the same filter.
-- `Activity.bestEfforts` — trusted only **≤10K**.
+1. **`RaceRecord` PBs** — trusted at **any** distance ≥200m (lowered from 1000m 2026-06-26, see §4) only when `isManual: true` beyond 10K, **and** only the result is the single longest distance among any group sharing the same `stravaActivityId` (see §5 — `buildTrustedRacePBs()`).
+2. **`Activity.bestEfforts`** — trusted only in **1000m–10000m**.
+3. **Lower-tier candidates** (optional, §6/§7) — tempo-run and interval-lap-derived estimates. Gap-fill only: never compete with tiers 1–2, and excluded entirely from any distance within 1.5× (ratio) of an existing trusted point, since a nearby-but-lower-confidence estimate would otherwise out-compete a closer, higher-quality trusted anchor purely on proximity (verified necessary against real data — see §7).
 
-**Why `Activity.isRace` is not used to extend trust beyond 10K:** verified against real data that for at least one athlete using this app, `isRace=true` is set exclusively on orienteering events (forest terrain, navigation stops) — *zero* of that athlete's logged road race PBs come from an `isRace`-flagged `Activity`. Orienteering pace at a given distance reflects terrain and navigation, not road race speed, so trusting "race-flagged" segments beyond 10K would feed in misleadingly slow pace data labeled as if it were a fast road effort.
+**Why `Activity.isRace` is not used to extend trust beyond 10K:** verified against real data that for this app's primary athlete, `isRace=true` is set exclusively on orienteering events — terrain/navigation pace, not road pace.
 
-**`RaceRecord` used to be exempt from this problem unconditionally** ("a separate, user-confirmed table" — true when it only ever held manually-entered PBs). That stopped being true once automatic PB detection shipped (2026-06-24): an `isRace=true` orienteering result can be auto-recorded as a "PB" exactly like any other `Activity`, so the *same* isRace-isn't-road-pace caveat now applies to `RaceRecord` beyond 10K too — gated on `isManual` rather than excluded outright, since a *manually*-entered PB is still the user vouching for it as a real result. Confirmed via real data: two auto-detected orienteering results ("Åland 2-dagars lång!" → 15K, "Natt SM!" → 10 Mile) fed straight into this function before the `isManual` filter existed, dragging the 15K/Half-Marathon/Marathon predictions far too slow (Half Marathon point estimate moved from 2:08:27 to a much more plausible 1:24:04 after filtering them out — see `docs/planning/IMPLEMENTATION_PLAN.md` 2026-06-25 session entry).
+## 3. Critical Speed/W′ vote, marathon range-widening, long-run adequacy (2026-06-24, follow-up session)
 
-### `criticalSpeedVote(targetM, cs)` — third, physiologically-independent vote
+`estimateCriticalSpeed()` (`lib/fitness/critical-speed.ts`) fits a 2-parameter hyperbolic Monod-Scherrer model, returning `csMetersPerSec`, `wPrimeMeters`, `rSquared`. `criticalSpeedVote(targetM, cs)` votes the raw hyperbola for `targetM ≤ 15000` (its own fitted range); beyond that, see §6 below (2026-06-26 revision — the half-marathon fixed-fraction branch this function used to have was replaced by the LT2-anchored mechanism).
 
-Added 2026-06-24 (follow-up academic-research session — see [RACE_ESTIMATE_ACADEMIC_RESEARCH_PLAN_2026_06_24.md](../planning/archive/RACE_ESTIMATE_ACADEMIC_RESEARCH_PLAN_2026_06_24.md)). `estimateCriticalSpeed()` (`lib/fitness/critical-speed.ts`) fits a 2-parameter hyperbolic Monod-Scherrer model from the same `bestEfforts`+`racePBs` pool, returning `csMetersPerSec`, `wPrimeMeters`, and `rSquared` (goodness of fit). This was already computed and cached for display (`FitnessCache.criticalSpeedMs`/`wPrimeMeters`) but never fed into the race-time blend — it now is, gated by `rSquared` so a poor fit contributes little:
+`longRunAdequacyWidenFactor(longestRunLast8wM, targetM)` (Vickers & Vertosick, 2016, BMC, N=2,303) widens the HM/Marathon **range** when recent long-run history falls short of the target distance — still range-only as of 2026-06-26 (§7's `sustainFraction` is the mechanism that now shifts the point estimate itself).
 
-| Target distance | How the vote is computed | Confidence |
-|---|---|---|
-| ≤ 15,000 m (the model's own fitting range, `CS_VOTE_MAX_DIST_HYPERBOLA`) | Raw hyperbola: `(targetM − wPrimeMeters) / csMetersPerSec` | `rSquared` |
-| ≤ 22,000 m (covers the Half Marathon row only) | Published fraction-of-CS: `targetM / (csMetersPerSec × 0.973)` — half-marathoners sustain ~97.3% of CS per a 2024/2025 field-testing systematic review | `rSquared × 0.8` (extra assumption layer beyond the directly-fitted hyperbola) |
-| > 22,000 m (Marathon) | No vote on the point estimate — the literature's sustainable-%-of-CS spread is too wide by caliber (elite ~95%, population average ~84.8%) to pick one fraction without evidence; see range-widening below instead | n/a |
+## 4. Regime-aware short-distance bracketing (2026-06-26)
 
-The CS vote is folded into the existing local/peak blend by taking its share **out of the "peak" portion** (real personal-anchor evidence in the local model is never displaced by it): `wCS = peakShare × confidence × (bracketed ? 0.3 : 0.6)` — it gets more room when the local model is only a one-sided extrapolation (no real bracket), since that's exactly where an independent cross-check is most valuable.
+`buildKnownPerformances()`'s `racePBs` floor was lowered from 1000m to 200m so a genuine sub-1000m PB (e.g. a 400m) can inform short-distance predictions — previously the strongest available evidence of anaerobic speed reserve was thrown away entirely. `bestEfforts` keeps its 1000m floor (sub-1000m segments pulled from inside a longer activity are noisier than a logged PB).
 
-### Marathon-distance range widening (no point-estimate change)
+Letting a sub-800m anchor bracket directly against a 1000m+ anchor would fit one exponent across two different physiological regimes (Péronnet & Thibault, 1989: aerobic energy share passes 50% at ~100s/~800m) — the same regime-mixing problem the whole bracket model exists to avoid. `personalizedRacePrediction()` now checks `spansRegimeBoundary(below, above)` (800m) before treating a pair as a stable bracket; a regime-spanning pair falls back to single-anchor extrapolation instead, using a literature short-regime exponent (1.04) when that anchor is itself sub-800m.
 
-For the Marathon row specifically, `blendedRacePrediction` computes the literature's elite (0.95×CS) and population-average (0.848×CS) bounds and unions them into `predictionRange()`'s band — widening only, never narrowing, and never touching the point estimate itself (there is no real marathon `RaceRecord` to validate a point-estimate change against for the athlete this was built for).
+## 5. Mid-race-split detection — `buildTrustedRacePBs()` (2026-06-26)
 
-### Long-run-history confidence (`longRunAdequacyWidenFactor`)
+Verified against real data: every manually-entered 3000m "PB" in one athlete's dataset shared its `stravaActivityId` with a longer-distance entry from the same activity (e.g. a 3K/5K/10K trio all from one 10K race, with pace *increasing* steadily from the 3K mark to the finish — the signature of 10K pacing, not a standalone 3K effort). `RaceRecord` rows are grouped by `stravaActivityId`; within a group spanning multiple distances, only the **longest** is kept as a genuine result at its own target distance — shorter ones are mid-race checkpoints, not independent maximal efforts, and are dropped entirely (not just down-weighted — the blend already degrades gracefully to the population curve/CS vote when a distance has no trusted anchor).
 
-Vickers & Vertosick (2016, BMC, N=2,303) found weekly mileage/long-run history predicts marathon-specific fade independently of any PB-derived exponent. `computeRacePredictions()` takes an optional `longestRunLast8wM` (the longest single run in the last 8 weeks, already cheap to compute alongside the existing `avgWeeklyRunKm` 8-week loop at each call site) and, for the Half Marathon/Marathon rows only, widens the range further when that distance falls well short of the target — e.g. a longest recent run under 30% of the target distance widens the band by 40%; at 80%+ coverage it's a no-op. Like the range-widening above, this only ever affects the uncertainty band, never the point estimate.
+`lib/fitness/cache.ts::loadRacePBs()` and the equivalent block in `app/(dashboard)/stats/page.tsx` both call this same function — see `vo2max.ts`'s `RaceRecordForTrust` type.
 
-### `blendedRacePrediction(targetM, vdot, knownPerformances, fallbackExponent, cs?, longestRunLast8wM?)`
+**Known trade-off, observed in practice:** removing a contaminated-but-recent split can leave only an older, slower-but-genuine PB as a distance's sole trusted anchor (e.g. this athlete's only clean standalone 3K result is from 2021, after the 2026 3K "PB" was correctly identified as a 10K-race split) — predictions at that distance then reflect the stale PB rather than current fitness. This is the intended, conservative trade-off (an honest stale number beats a contaminated fresh one) but is a real limitation: the bracket model has no concept of recency weighting. Not fixed in this round — flagged for a future pass if it recurs.
 
-Combines the global Daniels curve ("peak"), the local bracket model, and (within its valid range) the CS vote above, weighted by how well-anchored the target distance is:
+## 6. LT2-anchored ceiling for Half Marathon/Marathon (2026-06-26)
+
+**The core fix.** Verified against real data: a 38:41 10K runner's blended Marathon point estimate implied **98.6–99.5% of their own statistically-estimated LT2 pace sustained for the full 42.195km** — physiologically impossible at any caliber (literature ceiling for elite marathoners is ~95% of an equivalent threshold speed). Half Marathon, by contrast, checked out fine (97.5%, matching the literature's ~97.3% almost exactly) — the bug was specifically a Marathon-distance gap: nothing previously constrained the point estimate to respect this athlete's own measured aerobic ceiling.
+
+`FitnessCache.statZonesJson` (`lib/fitness/zones.ts`'s `estimateZonesFromActivities()` — a statistical breakpoint analysis of training pace/HR data, completely independent of race PBs) already estimates `lt2PaceSecPerKm` with its own `rSquared`. This is frequently a **more reliable** threshold estimate than the CS/W′ regression (verified: for this athlete, statZones R²=0.99 vs. CS R²=0.582 — the CS regression's 10–15K input range was contaminated by deliberately submaximal "LT!" sessions, see §8) but was never read by the race predictor at all.
+
+`pickThresholdSource(lt2, cs)` now prefers `statZonesJson`'s LT2 pace when its `rSquared ≥ 0.7` (`LT2_VOTE_MIN_RSQUARED`), falling back to CS pace otherwise. Applies **only for targetM ≥ 21097m (Half Marathon and beyond)** — below that, running at or above LT2 pace is physiologically normal (LT2/MLSS sustainability is roughly 30–60 min, which covers 10K and usually 15K for this kind of runner; constraining shorter distances against it would be wrong).
+
+- **Vote**: `thresholdAnchoredVote()` computes `targetPace = thresholdPace / sustainFraction(targetM)` and folds it into the blend exactly where `criticalSpeedVote` used to vote for HM (≤22000m) — `criticalSpeedVote` itself no longer has a fraction-of-CS branch beyond 15000m; this supersedes it for HM and, new in this round, **also votes for Marathon**, which previously had no point-estimate vote of any kind beyond range-widening.
+- **Hard ceiling**: after the full blend, `thresholdCeilingTimeSec()` is recomputed and the blended time is clamped up to it if the blend would otherwise be faster — i.e. the point estimate can never imply exceeding this athlete's own measured/estimated threshold-sustainable pace for that duration, regardless of what every other component of the blend produced. `predictionRange()`'s `rangeLo` is clamped to the same floor.
+- Where `statZonesJson` is `null` or has insufficient `rSquared` (new users, sparse data), `pickThresholdSource()` falls back to CS pace; if CS is also unavailable, the vote/ceiling are skipped entirely (`null`) and behavior degrades to the pre-2026-06-26 blend.
+
+## 7. Personalized sustain fraction (2026-06-26)
+
+`sustainFraction(targetM, longestRunLast8wM)` replaces the single fixed `HM_CS_FRACTION` constant with a distance-tiered literature base (HM ≈ 0.973, Marathon ≈ 0.848 — population-average, not elite, matching this kind of athlete's profile per the 2026-06-23 diagnosis) plus a small (`MAX_PERSONAL_SUSTAIN_ADJUSTMENT = ±0.04`) nudge from `personalSustainAdjustment()`: good longest-recent-run coverage of the target distance (≥70%) nudges the sustainable fraction up; poor coverage (≤25%) nudges it down. Same Vickers & Vertosick (2016) evidence `longRunAdequacyWidenFactor` already used for range-widening, now also informing the point estimate itself — capped small so it can only fine-tune the literature base, never dominate it.
+
+## 8. Shared bestEffort trust window for Critical Speed (2026-06-26)
+
+`estimateCriticalSpeed()`'s `bestEfforts` cap was lowered from 15000m to 10000m (`BESTEFFORT_MAX_DIST`), matching the cap `buildKnownPerformances()`/`personalizedFatigueExponent()` already use — `racePBs` keep a separate, wider 15000m cap (`RACEPB_MAX_DIST`), since they're already gated to `isManual`-only beyond 10K upstream. Verified necessary: when the bestEffort cap was 15000m, the only "fastest available" 10–15K segments for this athlete turned out to be deliberately submaximal "LT!" threshold sessions, not maximal efforts — the same contamination class BUG_AUDIT_2026_06_25 had already excluded from `RaceRecord`, one level deeper. Confirmed this degraded the CS fit's own R² relative to the independent `statZonesJson` estimate (§6).
+
+## 9. Tempo-run and interval-lap anchors (2026-06-26)
+
+Two new lower-priority tiers feed `buildKnownPerformances()`'s `lowerTierCandidates` parameter — both gap-fill only (§2, tier 3) and were tuned twice after initial real-data validation surfaced concrete problems (documented below, not just designed-then-shipped):
+
+### `extractTempoRunAnchors(runs, maxHR)`
+
+`vo2maxFromSubmaxEffort()` already existed (Åstrand-Ryhming-style submax HR/pace extrapolation) but was never called anywhere. Converts the **single best** qualifying tempo/threshold run (HR 82–92% maxHR, distance 10000–25000m, duration ≥40min, not interval/race-named) into one equivalent maximal-effort anchor at its own distance via `predictRaceTime(vEst, distanceM)`.
+
+**Deliberately returns at most one point, not a per-distance-bucket sweep.** An earlier version bucketed every qualifying run into its own ~1000m bucket (producing up to 17 estimated points spanning 3000–20000m) — verified against real data that several independently-estimated submax points, each already carrying ~10-15% uncertainty, land close enough together to form a tight, falsely-confident bracket *with each other* (one such bracket alone moved the 15K prediction from a sane ~59min to 1:15min). A single anchor can only ever extrapolate, never form a misleadingly precise interpolation out of two unreliable estimates.
+
+### `extractIntervalLapCandidates(activities)`
+
+Mines `Activity.laps` (synced from Strava, previously unused for race prediction) for interval-named sessions, extracting genuine fast work-rep evidence that `isQualitySession()`/`looksLikeIntervals()` correctly exclude from whole-activity pace analysis (diluted by recovery jogs) but that nothing previously rescued at the per-lap level.
+
+Tuned twice after real-data validation:
+
+1. **GPS/lap-noise floor**: laps faster than `MIN_PLAUSIBLE_PACE_SEC_PER_KM` (135 s/km, ~7.4 m/s) are rejected outright — verified necessary: a 631m "lap" timed at 33s (implying 68 km/h) passed the original session-median-relative filter because GPS/lap-button noise can land on either side of a session's own median pace.
+2. **One candidate per session, not per lap**: keeps only the single fastest qualifying lap per activity (plus a `MIN_PLAUSIBLE_VDOT_FOR_INTERVAL_REP = 40` floor via `vdotFromRace` as a backstop). An earlier version kept every lap beating 92% of its session's median pace, producing ~250 candidates densely clustered 300–1300m with individual quality varying by 20+ implied VDOT points — `buildKnownPerformances()`'s nearest-point bracket selection has no way to weigh source confidence, so this density actively out-competed a much more relevant, only slightly farther, high-confidence trusted PB (e.g. a nearby 791m interval-lap estimate beat a 400m race PB for an 800m target purely on proximity, dragging the 800m prediction from ~2:38 to ~3:24).
+
+## 10. `blendedRacePrediction(targetM, vdot, knownPerformances, fallbackExponent, cs?, longestRunLast8wM?, lt2?)`
+
+Combines the global Daniels curve (`danielsRaw` — renamed from the old, confusingly-overloaded local variable `peak`), the local bracket model, and a single physiological vote (`criticalSpeedVote` ≤15000m, or `thresholdAnchoredVote` ≥21097m — §6; nothing votes in the 15000–21097m gap, matching pre-2026-06-26 behavior), weighted by how well-anchored the target distance is:
 
 | Situation | Weight on local model |
 |---|---|
@@ -69,35 +107,43 @@ Combines the global Daniels curve ("peak"), the local bracket model, and (within
 | Single-sided, large extrapolation ratio | decays toward floor 0.15 |
 | Predicted duration < 3.5 min (outside Daniels' calibrated range) | forced to ≥ 0.9 regardless of the above |
 
-The blended result also widens `predictionRange()`'s ± band proportionally to `(1 - groundedWeight)`, where `groundedWeight` is the combined local+CS share — a long single-sided extrapolation (e.g. predicting a marathon for a runner whose longest real result is a 10K) gets a wide range instead of a falsely sharp number. A `lowConfidenceShort` flag is set when the predicted duration is under 3.5 minutes, since Daniels' %VO2max-vs-duration table (`percentVO2maxFromDuration`) flatlines below that and was never calibrated for sprint-duration efforts — this is surfaced in the UI as a `*` badge and in the AI coach's summary as an inline caveat.
+After the weighted blend, the §6 hard ceiling is applied (HM/Marathon only). The blended result also widens `predictionRange()`'s ± band proportionally to `(1 - groundedWeight)`. A `lowConfidenceShort` flag is set when the predicted duration is under 3.5 minutes.
 
-### `computeRacePredictions(vdot, tsb, racePBs, bestEfforts, longestRunLast8wM?)`
+Also returns `models: Record<string, number>` — every individual component's own time estimate at this distance (`"Daniels (population)"`, `"Riegel (your PBs)"` when a local prediction exists, `"Critical Speed / Threshold"` when a vote exists) — see §11.
 
-The single canonical entry point — builds `buildKnownPerformances()`, derives the fallback exponent via `personalizedFatigueExponent()`, fits Critical Speed via `estimateCriticalSpeed()`, and maps `blendedRacePrediction()` over every `RACE_DISTANCES` entry. **This must be the only implementation called anywhere `predictionsJson` is built** — see the call-site list below. Previously there were three independently hand-duplicated versions that had already drifted apart in different ways (the "Bug 11/14/15" pattern documented in `IMPLEMENTATION_PLAN.md`, which had previously bitten HR-zone estimation for the same reason).
+## 11. TSB no longer double-counted (2026-06-26)
 
-Returns `{ predictions, criticalSpeed }` — not a bare array — so the Critical Speed fit (and its `rSquared`) can be cached for display without being computed twice.
+`estimateVO2max()` used to include a `model7Vdot = tsbAdjustedVdot(model1Vdot, tsb)` entry in its weighted blend (the basis for `vdot`/"peak"), and `computeRacePredictions()` separately applied `tsbAdjustedRaceTime(peak, tsb)` for the "Today" column — i.e. TSB shifted the result twice, in the same direction, compounding at extreme TSB values. `estimateVO2max()` no longer takes a `tsb` parameter or computes `model7Vdot` at all; "peak"/the base VDOT blend is now TSB-neutral, and `tsbAdjustedRaceTime()` (the "Today" column) is the only place TSB has any effect.
 
-## 3. Call sites
+## 12. UI model selector (2026-06-26)
 
-`computeRacePredictions()` is called identically from:
-- `lib/fitness/cache.ts` `updateVO2maxAndPaces()` — AUTO path, runs after every Strava sync. Destructures both `predictions` (→ `predictionsJson`) and `criticalSpeed` (→ `FitnessCache.criticalSpeedMs`/`wPrimeMeters`/`criticalSpeedRSquared`/`criticalSpeedEffortsUsed`) — the only path that persists the CS fit, matching the existing convention that CS/decoupling fields are AUTO-path-only.
-- `lib/fitness/cache.ts` `updateHRZones()` — MANUAL path, runs on the "Apply zones" button and on profile save. Uses only `predictions`; recomputes CS in-memory for the blend but doesn't persist it.
-- `app/(dashboard)/stats/page.tsx` — SLOW PATH, the cache-miss fallback. Same as above.
+The Stats page's Race Time Predictions table is now **Distance | [Model ▾] | Estimate (personalized) | Today (TSB)** — the composite ("Estimate") and TSB-adjusted ("Today") columns always show regardless of selection; the dropdown (default: "Riegel (your PBs)") only ever changes the leftmost data column, reading from each row's `models` map. This replaced an older selector (population-VDOT-breakdown buttons, e.g. "HR-form signal"/"Volume-Adjusted Riegel" run through a bare `predictRaceTime()` with no bracket/CS/LT2 logic at all) that, when a non-default model was picked, hid the composite and Today columns entirely instead of just swapping one column — `lib/fitness/cache.ts`'s `predictionsJson` is the only source for the new selector's options, so it always reflects exactly the same model family the blend itself uses.
 
-All three pass `longestRunLast8wM` from the same 8-week-lookback loop each already runs to compute `avgWeeklyRunKm`.
+## 13. Call sites
 
-If you change the model, change it once in `lib/fitness/vo2max.ts` — do not re-derive the logic at any of the three call sites above.
+`computeRacePredictions(vdot, tsb, racePBs, bestEfforts, longestRunLast8wM?, lt2?, lowerTierCandidates?)` is called identically from:
 
-## 4. `FitnessCache.predictionsJson` shape
+- `lib/fitness/cache.ts` `updateVO2maxAndPaces()` — AUTO path, runs after every Strava sync. `lt2` is read from the **existing cached** `statZonesJson` (never recomputed here — that field is calibration-only, see its own doc comment) for `lt2`/`lowerTierCandidates`, built from the same `activities`/`laps` already loaded for this call. Destructures both `predictions` (→ `predictionsJson`) and `criticalSpeed` (→ `FitnessCache.criticalSpeedMs`/etc.) — the only path that persists the CS fit.
+- `lib/fitness/cache.ts` `updateHRZones()` — MANUAL path, runs on the "Apply zones" button. Uses the **freshly-computed** `statResult` from this same call (more current than the AUTO path's cached read) for `lt2`.
+- `app/(dashboard)/stats/page.tsx` — SLOW PATH, the cache-miss fallback. Same as AUTO path's `lt2` source (reads `fitnessCache.statZonesJson`).
+
+All three pass `longestRunLast8wM` from the same 8-week-lookback loop each already runs to compute `avgWeeklyRunKm`, and build `lowerTierCandidates` by merging `extractTempoRunAnchors()` + `extractIntervalLapCandidates()` over their own already-loaded running activities.
+
+`loadRacePBs()` (cache.ts) and the equivalent inline block in `stats/page.tsx` both call `buildTrustedRacePBs()` (§5) — never hand-roll the isManual/stravaActivityId filter independently.
+
+If you change the model, change it once in `lib/fitness/vo2max.ts` (or `critical-speed.ts` for the CS regression itself) — do not re-derive the logic at any of the three call sites above.
+
+## 14. `FitnessCache.predictionsJson` shape
 
 ```text
-{ label, meters, peak, today, riegel, rangeLo, rangeHi, lowConfidenceShort }[]
+{ label, meters, peak, today, riegel, rangeLo, rangeHi, lowConfidenceShort, models }[]
 ```
 
-- `peak` — the blended estimate (despite the name, no longer the raw global-VDOT-curve number alone since 2026-06-24; it's the primary number shown in the UI and the only one read by the AI coach tool).
-- `riegel` — the personalized-local-model-only number (`local.timeSec` from `personalizedRacePrediction`) — unaffected by the CS vote, shown as a secondary comparison column.
-- `today` — `peak` adjusted for current TSB via `tsbAdjustedRaceTime()`.
-- `rangeLo`/`rangeHi` — the ± confidence band, widened when the prediction leans on a long extrapolation, a marathon-distance literature spread, and/or inadequate recent long-run history.
+- `peak` — the blended estimate (despite the name, the primary number shown in the UI and the only one read by the AI coach tool).
+- `riegel` — the personalized-local-model-only number (`local.timeSec` from `personalizedRacePrediction`), shown as a secondary comparison column — **not** subject to the §6 hard ceiling (only the primary `peak` is).
+- `today` — `peak` adjusted for current TSB via `tsbAdjustedRaceTime()` — the only TSB effect anywhere in this pipeline (§11).
+- `rangeLo`/`rangeHi` — the ± confidence band; for HM/Marathon, `rangeLo` is clamped to the same §6 hard ceiling as `peak`.
 - `lowConfidenceShort` — true when the predicted duration is under 3.5 minutes.
+- `models` — every individual component's own estimate at this distance (§10), keyed by display name — feeds the UI model selector (§12). Optional in the TypeScript shape (older cached rows from before 2026-06-26 won't have it until their next sync/calibration).
 
-`FitnessCache.criticalSpeedRSquared`/`criticalSpeedEffortsUsed` (AUTO path only) cache the CS/W′ fit quality — surfaced in the AI coach's `get_fitness_summary` tool alongside the existing `criticalSpeedMs`/`wPrimeMeters` line.
+`FitnessCache.criticalSpeedRSquared`/`criticalSpeedEffortsUsed` (AUTO path only) cache the CS/W′ fit quality — surfaced in the AI coach's `get_fitness_summary` tool alongside the existing `criticalSpeedMs`/`wPrimeMeters` line. `FitnessCache.statZonesJson` (calibration-only, written by `updateHRZones()`) is the source of the §6 LT2 anchor for all three call sites.

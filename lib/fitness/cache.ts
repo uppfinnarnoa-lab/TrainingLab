@@ -14,8 +14,8 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromActivities, estimatePersonalizedArtifactCap, ensureValidZones, computeZoneTime, type ZoneTimeActivity } from "./zones";
-import { estimateVO2max, computeRacePredictions, type RacePB } from "./vo2max";
+import { buildHRZones, buildHRZonesFromLT, buildPaceZones, estimateMaxHR, estimateMaxHRFromThreshold, estimateMaxHRFromRaces, estimateLTFromRaces, estimateZonesFromActivities, estimatePersonalizedArtifactCap, ensureValidZones, computeZoneTime, type ZoneTimeActivity, type StatisticalZoneResult } from "./zones";
+import { estimateVO2max, computeRacePredictions, buildTrustedRacePBs, extractTempoRunAnchors, extractIntervalLapCandidates, type RacePB, type KnownPerformance } from "./vo2max";
 import { estimateLT1FromDecoupling } from "./decoupling";
 import { computeTSS, buildLoadCurve, computeACWR } from "./training-load";
 import { ensureActivityStreams, loadCachedHRStreams } from "@/lib/strava/stream-backfill";
@@ -80,23 +80,19 @@ export async function loadBestEffortsForRacePredictions(userId: string) {
 async function loadRacePBs(userId: string): Promise<RacePB[]> {
   const records = await prisma.raceRecord.findMany({
     where: { userId, date: { gte: subDays(new Date(), 5 * 365) } },
-    select: { distanceM: true, time: true, date: true, isManual: true },
+    select: { distanceM: true, time: true, date: true, isManual: true, stravaActivityId: true },
     orderBy: { time: "asc" },
   });
-  const bestPerDist = new Map<number, RacePB>();
-  for (const r of records) {
-    // Beyond 10K, only a manually-entered PB is trusted as genuine road-race pace — an
-    // auto-detected RaceRecord can come from any isRace=true activity, and for this app's
-    // primary athlete that's exclusively orienteering (terrain/navigation pace, not road
-    // pace; see personalizedFatigueExponent's identical rule for bestEfforts). RaceRecord
-    // used to be safe to trust unconditionally because it only ever held manually-vetted
-    // entries — no longer true now that automatic PB detection exists.
-    if (r.distanceM > 10000 && !r.isManual) continue;
-    const d = Math.round(r.distanceM);
-    if (!bestPerDist.has(d) || bestPerDist.get(d)!.timeSec > r.time)
-      bestPerDist.set(d, { distanceM: r.distanceM, timeSec: r.time, date: r.date });
-  }
-  return [...bestPerDist.values()];
+  // buildTrustedRacePBs() applies two rules: beyond 10K, only a manually-entered PB is trusted
+  // as genuine road-race pace (an auto-detected RaceRecord can come from any isRace=true
+  // activity — for this app's primary athlete that's exclusively orienteering, terrain pace
+  // not road pace); and when multiple distances share a stravaActivityId, only the longest is
+  // a genuine result at its own distance — shorter ones are mid-race checkpoints, not
+  // standalone maximal efforts (verified concretely — see
+  // RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §2.3/§5.9).
+  return buildTrustedRacePBs(records.map((r: { distanceM: number; time: number; date: Date; isManual: boolean; stravaActivityId: string | null }) => ({
+    distanceM: r.distanceM, timeSec: r.time, date: r.date, isManual: r.isManual, stravaActivityId: r.stravaActivityId,
+  })));
 }
 
 type LTPacePointSmooth = { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number };
@@ -218,7 +214,7 @@ export async function updateVO2maxAndPaces(userId: string) {
       sportType: a.sportType, name: a.name, bestEfforts: a.bestEfforts,
       startDate: a.startDate, totalElevationGain: a.totalElevationGain,
     })),
-    maxHR, restHR, racePBs, todayLoad.tsb, cacheAvgWeeklyRunKm,
+    maxHR, restHR, racePBs, cacheAvgWeeklyRunKm,
   );
   const paceZones = buildPaceZones(vo2maxResult.vdot);
   const existingZones = (existingCache?.zones as object | null) ?? buildHRZonesJson(maxHR, restHR);
@@ -282,11 +278,33 @@ export async function updateVO2maxAndPaces(userId: string) {
   });
   const decouplingResult = estimateLT1FromDecoupling(decouplingRuns, maxHR);
 
+  // ── LT2 anchor for HM/Marathon (§5.1) — reads the EXISTING cached statistical zone
+  // estimate rather than recomputing it: statZonesJson is intentionally calibration-only
+  // (only updateHRZones/"Apply zones" writes it, see its own doc comment below) so the
+  // race-prediction anchor stays in sync with whatever zones are actually applied.
+  const existingStatZones = existingCache?.statZonesJson as StatisticalZoneResult | null;
+  const lt2 = existingStatZones
+    ? { paceSecPerKm: existingStatZones.lt2PaceSecPerKm, rSquared: existingStatZones.rSquared }
+    : null;
+
+  // ── Lower-tier race-prediction anchors from training data alone (§5.4/§5.10) — tempo/
+  // threshold runs converted to equivalent maximal efforts, and fast laps mined out of
+  // interval sessions. Both only ever fill a gap in buildKnownPerformances(), never
+  // override a real race PB/bestEffort.
+  const runningActs = (activities as (Act & { laps?: unknown })[]).filter(a => /run|trail/i.test(a.sportType));
+  const lowerTierCandidates: KnownPerformance[] = [
+    ...extractTempoRunAnchors(
+      runningActs.map(a => ({ distanceM: a.distance, timeSec: a.movingTime, avgHR: a.averageHeartrate, totalElevationGain: a.totalElevationGain, name: a.name })),
+      maxHR,
+    ),
+    ...extractIntervalLapCandidates(runningActs.map(a => ({ name: a.name, laps: a.laps }))),
+  ];
+
   // computeRacePredictions() also fits Critical Speed/W' internally (used to vote on the
   // blended estimate, see vo2max.ts) and returns it here so it can be cached for display —
   // computed once, not duplicated between the blend and the cache write.
   const { predictions: predictionsJson, criticalSpeed: csResult } =
-    computeRacePredictions(vo2maxResult.vdot, todayLoad.tsb, racePBs, allBestEfforts, cacheLongestRunM);
+    computeRacePredictions(vo2maxResult.vdot, todayLoad.tsb, racePBs, allBestEfforts, cacheLongestRunM, lt2, lowerTierCandidates);
 
   // ── Extra visualizations — derived from activity data, updated every sync ──
   type ZM = { z3: [number, number]; z4: [number, number] };
@@ -663,14 +681,26 @@ export async function updateHRZones(userId: string) {
       sportType: a.sportType, name: a.name,
       startDate: a.startDate, totalElevationGain: a.totalElevationGain,
     })),
-    maxHR, restHR, racePBs, undefined, zonesAvgWeeklyRunKm,
+    maxHR, restHR, racePBs, zonesAvgWeeklyRunKm,
   );
   const paceZones = buildPaceZones(vo2maxResult.vdot);
 
   const cachedTsb = existingCacheForZones?.tsb ?? 0;
   const bestEffortsForZones = await loadBestEffortsForRacePredictions(userId);
+  // statResult was just freshly computed above (the live "Apply zones" calibration) — more
+  // current than updateVO2maxAndPaces()'s read of the last-cached statZonesJson, see §5.1.
+  // pickThresholdSource()'s own R² gate decides whether it's reliable enough to anchor on.
+  const lt2ForZones = statResult ? { paceSecPerKm: statResult.lt2PaceSecPerKm, rSquared: statResult.rSquared } : null;
+  const runningActsForZones = acts.filter(a => /run|trail/i.test(a.sportType));
+  const lowerTierCandidatesForZones: KnownPerformance[] = [
+    ...extractTempoRunAnchors(
+      runningActsForZones.map(a => ({ distanceM: a.distance, timeSec: a.movingTime, avgHR: a.averageHeartrate, totalElevationGain: a.totalElevationGain, name: a.name })),
+      maxHR,
+    ),
+    ...extractIntervalLapCandidates(runningActsForZones.map(a => ({ name: a.name, laps: (a as ActLight & { laps?: unknown }).laps }))),
+  ];
   const { predictions: predictionsJson } =
-    computeRacePredictions(vo2maxResult.vdot, cachedTsb, racePBs, bestEffortsForZones, zonesLongestRunM);
+    computeRacePredictions(vo2maxResult.vdot, cachedTsb, racePBs, bestEffortsForZones, zonesLongestRunM, lt2ForZones, lowerTierCandidatesForZones);
 
   // Recompute zone distribution with the newly calibrated zones so charts update immediately.
   // Prefers cached per-second HR streams over lap averages — see computeZoneTime() doc
