@@ -60,10 +60,16 @@ export async function runHistoricalBackfill(
   onProgress?: (event: BackfillEvent) => void,
   getSignal?:  () => Signal,
 ): Promise<BackfillResult> {
+  // Needs detail backfill, stream backfill, or both — splitDetailFetched alone used to be a
+  // correct "is there anything to do for this activity" gate before streams were added to
+  // this backfill (2026-06-26). A user who already completed a full backfill before that
+  // change would otherwise have nothing match this query forever, despite never having
+  // fetched streams for their history (the `stream` relation is null for every activity
+  // until ensureActivityStreams()/this backfill actually fetches one).
   const fetched = await prisma.activity.findMany({
-    where:   { userId, splitDetailFetched: false },
+    where:   { userId, OR: [{ splitDetailFetched: false }, { stream: null }] },
     orderBy: { startDate: "desc" },
-    select:  { id: true, stravaId: true, name: true, startDate: true },
+    select:  { id: true, stravaId: true, name: true, startDate: true, splitDetailFetched: true, stream: { select: { activityId: true } } },
   });
 
   // Process activities from the last 90 days before older ones so recent data
@@ -125,47 +131,54 @@ export async function runHistoricalBackfill(
     while (retrying) {
       retrying = false;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const full: any = await stravaFetch(userId, `/activities/${act.stravaId}`);
+        if (!act.splitDetailFetched) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const full: any = await stravaFetch(userId, `/activities/${act.stravaId}`);
 
-        await prisma.activity.update({
-          where: { id: act.id },
-          data: {
-            name:                 full.name                   ?? undefined,
-            description:          full.description            ?? null,
-            averageHeartrate:     full.average_heartrate      ?? null,
-            maxHeartrate:         full.max_heartrate          ?? null,
-            averageSpeed:         full.average_speed          ?? undefined,
-            averageCadence:       full.average_cadence        ?? null,
-            averageWatts:         full.average_watts          ?? null,
-            weightedAverageWatts: full.weighted_average_watts ?? null,
-            totalElevationGain:   full.total_elevation_gain   ?? undefined,
-            mapPolyline:          full.map?.summary_polyline  ?? null,
-            workoutType:          full.workout_type           ?? null,
-            isRace:               full.workout_type === 1,
-            sufferScore:          full.suffer_score           ?? null,
-            perceivedExertion:    full.perceived_exertion     ?? null,
-            splitsMetric:         full.splits_metric          || undefined,
-            bestEfforts:          full.best_efforts           || undefined,
-            laps:                 full.laps                   || undefined,
-            splitDetailFetched:   true,
-          },
-        });
+          await prisma.activity.update({
+            where: { id: act.id },
+            data: {
+              name:                 full.name                   ?? undefined,
+              description:          full.description            ?? null,
+              averageHeartrate:     full.average_heartrate      ?? null,
+              maxHeartrate:         full.max_heartrate          ?? null,
+              averageSpeed:         full.average_speed          ?? undefined,
+              averageCadence:       full.average_cadence        ?? null,
+              averageWatts:         full.average_watts          ?? null,
+              weightedAverageWatts: full.weighted_average_watts ?? null,
+              totalElevationGain:   full.total_elevation_gain   ?? undefined,
+              mapPolyline:          full.map?.summary_polyline  ?? null,
+              workoutType:          full.workout_type           ?? null,
+              isRace:               full.workout_type === 1,
+              sufferScore:          full.suffer_score           ?? null,
+              perceivedExertion:    full.perceived_exertion     ?? null,
+              splitsMetric:         full.splits_metric          || undefined,
+              bestEfforts:          full.best_efforts           || undefined,
+              laps:                 full.laps                   || undefined,
+              splitDetailFetched:   true,
+            },
+          });
+          windowCount++;
+          await new Promise(r => setTimeout(r, BETWEEN_REQ_MS));
+        }
 
         // Also cache the full stream (time/distance/heartrate/velocity/altitude/cadence) for
-        // this activity — best-effort: the detail data above is the primary goal of this
-        // backfill, so a stream-fetch failure (e.g. no stream data for this activity at all)
-        // doesn't fail it. A rate/daily limit must propagate to the same pause/retry handling
-        // as the detail fetch below, though, or the two calls would respond inconsistently.
-        try {
-          await backfillOneActivityStream(userId, act.id, act.stravaId);
-          windowCount++; // a second request consumed from this window's budget
-          await new Promise(r => setTimeout(r, BETWEEN_REQ_MS));
-        } catch (streamErr) {
-          if (streamErr instanceof Error && (streamErr.message === "STRAVA_RATE_LIMIT" || streamErr.message === "STRAVA_DAILY_LIMIT")) {
-            throw streamErr;
+        // this activity, if it doesn't have one yet — best-effort: the detail data above is
+        // the primary goal of this backfill, so a stream-fetch failure (e.g. no stream data
+        // for this activity at all) doesn't fail it. A rate/daily limit must propagate to the
+        // same pause/retry handling as the detail fetch above, or the two calls would respond
+        // to limits inconsistently.
+        if (!act.stream) {
+          try {
+            await backfillOneActivityStream(userId, act.id, act.stravaId);
+            windowCount++; // a request consumed from this window's budget
+            await new Promise(r => setTimeout(r, BETWEEN_REQ_MS));
+          } catch (streamErr) {
+            if (streamErr instanceof Error && (streamErr.message === "STRAVA_RATE_LIMIT" || streamErr.message === "STRAVA_DAILY_LIMIT")) {
+              throw streamErr;
+            }
+            console.error(`[backfill] stream fetch failed for ${act.stravaId} (non-fatal):`, streamErr);
           }
-          console.error(`[backfill] stream fetch failed for ${act.stravaId} (non-fatal):`, streamErr);
         }
 
         done++;
