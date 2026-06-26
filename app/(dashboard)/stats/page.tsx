@@ -55,9 +55,9 @@ export default async function StatsPage() {
     }),
   ]);
 
-  // See lib/fitness/cache.ts::loadRacePBs() for the shared isManual/stravaActivityId trust
-  // rules — both implementations must call the same buildTrustedRacePBs(), see vo2max.ts doc
-  // comment on computeRacePredictions() for why this can never be allowed to drift apart.
+  // See lib/fitness/cache.ts::loadRacePBs() for the shared isManual trust rule — both
+  // implementations must call the same buildTrustedRacePBs(), see vo2max.ts doc comment on
+  // computeRacePredictions() for why this can never be allowed to drift apart.
   const racePBs = buildTrustedRacePBs(allRacePBs.map((r: { distanceM: number; time: number; date: Date; isManual: boolean; stravaActivityId: string | null }) => ({
     distanceM: r.distanceM, timeSec: r.time, date: r.date, isManual: r.isManual, stravaActivityId: r.stravaActivityId,
   })));

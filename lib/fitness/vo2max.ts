@@ -438,15 +438,22 @@ export function personalizedRacePrediction(
   return { timeSec, exponent: exponentForAnchor, anchor, bracketed: false };
 }
 
-// ── §5.9: detect and exclude mid-race splits mistakenly entered as standalone PBs ────────
+// ── Trust a race PB regardless of whether it shares a source activity with a longer
+// distance ────────────────────────────────────────────────────────────────────────────────
 //
-// Verified against real data (RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §2.3): every
-// manually-entered RaceRecord sharing a stravaActivityId with a LONGER-distance entry from
-// the same activity is a progressive checkpoint time, not an independent maximal effort —
-// e.g. a "3000m PB" that's actually the 3K split inside a 10K race reflects 10K pacing, not
-// all-out 3K speed. Only the longest distance in such a group is a genuine result at its own
-// target distance; shorter ones are excluded entirely (the blend already degrades gracefully
-// to the population curve when a distance has no trusted anchor — see blendedRacePrediction).
+// Previously (§5.9, RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md) grouped RaceRecord rows
+// by stravaActivityId and kept only the longest distance per group, on the theory that a
+// shorter split inside a longer race reflects that longer race's pacing, not an all-out
+// effort at its own distance. Retracted (RACE_ESTIMATE_RECENCY_WEIGHTING_PLAN_2026_06_26.md
+// §2-§3.0) after real data falsified the premise: this athlete's fastest, freshest 3000m
+// result (10:48) is the split inside a 10K race, and it matches their independently-fitted
+// fatigue exponent's prediction from that same 10K time almost exactly — i.e. it's a faithful
+// maximal-effort number, not an artificially conservative one. Conservative pacing can only
+// make a split too SLOW, never too FAST, so a fast number is always at least as informative
+// as a slower one regardless of source distance — the "keep only the group's longest" rule
+// was discarding good evidence for nothing. The only real, distinct contamination risk
+// (orienteering bestEffort segments beyond 10K, terrain/navigation pace rather than road
+// pace) is already handled by the isManual-beyond-10K rule below — that one stays.
 export interface RaceRecordForTrust {
   distanceM: number;
   timeSec: number;
@@ -456,26 +463,13 @@ export interface RaceRecordForTrust {
 }
 
 export function buildTrustedRacePBs(records: RaceRecordForTrust[]): RacePB[] {
-  // Existing rule (BUG_AUDIT_2026_06_25): beyond 10K, only a manually-entered PB is trusted.
+  // Beyond 10K, only a manually-entered PB is trusted (BUG_AUDIT_2026_06_25) — an
+  // auto-detected isRace=true result beyond 10K is, for this app's primary athlete,
+  // exclusively orienteering (terrain/navigation pace, not road pace).
   const candidates = records.filter(r => !(r.distanceM > 10000 && !r.isManual));
 
-  const byActivity = new Map<string, RaceRecordForTrust[]>();
-  const standalone: RaceRecordForTrust[] = [];
-  for (const r of candidates) {
-    if (r.stravaActivityId) {
-      if (!byActivity.has(r.stravaActivityId)) byActivity.set(r.stravaActivityId, []);
-      byActivity.get(r.stravaActivityId)!.push(r);
-    } else {
-      standalone.push(r);
-    }
-  }
-  const trusted = [...standalone];
-  for (const group of byActivity.values()) {
-    trusted.push(group.length === 1 ? group[0] : group.reduce((a, b) => a.distanceM > b.distanceM ? a : b));
-  }
-
   const bestPerDist = new Map<number, RacePB>();
-  for (const r of trusted) {
+  for (const r of candidates) {
     if (r.distanceM <= 0 || r.timeSec <= 0) continue;
     const d = Math.round(r.distanceM);
     if (!bestPerDist.has(d) || bestPerDist.get(d)!.timeSec > r.timeSec)

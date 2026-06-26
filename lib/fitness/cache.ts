@@ -83,13 +83,11 @@ async function loadRacePBs(userId: string): Promise<RacePB[]> {
     select: { distanceM: true, time: true, date: true, isManual: true, stravaActivityId: true },
     orderBy: { time: "asc" },
   });
-  // buildTrustedRacePBs() applies two rules: beyond 10K, only a manually-entered PB is trusted
-  // as genuine road-race pace (an auto-detected RaceRecord can come from any isRace=true
-  // activity — for this app's primary athlete that's exclusively orienteering, terrain pace
-  // not road pace); and when multiple distances share a stravaActivityId, only the longest is
-  // a genuine result at its own distance — shorter ones are mid-race checkpoints, not
-  // standalone maximal efforts (verified concretely — see
-  // RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §2.3/§5.9).
+  // buildTrustedRacePBs() trusts every PB at its own distance regardless of whether it shares
+  // a source activity with a longer one (see vo2max.ts) — beyond 10K, only a manually-entered
+  // PB is trusted as genuine road-race pace (an auto-detected RaceRecord can come from any
+  // isRace=true activity — for this app's primary athlete that's exclusively orienteering,
+  // terrain pace not road pace).
   return buildTrustedRacePBs(records.map((r: { distanceM: number; time: number; date: Date; isManual: boolean; stravaActivityId: string | null }) => ({
     distanceM: r.distanceM, timeSec: r.time, date: r.date, isManual: r.isManual, stravaActivityId: r.stravaActivityId,
   })));
