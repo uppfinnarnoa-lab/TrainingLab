@@ -29,9 +29,20 @@ export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr
   // ("Estimate") and "Today" are always their own fixed columns regardless of this selection
   // (see RACE_ESTIMATE_TRAINING_DATA_PLAN_2026_06_26.md §5.8: selecting a model here must only
   // ever change this one column, never hide the composite/TSB-adjusted numbers).
-  const availableModels = Array.from(new Set(predictions.flatMap(p => Object.keys(p.models ?? {}))));
+  // DEFAULT_MODEL is always offered, even before any row's `models` map is populated — it falls
+  // back to the legacy always-present `riegel` field (see valueForModel below). A FitnessCache
+  // row computed before `models` existed has no breakdown yet (recomputed on next Strava sync
+  // or "Apply zones" press) — without this, the selector and the column it drives would both
+  // silently go blank instead of degrading to the one number that's always available.
+  const modelKeysFromData = Array.from(new Set(predictions.flatMap(p => Object.keys(p.models ?? {}))));
+  const availableModels = modelKeysFromData.includes(DEFAULT_MODEL) ? modelKeysFromData : [DEFAULT_MODEL, ...modelKeysFromData];
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
-  const activeModel = availableModels.includes(selectedModel) ? selectedModel : (availableModels[0] ?? DEFAULT_MODEL);
+  const activeModel = availableModels.includes(selectedModel) ? selectedModel : DEFAULT_MODEL;
+  const valueForModel = (p: RacePred, model: string): number | undefined => {
+    if (p.models && p.models[model] !== undefined) return p.models[model];
+    if (model === DEFAULT_MODEL) return p.riegel ?? undefined;
+    return undefined;
+  };
   const acwrColor = !acwr ? "#94A3B8" : acwr > 1.5 ? "#F87171" : acwr > 1.3 ? "#FBBF24" : "#6EE7B7";
   const acwrLabel = !acwr ? "—" : acwr > 1.5 ? "Injury risk" : acwr > 1.3 ? "High load" : acwr >= 0.8 ? "Green zone" : "Too low";
 
@@ -139,7 +150,7 @@ export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right font-mono text-muted hidden sm:table-cell">
-                    {p.models?.[activeModel] !== undefined ? secToTimeStr(p.models[activeModel]) : "—"}
+                    {(() => { const v = valueForModel(p, activeModel); return v !== undefined ? secToTimeStr(v) : "—"; })()}
                   </td>
                   <td className="px-4 py-2.5 text-right font-mono text-primary">
                     {secToTimeStr(p.peak)}
