@@ -1,11 +1,13 @@
 # Frontend UX-revision: kontrast, mobilanvändbarhet, riktade brister
 
-**Status:** Research/audit klar — redo för granskning, **inga kodändringar gjorda än** (ren plan, enligt uttrycklig önskan)
-**Skapad:** 2026-06-27
+**Status:** Research/audit + visuell profil klar — redo för granskning, **inga kodändringar gjorda än** (ren plan, enligt uttrycklig önskan)
+**Skapad:** 2026-06-27 · **Utökad:** 2026-06-27 (§8 tillagd)
 
 ## 1. Mål och avgränsning
 
-Detta är **inte** en redesign. Uttrycklig instruktion från användaren: behåll temat, statistikfokuset, trovärdighetskänslan, precisionen och minimalismen som finns idag — ändra bara det som faktiskt är en brist, framförallt på mobil. `frontend-design`-skillen (`@claude-plugins-official`) är installerad men dess process ("ta en estetisk risk", omarbeta typografi/palett/layout) är **inte** vad detta dokument tillämpar, eftersom den processen är till för att bygga ny visuell identitet, inte för att punktfixa en redan fungerande. Detta dokument är istället en konkret UX/tillgänglighets-revision: varje fynd nedan är mätt eller verifierat i faktisk kod, inte en estetisk åsikt.
+Grunden är **inte** en redesign. Uttrycklig instruktion från användaren: behåll temat, statistikfokuset, trovärdighetskänslan, precisionen och minimalismen som finns idag — ändra bara det som faktiskt är en brist, framförallt på mobil. `frontend-design`-skillen (`@claude-plugins-official`) är installerad men dess process ("ta en estetisk risk", omarbeta typografi/palett/layout) tillämpas **inte** rakt av, eftersom den processen är till för att bygga ny visuell identitet, inte för att punktfixa en redan fungerande. §2–§7 nedan är en konkret UX/tillgänglighets-revision: varje fynd är mätt eller verifierat i faktisk kod, inte en estetisk åsikt.
+
+Efter att en fristående, medvetet "bold" design-POC byggts ([FRONTEND_DESIGN_SKILL_POC_2026_06_27.html](FRONTEND_DESIGN_SKILL_POC_2026_06_27.html), ej kopplad till appen) bad användaren om ett mellansteg: låna det POC:ets mest lyckade idéer — mer intressanta diagram, ikoner, färger och font — men tonat ner, och utan att offra dagens "glance-and-understand"-enkelhet. Det är **§8**, tillagd i efterhand och avgränsad från resten av dokumentet, som hanteras nedan: en riktig men sansad visuell profil, inte POC:ets fulla orienterings-identitet.
 
 Genomgången täcker hela appen (alla sidor under `app/(dashboard)/` + `app/(auth)/`), med extra vikt på mobil enligt instruktion.
 
@@ -97,6 +99,78 @@ Detta är exakt det problem huvudnavigeringen (`components/sidebar.tsx`) redan h
 | 5 | `--border` <3:1 generellt | `globals.css` (alla teman) | **Låg** — verifiera input-fält specifikt, annars lämna |
 | 6 | Kommentarsmissmatch "Sand"/"sky" | `globals.css:122` | **Triviell** — gör bara om man redan är i filen |
 
-## 7. Explicit utanför scope
+## 7. Explicit utanför scope (för §2–§6)
 
-Per instruktion: ingen ändring av temapalett som helhet, ingen ny typografi, ingen layoutomarbetning av sidor som redan fungerar (dashboard-kort, stats-gridet, aktivitetsfiltren, login-kortet) och inget arbete drivet av `frontend-design`-skillens "ta en estetisk risk"-process. Allt ovan är riktade fixar mot mätta brister, inte en designöversyn.
+Per ursprunglig instruktion: ingen layoutomarbetning av sidor som redan fungerar (dashboard-kort, stats-gridet, aktivitetsfiltren, login-kortet) och inget arbete drivet av `frontend-design`-skillens fulla "ta en estetisk risk"-process. §2–§6 är riktade fixar mot mätta brister, inte en designöversyn. Typografi och en ny accentfärg är **inte** längre helt utanför scope — se §8, tillagt efter ett separat senare beslut att tillåta en avgränsad visuell profil.
+
+## 8. Visuell profil (tonad ner från design-POC)
+
+### 8.0 Princip
+
+Låna fyra konkreta saker från [FRONTEND_DESIGN_SKILL_POC_2026_06_27.html](FRONTEND_DESIGN_SKILL_POC_2026_06_27.html) — font, en accentfärg, ikonkaraktär, diagramstil — men **inte** POC:ets orienterings-tema, konturlinje-motiv eller kontrollkorts-listor. Allt nedan är litet, additivt och påverkar inget av det som redan listas som "rör INTE" i §3: samma layout, samma informationsdensitet, samma navigation, samma 6-temasystem (forest/ocean/ember/slate/sky/mono) som grund. Loggan (`components/logo.tsx`) behålls oförändrad i form — färgen får följa den nya accenten om det behövs, formen rörs inte.
+
+Testbar tumregel använd för varje förslag nedan: **om det kräver att användaren stannar upp och tolkar något nytt för att förstå en siffra eller ett diagram, är det fel — det ska gå snabbare eller lika snabbt att läsa av som idag, bara snyggare.**
+
+### 8.1 Typografi — en displayfont, bara för siffror och rubriker
+
+Lägg till **Space Grotesk** (Google Fonts, vikter 500/700) som en tredje fontroll, vid sidan av de två som redan finns:
+
+| Roll | Font | Används till | Ändras? |
+|---|---|---|---|
+| Display/siffror | **Space Grotesk** (ny) | Stora mätvärden (`OverviewCard`s värde-rad), sidornas H1, beredskaps-/poäng-tal | Nytt |
+| Brödtext/UI | Inter | Navigation, knappar, formulär, brödtext, tabeller | Oförändrad |
+| Data/mono | JetBrains Mono | Tal i tabeller, splits, kod | Oförändrad |
+
+Space Grotesk är geometrisk och något mer karaktärsfull än Inter men fortfarande en sans utan seriffer eller dramatik — en "lugn" uppgradering, inte POC:ets kondenserade Big Shoulders Display. Eftersom den bara appliceras på stora, fristående tal/rubriker (aldrig löpande text eller tabellrader) finns ingen läsbarhetsrisk — exakt samma siffror på exakt samma platser, bara med lite mer personlighet. Implementation: en rad i `app/layout.tsx` (`next/font/google`) + `--font-display` i `@theme inline`-blocket (`app/globals.css:204`), använd via en Tailwind-klass på stat-komponenter (`OverviewCard.tsx`, sidors `<h1>`).
+
+### 8.2 Färg — en ny delad accent, plus en redan beslutad bugfix
+
+**Ny token `--feature`** (en bränd lera/terrakotta, inspirerad av men mycket mer dämpad än POC:ets klarröda OL-skärm-orange `#FF5A1F`) — verifierad kontrast:
+
+| Variant | Hex | Mot bakgrund | Betyg |
+|---|---|---|---|
+| Ljust läge | `#B45A2C` | 4.5–4.7:1 mot vit/ljusa ytor | AA |
+| Mörkt läge | `#E8956A` | 7.2–8.0:1 mot mörka ytor | AAA |
+
+Används sparsamt — **en signaturplats per vy**, exakt enligt POC:ets eget "spend your boldness in one place"-råd: PB-badgen på `/races`, beredskapsringens fyllda del på `/dashboard`, och rubriken på det enskilt viktigaste talet på varje sida. Inte en ny global knappfärg, inte överallt — `--accent`/`--accent-2` (grön/indigo) förblir de vanliga interaktionsfärgerna oförändrade i alla 6 teman.
+
+**Samtidigt fixas §4.1:s redan dokumenterade kontrastbrist** med riktiga, verifierade värden istället för platshållartexten som stod där tidigare — light-mode-varianter för de fyra sportfärgerna som idag failar 3:1:
+
+| Sportfärg | Ny light-hex | Kontrast mot vit | Mörk variant |
+|---|---|---|---|
+| sport-run | `#0E7A55` | 5.3:1 AA | oförändrad (`#10B981`, redan AAA mot mörk bg) |
+| sport-ski | `#0369A1` | 5.9:1 AA | oförändrad (`#38BDF8`) |
+| sport-rski | `#0C5C8C` | 7.2:1 AAA | oförändrad (`#0EA5E9`) |
+| sport-strength | `#C0392B` | 5.4:1 AA | oförändrad (`#F87171`) |
+
+Implementation: lägg till `-light`-suffixerade CSS-variabler bredvid varje `--sport-*` (`app/globals.css:17-22` per tema) och låt `WeeklyVolumeChart.tsx`/`sports-manager.tsx` välja variant baserat på `.dark`-klassen, samma mönster `--text-primary` redan använder.
+
+### 8.3 Ikoner — egen sportkaraktär, generisk navigation orörd
+
+Lucide förblir ikonbiblioteket för **all** navigation, knappar och generiska UI-ikoner (sidebar, inställningar, planner-actions) — noll risk, noll ändring. Det enda nya: **fem egna, enkla linjeikoner** för sporterna (löpning, orientering, cykel, skidor, styrka) som ersätter dagens generiska Lucide-substitut specifikt i sport-väljaren (`sports-manager.tsx`) och aktivitets-badges — renderade i respektive sports (nu kontrastkorrigerade) färg. Plus en global detaljjustering: `strokeWidth` på samtliga ikoner `1.75` istället för Lucides default `2` — en enda propändring i `ICON_SIZE`-konstanterna, ger en något lättare/mer "ritad" känsla rakt över appen utan att forma om en enda ikon.
+
+### 8.4 Diagram — samma data, mer karaktär, inte mer att tolka
+
+Fyra konkreta, var för sig låg-risk ändringar i `components/charts/*` (Recharts):
+
+1. **Gradientfyllning under linjer** istället för bar linje — `LineChart`/`AreaChart` (LT-trend, HRV-trend, sömn-trend m.fl.) får en mjuk gradient (seriens färg → transparent) under kurvan via `<defs><linearGradient>` + `fillOpacity`. Detta är samma mönster Linear/Vercel/Stripe-dashboards använder specifikt *eftersom* det är lika lätt att läsa som en bar linje — ingen ny tolkningsbörda.
+2. **Rundade stapeltoppar konsekvent** — redan delvis implementerat (`WeeklyVolumeChart.tsx:68`), utöka till samtliga `BarChart`-instanser.
+3. **Zon-band istället för bara streckad mållinje** — där ett mål/zonintervall redan visas (LT2-pace-trend, HR-zoner) lägg till ett tonat horisontellt band (`<ReferenceArea>`) bakom kurvan istället för bara en `<ReferenceLine>` — samma information, en visuell ledtråd till.
+4. **Tooltip-omdesign** — kort-stil mot `--surface` (befintlig border-token), värdet i Space Grotesk, en liten färgad punkt per serie istället för Recharts standardlayout. Ren polish, ingen ny information.
+
+Explicit **inte**: 3D-diagram, polära/radar-diagram, animerade enter-transitions utöver befintlig 150ms ease, eller flera diagramtyper överlagrade i samma vy — allt sådant skulle bryta mot 8.0:s tumregel.
+
+### 8.5 Åtgärdslista, §8
+
+| # | Ändring | Var | Risk/omfattning |
+|---|---|---|---|
+| 1 | Space Grotesk för stora tal/H1 | `app/layout.tsx`, `globals.css`, stat-komponenter | Låg — additiv fontroll |
+| 2 | `--feature`-token (ljus/mörk) | `app/globals.css`, en signaturplats/vy | Låg — ny token, sparsam användning |
+| 3 | Sportfärgers light-mode-fix | `app/globals.css`, `WeeklyVolumeChart.tsx`, `sports-manager.tsx` | Låg — löser redan dokumenterad bugg (§4.1) samtidigt |
+| 4 | 5 egna sportikoner + global strokeWidth 1.75 | `sports-manager.tsx`, aktivitets-badges, ikonkonstanter | Låg-medel — nya assets, men avgränsat användningsområde |
+| 5 | Gradientfyllning, zon-band, tooltip-omdesign i diagram | `components/charts/*` | Medel — flest filer berörs, men varje ändring är mekanisk/repetitiv |
+
+### 8.6 Referensartefakter
+
+- [FRONTEND_DESIGN_SKILL_POC_2026_06_27.html](FRONTEND_DESIGN_SKILL_POC_2026_06_27.html) — den fulla, bolda POC:en denna profil är destillerad från.
+- [FRONTEND_VISUAL_PROFILE_2026_06_27.pdf](FRONTEND_VISUAL_PROFILE_2026_06_27.pdf) — fristående PDF som visar profilen (typsnitt, färgsvatcher, ikon- och diagramstil) i körbart format, för delning/utskrift utan att öppna detta dokument.
