@@ -248,8 +248,17 @@ export async function updateVO2maxAndPaces(userId: string) {
   const hz = existingZones as ZoneMap;
   const twelveWeeksAgo = subDays(now, 84);
   const zoneWindowActs = (activities as Act[]).filter(a => a.startDate >= twelveWeeksAgo);
-  await ensureActivityStreams(userId, zoneWindowActs);
-  const zoneStreams = await loadCachedHRStreams(zoneWindowActs.map(a => a.id));
+  // Isolated try/catch: this whole function is fire-and-forget from its callers (a single
+  // .catch() that just logs — see docs/api/strava.md), so an uncaught error here would
+  // silently kill the ENTIRE cache update (VO2max, predictions, everything below this line),
+  // not just the zone-stream upgrade. Degrade to the lap-based fallback instead.
+  let zoneStreams = new Map<string, { time?: number[] | null; heartrate: number[] }>();
+  try {
+    await ensureActivityStreams(userId, zoneWindowActs);
+    zoneStreams = await loadCachedHRStreams(zoneWindowActs.map(a => a.id));
+  } catch (e) {
+    console.error("[cache] HR stream backfill failed, falling back to lap-based zone time:", e);
+  }
   const { zoneSeconds: zoneSecondsJson, polZ1, polZ2, polZ3 } = computeZoneTime(activities as ZoneTimeActivity[], hz, twelveWeeksAgo, zoneStreams);
   const polTotal = polZ1 + polZ2 + polZ3;
   const polarisationJson = polTotal > 0
