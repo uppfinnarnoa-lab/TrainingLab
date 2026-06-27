@@ -93,6 +93,12 @@ export const tooltips: Record<string, Tooltip> = {
     why: "Confidence is highest for the current month (most data) and for months with a clear, well-supported breakpoint. Months with too little or too ambiguous data show no point at all, rather than a forced guess. For this athlete specifically, race efforts include orienteering — terrain and navigation make pace less consistent than road racing, so sparser historical months are more sensitive to a handful of races than the current, large-sample estimate is.",
     range: "Trust the current point and the overall direction more than any single older month's exact value.",
   },
+  vo2maxTrend: {
+    title: "VO2max Development",
+    what: "Monthly VDOT (a Daniels' Running Formula composite of VO2max, race PBs, and training data, see the VO2max tooltip above) re-estimated as if that month were live today, from training data up to that point only.",
+    why: "A rising trend is the clearest single-number summary of improving aerobic fitness over time — short-term dips often track a hard training block or a taper, not a real fitness loss.",
+    range: "Trust the overall direction more than any single month's exact value, especially during low-race periods.",
+  },
   easyPaceTrend: {
     title: "Aerobic Pace Trend",
     what: "Monthly median Grade-Adjusted Pace (GAP) on easy runs — runs below LT1 HR, ≥ 6 km, and not races. GAP corrects for hills so a hilly route doesn't look slower than a flat one.",

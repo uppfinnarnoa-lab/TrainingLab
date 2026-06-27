@@ -4,7 +4,7 @@ import {
   ComposedChart, Scatter, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
-import type { CadenceScatterPoint } from "@/app/(dashboard)/stats/page";
+import type { CadenceScatterPoint } from "@/lib/fitness/secondary-analytics";
 
 interface Props {
   data: CadenceScatterPoint[];

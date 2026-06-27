@@ -4,7 +4,7 @@ import {
   ComposedChart, Scatter, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
-import type { WeatherScatterPoint } from "@/app/(dashboard)/stats/page";
+import type { WeatherScatterPoint } from "@/lib/fitness/secondary-analytics";
 
 interface Props {
   data: WeatherScatterPoint[];

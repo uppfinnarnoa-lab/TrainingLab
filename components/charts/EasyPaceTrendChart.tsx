@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import type { EasyPacePoint } from "@/app/(dashboard)/stats/page";
+import type { EasyPacePoint } from "@/lib/fitness/secondary-analytics";
 
 interface Props {
   data: EasyPacePoint[];

@@ -12,14 +12,10 @@ import { FitnessMetrics } from "@/components/stats/fitness-metrics";
 import { WeeklyVolumeChart } from "@/components/charts/WeeklyVolumeChart";
 import { TrainingLoadChart } from "@/components/charts/TrainingLoadChart";
 import { HRZonesChart } from "@/components/charts/HRZonesChart";
-import { EasyPaceTrendChart } from "@/components/charts/EasyPaceTrendChart";
-import { LTPaceTrendChart } from "@/components/charts/LTPaceTrendChart";
 import { SleepTrendChart } from "@/components/charts/SleepTrendChart";
 import { HrvTrendChart } from "@/components/charts/HrvTrendChart";
 import { RestingHRTrendChart } from "@/components/charts/RestingHRTrendChart";
 import { GarminWellnessChart } from "@/components/charts/GarminWellnessChart";
-import { WeatherPaceScatterChart } from "@/components/charts/WeatherPaceScatterChart";
-import { CadenceStrideScatterChart } from "@/components/charts/CadenceStrideScatterChart";
 import { MetricTooltip } from "@/components/stats/metric-tooltip";
 import { tooltips } from "@/lib/fitness/tooltips";
 import { secPerKmToPaceStr } from "@/lib/fitness/paces";
@@ -28,7 +24,7 @@ import type { DailyLoad } from "@/lib/fitness/training-load";
 import { tsbLabel } from "@/lib/fitness/training-load";
 import type { HRZones, PaceZones, StatisticalZoneResult } from "@/lib/fitness/zones";
 import type { VO2maxEstimate } from "@/lib/fitness/vo2max";
-import type { WeatherStats, WeatherBand, EasyPacePoint, GarminWellnessPoint } from "@/app/(dashboard)/stats/page";
+import type { GarminWellnessPoint } from "@/app/(dashboard)/stats/page";
 import { readinessLabel, type ReadinessResult, type HrvBaseline } from "@/lib/garmin/insights";
 import { cn } from "@/lib/utils";
 
@@ -57,22 +53,10 @@ interface Props {
     thisWeek: SumData; thisMonth: SumData; ytd: SumData;
     lyWeek: SumData; lyMonth: SumData; lyYtd: SumData;
   };
-  analytics: {
-    aeiByWeek:       { week: string; aei: number }[];
-    reByWeek:        { week: string; paceSecPerKm: number }[];
-    rampRate:        number | null;
-    injuryRisk:      number | null;
-    activeStreak:    number;
-    tempSensitivity: number | null;
-  } | null;
   paceZoneSeconds: Record<string, number>;
   manualMaxHR: number | null;
   manualRestHR: number | null;
-  weatherStats: WeatherStats | null;
-  easyPaceTrend: EasyPacePoint[];
   statZonesLaps: StatisticalZoneResult | null;
-  cadenceScatter: import("@/app/(dashboard)/stats/page").CadenceScatterPoint[];
-  efByWeek: { week: string; ef: number }[];
   monotony: number | null;
   strain: number | null;
   avgRecoveryDays: number | null;
@@ -103,9 +87,9 @@ export function StatsClient(props: Props) {
   const [sportMode, setSportMode] = useState<"all" | "run">("all");
   const o = sportMode === "run" ? props.overviewRun : props.overview;
   const { sparklines, weeklyVolumes, loadCurve, todayLoad,
-    zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZonesLaps, analytics, paceZoneSeconds,
-    extraViz, manualMaxHR, manualRestHR, weatherStats, easyPaceTrend,
-    cadenceScatter, efByWeek, monotony, strain, avgRecoveryDays, recoveryDaysCount, garminWellness,
+    zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZonesLaps, paceZoneSeconds,
+    extraViz, manualMaxHR, manualRestHR,
+    monotony, strain, avgRecoveryDays, recoveryDaysCount, garminWellness,
     readiness, hrvBaseline } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
@@ -353,209 +337,15 @@ export function StatsClient(props: Props) {
         <div className="space-y-6">
           <FitnessMetrics vo2max={vo2max} paceZones={paceZones} todayLoad={todayLoad} predictions={predictions} acwr={acwr} />
 
-          {/* Analytics 1A: AEI trend + ramp rate + active streak */}
-          {analytics && (
-            <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-
-              {/* AEI trend */}
-              <div className="sm:col-span-2 rounded-xl border border-border p-4 space-y-3">
-                <div>
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Aerobic Efficiency Index (AEI)</p>
-                  <p className="text-[10px] text-muted mt-0.5">Speed (m/min) ÷ avg HR · easy runs only (below LT1)</p>
-                </div>
-                {analytics.aeiByWeek.length >= 2 ? (
-                  <div className="flex items-end gap-px h-12">
-                    {analytics.aeiByWeek.map((d, i) => {
-                      const min = Math.min(...analytics.aeiByWeek.map(x => x.aei));
-                      const max = Math.max(...analytics.aeiByWeek.map(x => x.aei));
-                      const range = max - min || 0.01;
-                      const h = Math.max(10, Math.round(((d.aei - min) / range) * 100));
-                      const isLast = i === analytics.aeiByWeek.length - 1;
-                      return (
-                        <div key={d.week} title={`v${d.week.slice(5,7)}: AEI ${d.aei.toFixed(2)}`}
-                          className="flex-1 rounded-sm transition-all"
-                          style={{ height: `${h}%`, backgroundColor: isLast ? "var(--accent)" : "var(--surface-2)", minHeight: 4 }} />
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted">Needs more easy runs with HR data</p>
-                )}
-                {analytics.aeiByWeek.length >= 2 && (() => {
-                  const first = analytics.aeiByWeek[0].aei;
-                  const last  = analytics.aeiByWeek.at(-1)!.aei;
-                  const delta = ((last - first) / first * 100).toFixed(1);
-                  const up = last > first;
-                  return (
-                    <p className="text-xs" style={{ color: up ? "var(--accent)" : "var(--text-muted)" }}>
-                      {up ? "↑" : "↓"} {up ? "+" : ""}{delta}% vs {analytics.aeiByWeek.length} weeks ago · Higher = more aerobically efficient
-                    </p>
-                  );
-                })()}
-
-                {/* Running Economy proxy */}
-                {analytics.reByWeek.length >= 2 && (() => {
-                  const first = analytics.reByWeek[0].paceSecPerKm;
-                  const last  = analytics.reByWeek.at(-1)!.paceSecPerKm;
-                  const delta = first - last; // negative delta = faster = better
-                  const better = delta > 0;
-                  const minRE = Math.min(...analytics.reByWeek.map(d => d.paceSecPerKm));
-                  const maxRE = Math.max(...analytics.reByWeek.map(d => d.paceSecPerKm));
-                  const rng = maxRE - minRE || 1;
-                  return (
-                    <div className="space-y-2 pt-2 border-t border-border">
-                      <p className="text-xs font-semibold text-muted uppercase tracking-wide">Running Economy proxy</p>
-                      <p className="text-[10px] text-muted">Pace at ~75% maxHR — lower = more economical</p>
-                      <div className="flex items-end gap-px h-10">
-                        {analytics.reByWeek.map((d, i) => {
-                          const h = Math.max(10, Math.round(((maxRE - d.paceSecPerKm) / rng) * 100));
-                          const isLast = i === analytics.reByWeek.length - 1;
-                          return <div key={d.week} title={`${secPerKmToPaceStr(d.paceSecPerKm)}/km`}
-                            className="flex-1 rounded-sm" style={{ height: `${h}%`, backgroundColor: isLast ? "#818CF8" : "var(--surface-2)", minHeight: 4 }} />;
-                        })}
-                      </div>
-                      <p className="text-xs" style={{ color: better ? "var(--accent)" : "#F87171" }}>
-                        {better ? "↑ " : "↓ "}{better ? "" : "+"}{Math.abs(Math.round(delta))}s/km {better ? "faster" : "slower"} at same HR over this period
-                      </p>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Ramp rate + Streak + Injury risk + Temp */}
-              <div className="space-y-3">
-                <div className="rounded-xl border border-border p-4 space-y-1">
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Weekly ramp rate</p>
-                  {analytics.rampRate !== null ? (
-                    <>
-                      <p className="text-2xl font-semibold font-mono"
-                        style={{ color: Math.abs(analytics.rampRate) > 10 ? "#F87171" : analytics.rampRate > 0 ? "#6EE7B7" : "#94A3B8" }}>
-                        {analytics.rampRate > 0 ? "+" : ""}{analytics.rampRate}%
-                      </p>
-                      {Math.abs(analytics.rampRate) > 10 && (
-                        <p className="text-[10px] text-error">⚠ High — elevated injury risk</p>
-                      )}
-                    </>
-                  ) : <p className="text-sm text-muted">—</p>}
-                </div>
-
-                {analytics.injuryRisk !== null && (
-                  <div className="rounded-xl border border-border p-4 space-y-1">
-                    <p className="text-xs font-semibold text-muted uppercase tracking-wide">Injury risk</p>
-                    <p className="text-2xl font-semibold font-mono"
-                      style={{ color: analytics.injuryRisk >= 50 ? "#F87171" : analytics.injuryRisk >= 25 ? "#FBBF24" : "#6EE7B7" }}>
-                      {analytics.injuryRisk}/100
-                    </p>
-                    <p className="text-[10px] text-muted">ACWR + ramp rate composite</p>
-                  </div>
-                )}
-
-                <div className="rounded-xl border border-border p-4 space-y-1">
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wide">Active streak</p>
-                  <p className="text-2xl font-semibold font-mono text-primary">{analytics.activeStreak}</p>
-                  <p className="text-[10px] text-muted">consecutive days</p>
-                </div>
-
-                {analytics.tempSensitivity !== null && (
-                  <div className="rounded-xl border border-border p-4 space-y-1">
-                    <p className="text-xs font-semibold text-muted uppercase tracking-wide">Heat impact (easy runs)</p>
-                    <p className="text-xl font-semibold font-mono" style={{ color: analytics.tempSensitivity > 5 ? "#F87171" : "#94A3B8" }}>
-                      {analytics.tempSensitivity > 0 ? "+" : ""}{analytics.tempSensitivity}s/km
-                    </p>
-                    <p className="text-[10px] text-muted">per 5°C above 15°C</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Weather profile — temp + wind */}
-            <WeatherProfileCard weatherStats={weatherStats} />
-            </>
-          )}
-
-          {/* Easy pace trend */}
-          <SectionCard
-            title="Aerobic pace trend"
-            tips={[tooltips.easyPaceTrend]}
-          >
-            {easyPaceTrend.length >= 3
-              ? <EasyPaceTrendChart data={easyPaceTrend} />
-              : <p className="text-xs text-muted py-4 text-center">No data available yet.</p>
-            }
+          {/* Deeper analytics (AEI, RE, ramp rate, injury risk, streak, heat, weather,
+              cadence/stride, EF, VO2max trend, LT/AT trend, terrain factor) live on their
+              own page — this tab stays focused on the numbers checked day to day. */}
+          <SectionCard title="Performance trends & analytics →" href="/stats/trends">
+            <p className="text-xs text-muted">
+              AEI, Running Economy, ramp rate, injury risk, weather sensitivity, cadence/stride,
+              Efficiency Factor, VO2max and LT/AT development over time, and OL terrain factor.
+            </p>
           </SectionCard>
-
-          {/* Cadence + stride length vs. pace (1A) */}
-          {cadenceScatter.length > 0 && (
-            <SectionCard title="Cadence & stride length vs. pace">
-              <div className="text-sm text-muted mb-3">
-                Hastighet = Kadens × Stegländ — visas mot pace, inte tid, eftersom veckovariation
-                annars bara speglar vilken blandning av pass som kördes den veckan.
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Kadens (spm)</p>
-                  <CadenceStrideScatterChart data={cadenceScatter} metric="spm" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted uppercase tracking-wide mb-1">Steglängd (m)</p>
-                  <CadenceStrideScatterChart data={cadenceScatter} metric="strideM" />
-                </div>
-              </div>
-            </SectionCard>
-          )}
-
-          {/* Efficiency Factor trend (2A) */}
-          {efByWeek.length > 4 && (
-            <SectionCard title="Efficiency Factor (EF) — aerobic efficiency">
-              <div className="text-xs text-muted mb-3">
-                EF = speed (m/min) / HR — easy runs last 16 weeks.
-                Rising EF = improved aerobic efficiency. 1.35–1.55 = well-trained.
-              </div>
-              <ResponsiveContainer width="100%" height={120}>
-                <LineChart data={efByWeek} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="week" tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false}
-                    interval={Math.max(0, Math.floor(efByWeek.length / 8) - 1)}
-                    tickFormatter={(w: string) => w.slice(5)} />
-                  <YAxis domain={['auto', 'auto']} width={42} tick={{ fontSize: 10, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: number) => [v.toFixed(3), 'EF']}
-                    labelFormatter={(w: string) => `Vecka ${w}`}
-                  />
-                  <Line type="monotone" dataKey="ef" stroke="#6EE7B7" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-              {efByWeek.length >= 8 && (() => {
-                const recent = efByWeek.slice(-4).reduce((s, v) => s + v.ef, 0) / 4;
-                const older = efByWeek.slice(-8, -4).reduce((s, v) => s + v.ef, 0) / 4;
-                const delta = ((recent - older) / older * 100);
-                return (
-                  <p className="text-xs text-muted mt-2">
-                    Last 4 weeks: <span className="font-mono font-semibold text-primary">{recent.toFixed(3)}</span>
-                    {' '}{delta >= 0 ? '↑' : '↓'} <span className={delta >= 0 ? 'text-accent' : 'text-warning'}>{Math.abs(delta).toFixed(1)}%</span> vs 4–8 weeks ago
-                  </p>
-                );
-              })()}
-            </SectionCard>
-          )}
-
-          {/* LT/AT tempo development over time */}
-          <div className="rounded-xl border border-border p-4 space-y-3">
-            <div className="flex items-center gap-1.5">
-              <p className="text-sm font-semibold text-primary">LT/AT pace development</p>
-              <MetricTooltip tip={tooltips.ltPaceTrend} />
-            </div>
-            <LTPaceTrendChart
-              data={extraViz?.ltPaceTrend ?? []}
-              currentLT2={paceZones?.threshold?.[0]}
-              currentLT1={paceZones?.marathon?.[1]}
-            />
-          </div>
-
-          {/* OL terrain factor */}
-          <TerrainFactorCard tf={extraViz?.terrainFactor ?? null} />
         </div>
       )}
     </div>
@@ -625,128 +415,6 @@ function ReadinessScoreCard({ readiness, hrvBaseline }: { readiness: ReadinessRe
       )}
       {hrvBaseline?.cv14d != null && (
         <p className="text-[10px] text-muted">HRV variability (14-day CV): {hrvBaseline.cv14d}%</p>
-      )}
-    </div>
-  );
-}
-
-function WeatherProfileCard({ weatherStats }: { weatherStats: WeatherStats | null }) {
-  const hasAnyData = weatherStats && (
-    weatherStats.tempScatter.length > 0 ||
-    weatherStats.windScatter.length > 0
-  );
-  if (!hasAnyData) return (
-    <div className="rounded-xl bg-surface border border-border p-5 space-y-5">
-      <p className="text-sm font-semibold text-primary">Weather profile</p>
-      <p className="text-xs text-muted py-4 text-center">No weather data — run Backfill weather data in Settings.</p>
-    </div>
-  );
-
-  function fmtPace(sec: number | null): string {
-    if (!sec) return "—";
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${String(s).padStart(2, "0")}/km`;
-  }
-
-  const precipBands = (weatherStats!.byPrecip ?? []).filter(b => b.count > 0);
-  const hrNormBands = (weatherStats!.hrNormByTemp ?? []).filter(b => b.count > 0);
-
-  function fastest(bands: WeatherBand[]): number | null {
-    const p = bands.filter(b => b.avgPaceSecPerKm != null).map(b => b.avgPaceSecPerKm!);
-    return p.length > 0 ? Math.min(...p) : null;
-  }
-  function slowest(bands: WeatherBand[]): number | null {
-    const p = bands.filter(b => b.avgPaceSecPerKm != null).map(b => b.avgPaceSecPerKm!);
-    return p.length > 0 ? Math.max(...p) : null;
-  }
-
-  function paceBarWidth(pace: number | null, fast: number | null, slow: number | null): number {
-    if (!pace || !fast || !slow) return 20;
-    const range = slow - fast;
-    if (range < 1) return 75;
-    return Math.round((slow - pace) / range * 85 + 15);
-  }
-
-  function paceBarColor(sec: number | null, fast: number | null): string {
-    if (!sec || !fast) return "#94A3B8";
-    const diff = sec - fast;
-    if (diff < 5)  return "#6EE7B7";
-    if (diff < 15) return "#FBBF24";
-    return "#F87171";
-  }
-  function paceTextColor(sec: number | null, fast: number | null): string {
-    return paceBarColor(sec, fast);
-  }
-
-  function BandRow({ band, fast, slow, labelW }: { band: WeatherBand; fast: number | null; slow: number | null; labelW: string }) {
-    const barColor = paceBarColor(band.avgPaceSecPerKm, fast);
-    const textColor = paceTextColor(band.avgPaceSecPerKm, fast);
-    return (
-      <div className="flex items-center gap-3">
-        <span className={`text-xs text-muted shrink-0 ${labelW}`}>{band.label}</span>
-        <div className="flex-1 relative h-5 flex items-center">
-          <div className="h-2 rounded-full bg-surface-2 w-full" />
-          <div className="absolute h-2 rounded-full transition-all"
-            style={{ width: `${paceBarWidth(band.avgPaceSecPerKm, fast, slow)}%`, backgroundColor: barColor, opacity: 0.7 }} />
-        </div>
-        <span className="text-xs font-mono font-semibold w-16 text-right shrink-0" style={{ color: textColor }}>
-          {fmtPace(band.avgPaceSecPerKm)}
-        </span>
-        <span className="text-[10px] text-muted w-10 text-right shrink-0">{band.count}×</span>
-      </div>
-    );
-  }
-
-  const fastPrecip = fastest(precipBands), slowPrecip = slowest(precipBands);
-  const fastHR = fastest(hrNormBands), slowHR = slowest(hrNormBands);
-
-  const coldSensitivity = weatherStats!.coldSensitivity;
-
-  return (
-    <div className="rounded-xl bg-surface border border-border p-5 space-y-5">
-      <div>
-        <p className="text-sm font-semibold text-primary">Weather profile</p>
-        <p className="text-[10px] text-muted mt-0.5">Pace adjusted for fitness drift — OL sessions excluded. Temp: calm wind only (&lt;20 km/h). Wind: 0–25°C only. Precip: 0–25°C only. Green = fastest, red = 15+ s/km slower.</p>
-      </div>
-
-      {coldSensitivity !== null && (
-        <div className="flex gap-3 flex-wrap">
-          <div className="rounded-lg border border-border px-3 py-2 space-y-0.5">
-            <p className="text-[10px] text-muted uppercase tracking-wide">Cold penalty</p>
-            <p className="text-sm font-semibold font-mono" style={{ color: coldSensitivity > 5 ? "#7DD3FC" : "#94A3B8" }}>
-              {coldSensitivity > 0 ? "+" : ""}{coldSensitivity}s/km
-            </p>
-            <p className="text-[10px] text-muted">per 5°C below 5°C</p>
-          </div>
-        </div>
-      )}
-
-      {weatherStats!.tempScatter.length >= 8 && (
-        <WeatherPaceScatterChart data={weatherStats!.tempScatter} xLabel="Temperatur" xUnit="°C" color="#FBBF24" />
-      )}
-
-      {hrNormBands.length >= 3 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted uppercase tracking-wide">Pace at 70–80% max HR by temperature</p>
-          <p className="text-[10px] text-muted -mt-1">Effort-controlled — no fitness drift correction needed</p>
-          <div className="space-y-1.5">
-            {hrNormBands.map(band => <BandRow key={band.label} band={band} fast={fastHR} slow={slowHR} labelW="w-20" />)}
-          </div>
-        </div>
-      )}
-
-      {weatherStats!.windScatter.length >= 8 && (
-        <WeatherPaceScatterChart data={weatherStats!.windScatter} xLabel="Vind" xUnit=" km/h" color="#60A5FA" />
-      )}
-
-      {precipBands.length >= 2 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted uppercase tracking-wide">Adjusted pace by precipitation</p>
-          <div className="space-y-1.5">
-            {precipBands.map(band => <BandRow key={band.label} band={band} fast={fastPrecip} slow={slowPrecip} labelW="w-28" />)}
-          </div>
-        </div>
       )}
     </div>
   );
@@ -1428,35 +1096,3 @@ function VdotTrendCard({ data }: { data: { month: string; vdot: number }[] }) {
   );
 }
 
-function TerrainFactorCard({ tf }: { tf: { olPaceSecPerKm: number; roadPaceSecPerKm: number; olSessions: number; roadSessions: number } | null }) {
-  if (!tf) return (
-    <div className="rounded-xl border border-border p-4 space-y-3">
-      <p className="text-sm font-semibold text-primary">Orienteering terrain factor</p>
-      <p className="text-xs text-muted py-4 text-center">No data available yet.</p>
-    </div>
-  );
-  const diff = tf.olPaceSecPerKm - tf.roadPaceSecPerKm;
-  const pct = Math.round((diff / tf.roadPaceSecPerKm) * 100);
-  const olMM = Math.floor(tf.olPaceSecPerKm / 60), olSS = tf.olPaceSecPerKm % 60;
-  const roadMM = Math.floor(tf.roadPaceSecPerKm / 60), roadSS = tf.roadPaceSecPerKm % 60;
-  return (
-    <div className="rounded-xl border border-border p-4 space-y-3">
-      <p className="text-sm font-semibold text-primary">Orienteering terrain factor</p>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-xs text-muted">Road running avg pace</p>
-          <p className="text-2xl font-semibold font-mono text-primary">{roadMM}:{String(roadSS).padStart(2,"0")}</p>
-          <p className="text-[10px] text-muted">{tf.roadSessions} sessions (at moderate HR)</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted">Orienteering avg pace</p>
-          <p className="text-2xl font-semibold font-mono text-primary">{olMM}:{String(olSS).padStart(2,"0")}</p>
-          <p className="text-[10px] text-muted">{tf.olSessions} sessions</p>
-        </div>
-      </div>
-      <p className="text-xs text-muted">
-        Terrain cost: <span className="font-semibold text-warning">+{diff}s/km (+{pct}%)</span> slower in orienteering terrain vs road at similar effort.
-      </p>
-    </div>
-  );
-}

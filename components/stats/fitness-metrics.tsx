@@ -113,11 +113,11 @@ export function FitnessMetrics({ vo2max, paceZones, todayLoad, predictions, acwr
                 ["Threshold",   paceZones.threshold,  "Raise your sustainable speed ceiling"],
                 ["Interval",    paceZones.interval,   "Develop VO2max — short hard reps"],
                 ["Repetition",  paceZones.repetition, "Speed and economy — very short reps"],
-              ] as [string, [number, number], string][]).map(([name, [lo, hi], purpose]) => (
+              ] as [string, [number, number], string][]).map(([name, [slow, fast], purpose]) => (
                 <tr key={name} className="hover:bg-surface-2 transition-colors">
                   <td className="px-4 py-2.5 font-medium text-primary">{name}</td>
                   <td className="px-4 py-2.5 text-right font-mono text-muted">
-                    {secPerKmToPaceStr(hi)} – {secPerKmToPaceStr(lo)}
+                    {secPerKmToPaceStr(slow)} – {secPerKmToPaceStr(fast)}
                   </td>
                   <td className="px-4 py-2.5 text-right text-muted hidden sm:table-cell">{purpose}</td>
                 </tr>

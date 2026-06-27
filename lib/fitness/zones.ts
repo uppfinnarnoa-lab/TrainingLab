@@ -894,12 +894,15 @@ export function buildPaceZonesFromLT(lt1PaceSecPerKm: number, lt2PaceSecPerKm: n
   const vVO2max = lt2Vel / 0.88;
   const paceAt  = (frac: number) => Math.round(1000 / (vVO2max * frac)); // sec/km
 
+  // Tuples are always [slow_boundary, fast_boundary] (the same convention as buildPaceZones()
+  // and the comment on the pace-zone classifier in stats/page.tsx) — index [1] is always the
+  // faster/higher-intensity edge of the zone, never index [0].
   return {
-    easy:       [paceAt(0.74), paceAt(0.59)],      // 59–74% vVO2max
-    marathon:   [paceAt(0.84), paceAt(0.75)],      // 75–84% vVO2max
+    easy:       [paceAt(0.59), paceAt(0.74)],      // 59–74% vVO2max
+    marathon:   [paceAt(0.75), paceAt(0.84)],      // 75–84% vVO2max
     threshold:  [lt1PaceSecPerKm, lt2PaceSecPerKm], // anchored to actual LT1/LT2
-    interval:   [paceAt(1.00), paceAt(0.95)],      // 95–100% vVO2max
-    repetition: [paceAt(1.10), paceAt(1.05)],      // 105–110% vVO2max
+    interval:   [paceAt(0.95), paceAt(1.00)],      // 95–100% vVO2max
+    repetition: [paceAt(1.05), paceAt(1.10)],      // 105–110% vVO2max
     vdot: 0,
   };
 }
