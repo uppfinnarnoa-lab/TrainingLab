@@ -30,7 +30,7 @@ Listat explicit så att en implementerande session inte "fixar" saker som redan 
 
 ## 4. Färgtema-kontrastrevision
 
-### 4.1 Systembrist: fyra sportfärger klarar inte 3:1 i NÅGOT ljust tema
+### 4.1 Systembrist: fyra sportfärger klarar inte 3:1 i NÅGOT ljust tema — **rättad, se regressionsgranskningen i §9.1: dessa CSS-variabler visade sig vara helt oanvända**
 
 `--sport-run` (#10B981), `--sport-ski` (#38BDF8), `--sport-rski` (#0EA5E9) och `--sport-strength` (#F87171) är fasta hex-värden, **inte** tema/mode-medvetna som `--text-primary`/`--accent` är. Uppmätt kontrast mot samtliga 6 ljusa bakgrunder (identisk för alla, eftersom bakgrunderna är nästan likst ljusa):
 
@@ -169,7 +169,9 @@ Implementation: lägg till `-light`-suffixerade CSS-variabler bredvid varje `--s
 
 ### 8.3 Ikoner — egen sportkaraktär, generisk navigation orörd
 
-Lucide förblir ikonbiblioteket för **all** navigation, knappar och generiska UI-ikoner (sidebar, inställningar, planner-actions) — noll risk, noll ändring. Det enda nya: **fem egna, enkla linjeikoner** för sporterna (löpning, orientering, cykel, skidor, styrka) som ersätter dagens generiska Lucide-substitut specifikt i sport-väljaren (`sports-manager.tsx`) och aktivitets-badges. Varje ikon hämtar sin färg från **samma riktiga, redan-användarbara källa som §4.5 (korrigerad) pekar på** — `SportCategory.color`, samma fält Settings redan skriver till — inte en fjärde, egen färggissning och inte en fast lista. Ändrar en användare en sports färg i Settings ska ikonen (precis som diagrammen och swatchen) byta färg automatiskt. Plus en global detaljjustering: `strokeWidth` på samtliga ikoner `1.75` istället för Lucides default `2` — en enda propändring i `ICON_SIZE`-konstanterna, ger en något lättare/mer "ritad" känsla rakt över appen utan att forma om en enda ikon.
+Lucide förblir ikonbiblioteket för **all** navigation, knappar och generiska UI-ikoner (sidebar, inställningar, planner-actions) — noll risk, noll ändring. Det enda nya: **fem egna, enkla linjeikoner** för sporterna (löpning, orientering, cykel, skidor, styrka) som ersätter dagens generiska Lucide-substitut specifikt i sport-väljaren (`sports-manager.tsx`) och aktivitets-badges. Varje ikon hämtar sin färg från **samma riktiga, redan-användarbara källa som §4.5 (korrigerad) pekar på** — `SportCategory.color`, samma fält Settings redan skriver till — inte en fjärde, egen färggissning och inte en fast lista. Ändrar en användare en sports färg i Settings ska ikonen (precis som diagrammen och swatchen) byta färg automatiskt.
+
+**StrokeWidth-detaljen rättad efter regressionsgranskning (§9.4):** "en enda propändring i `ICON_SIZE`-konstanterna" var fel — grep mot hela kodbasen hittade noll explicita `strokeWidth=`-anrop någonstans; alla Lucide-ikoner kör på bibliotekets default och `ICON_SIZE` styr bara `size`, inte linjebredd. Att sätta `strokeWidth={1.75}` på varje enskilt ikon-anrop hade varit en mycket större, spridd ändring än planerat. Rätt väg: Lucide-ikoner renderas redan med en `lucide`-CSS-klass på `<svg>`-elementet, så en enda global regel i `app/globals.css` (`svg.lucide { stroke-width: 1.75; }`) ger exakt samma visuella effekt utan att röra ett enda call-site — en sant minimal ändring, bara på rätt nivå.
 
 Första ikon-utkastet (i [FRONTEND_VISUAL_PROFILE_2026_06_27.html](FRONTEND_VISUAL_PROFILE_2026_06_27.html)) höll inte måttet — för abstrakta/oproportionerliga för att läsas som sin sport vid en snabb blick. Ritades om till tydligare siluetter: löpning som en proportionerlig löparpose med tydligt isärsärade fram-/bakben (huvud, lutande bål, ben i motsatta diagonaler) istället för en stel, korsbent pinngubbe; orientering som en kompass med en kort/lång nål (N/S) och mittpunkt istället för bara en tom cirkel; cykel med korrekt hjul-till-ram-geometri (två hjul + en sluten ramtriangel + sadel + styre) istället för korsande linjer; skidor som korsade skidor med uppåtvinklade spetsar — det universella skidspår-skylt-motivet — istället för två raka streck som lätt lästes som bokstaven "H"; styrka oförändrad (redan tydlig).
 
@@ -177,7 +179,7 @@ Första ikon-utkastet (i [FRONTEND_VISUAL_PROFILE_2026_06_27.html](FRONTEND_VISU
 
 Fyra konkreta, var för sig låg-risk ändringar i `components/charts/*` (Recharts):
 
-1. **Gradientfyllning under linjer** istället för bar linje — `LineChart`/`AreaChart` (LT-trend, HRV-trend, sömn-trend m.fl.) får en mjuk gradient (seriens färg → transparent) under kurvan via `<defs><linearGradient>` + `fillOpacity`. Detta är samma mönster Linear/Vercel/Stripe-dashboards använder specifikt *eftersom* det är lika lätt att läsa som en bar linje — ingen ny tolkningsbörda.
+1. **Gradientfyllning under linjer** istället för bar linje — `LineChart`/`AreaChart` (LT-trend, HRV-trend, sömn-trend m.fl.) får en mjuk gradient (seriens färg → transparent) under kurvan via `<defs><linearGradient>` + `fillOpacity`. Detta är samma mönster Linear/Vercel/Stripe-dashboards använder specifikt *eftersom* det är lika lätt att läsa som en bar linje — ingen ny tolkningsbörda. **Avgränsning efter regressionsgranskning (§9.5): gäller bara diagram där värdet alltid håller sig åt ett håll** (HRV-trend, sömn-trend, LT-pace-trend, VO2max-trend m.fl. — alla alltid-positiva). `components/charts/TrainingLoadChart.tsx:74-76` undantas explicit: TSB-linjen (rad 76, streckad, `strokeDasharray="5 2"`) korsar legitimt noll i båda riktningar — en gradient ner mot diagrambotten hade sett trasig/missvisande ut där och kombinerar dåligt med en streckad linje. CTL/ATL-linjerna i samma diagram (alltid positiva) kan få gradient om så önskas, TSB ska inte. `WeatherPaceScatterChart.tsx` har en inverterad Y-axel (rad 79) där gradientens visuella riktning skulle kännas bakvänd — undantas också, ingen gradient där.
 2. **Rundade stapeltoppar konsekvent** — redan delvis implementerat (`WeeklyVolumeChart.tsx:68`), utöka till samtliga `BarChart`-instanser.
 3. **Zon-band istället för bara streckad mållinje** — där ett mål/zonintervall redan visas (LT2-pace-trend, HR-zoner) lägg till ett tonat horisontellt band (`<ReferenceArea>`) bakom kurvan istället för bara en `<ReferenceLine>` — samma information, en visuell ledtråd till.
 4. **Tooltip-omdesign** — kort-stil mot `--surface` (befintlig border-token), värdet i Space Grotesk, en liten färgad punkt per serie istället för Recharts standardlayout. Ren polish, ingen ny information.
@@ -190,11 +192,43 @@ Explicit **inte**: 3D-diagram, polära/radar-diagram, animerade enter-transition
 |---|---|---|---|
 | 1 | Space Grotesk för stora tal/H1 | `app/layout.tsx`, `globals.css`, stat-komponenter | Låg — additiv fontroll |
 | 2 | `--feature`-token (ljus/mörk) | `app/globals.css`, en signaturplats/vy | Låg — ny token, sparsam användning |
-| 3 | Sportfärgers light-mode-fix | `app/globals.css`, `WeeklyVolumeChart.tsx`, `sports-manager.tsx` | Låg — löser redan dokumenterad bugg (§4.1) samtidigt |
-| 4 | 5 egna sportikoner + global strokeWidth 1.75 | `sports-manager.tsx`, aktivitets-badges, ikonkonstanter | Låg-medel — nya assets, men avgränsat användningsområde |
-| 5 | Gradientfyllning, zon-band, tooltip-omdesign i diagram | `components/charts/*` | Medel — flest filer berörs, men varje ändring är mekanisk/repetitiv |
+| 3 | Trä riktig `SportCategory.color` ner till diagrammen, ny delad fallback-konstant (ersätter §4.1:s döda CSS-variabler, se §9.1/§9.2) | `WeeklyVolumeChart.tsx`, `volume-client.tsx`, deras föräldrasidor, ny `lib/sports/colors.ts`-liknande hjälpare | Låg-medel — löser §4.1 OCH §4.5 i samma ändring; rör **inte** `lib/planner/colors.ts` (§9.2, avsiktligt separat) |
+| 4 | 5 egna sportikoner + global strokeWidth 1.75 via CSS (rättad, se §9.4) | `sports-manager.tsx`, aktivitets-badges, `app/globals.css` (`svg.lucide` regel) | Låg — CSS-regel istället för per-call-site-ändring |
+| 5 | Gradientfyllning (avgränsad, se §9.5), zon-band, tooltip-omdesign i diagram | `components/charts/*` utom `TrainingLoadChart.tsx`s TSB-linje och `WeatherPaceScatterChart.tsx` | Medel — flest filer berörs, men varje ändring är mekanisk/repetitiv |
 
 ### 8.6 Referensartefakter
 
 - [FRONTEND_DESIGN_SKILL_POC_2026_06_27.html](FRONTEND_DESIGN_SKILL_POC_2026_06_27.html) — den fulla, bolda POC:en denna profil är destillerad från.
 - [FRONTEND_VISUAL_PROFILE_2026_06_27.pdf](FRONTEND_VISUAL_PROFILE_2026_06_27.pdf) — fristående PDF som visar profilen (typsnitt, färgsvatcher, ikon- och diagramstil) i körbart format, för delning/utskrift utan att öppna detta dokument.
+
+## 9. Regressionsgranskning — verifierat mot resten av appen innan implementation
+
+På uttrycklig begäran: hela planen (§2–§8) gicks igenom punkt för punkt mot den faktiska kodbasen för att hitta allt som ett förslag skulle kunna förstöra på ett annat ställe. Två research-pass (sport-/palett-spårning, layout-/font-/ikon-/diagramspårning) användes för att verifiera varje förslag med riktiga fil:rad-citat, inte antaganden. Tre förslag visade sig behöva korrigeras innan implementation; resten verifierades säkra som skrivna.
+
+### 9.1 §4.1 var i praktiken ett dött förslag — `--sport-*` används ingenstans
+
+Grep mot hela kodbasen hittade **noll** komponenter som läser `var(--sport-run)` etc. — variablerna i `app/globals.css:17-22` är helt oanvända (orphanade). `WeeklyVolumeChart.tsx` och `volume-client.tsx` har, som §4.5 redan visade, sina egna helt separata hårdkodade kopior — de läser aldrig CSS-variabeln, råkar bara historiskt ha haft samma startvärde i ett av fallen. Att "fixa" §4.1 genom att ändra `globals.css` hade alltså inte synts någonstans i den körande appen. **Konsekvens:** §4.1:s kontrastarbete är inte bortkastat, men målet flyttas — de korrigerade hex-värdena (5.3–7.2:1) ska in som default/fallback-konstant i den nya delade färghjälparen §4.5 beskriver (se 9.2), inte som en CSS-variabeländring. De gamla `--sport-*`-variablerna bör städas bort vid implementation snarare än uppdateras, för att inte lämna kvar ännu en död, vilseledande källa.
+
+### 9.2 §4.5: en TREDJE oberoende sportfärg-källa hittades — måste lämnas orörd, inte förenas
+
+Utöver de två diagrammens hårdkodade kartor (§4.5) och de döda CSS-variablerna (9.1) finns ett tredje, helt separat system: `lib/planner/colors.ts`s `workoutColor()`/`activityColor()`/`sportOnlyColor()`, som driver aktivitetslistans badges, aktivitetsdetaljsidan och planner-kalenderns pills. Detta är **inte** samma bugg — det är en avsiktligt annorlunda, regelbaserad palett som kodar **passtyp**, inte bara sport: tävling/race blir alltid gul (`#FBBF24`) oavsett sport (rad 41 i filen), och löpning särskiljs per passtyp (lätt/tempo/intervall etc.), vilket en enkel sport→färg-koppling inte kan uttrycka. Att ersätta detta med `SportCategory.color` hade tagit bort verklig information (t.ex. "detta var en tävling") och riskerat kollision (en användare som sätter sin "Löpning"-färg till gult hade fått tävlingspass att smälta in i vanliga pass).
+
+**Bekräftat men avsiktligt:** för icke-löpande sporter faller `workoutColor()` tillbaka på ytterligare en egen hårdkodad uppsättning (cykel `#FB923C`, orientering `#14B8A6`, styrka `#D97706` — ANNU en fjärde uppsättning hex, skild från både diagrammens och CSS-variablernas). Detta innebär att appen efter §4.5:s fix fortfarande, helt medvetet, kommer visa t.ex. cykel i användarens egna valda färg i statistikdiagrammen men i en fast orange nyans i planneraren/aktivitetslistan. **Detta ska inte "fixas" till att vara samma** — det är två olika, var för sig rimliga visuella språk (sportidentitet vs. passtyp-information) som råkar dela ursprungsdata. Dokumenterat här uteslutande för att en framtida implementerande session inte ska förväxla detta med §4.5:s faktiska bugg och av misstag bygga ihop dem.
+
+### 9.3 §4.2, §5.1, §5.2 — verifierade säkra, inga ändringar i planen
+
+- **§4.2** (Slate-light `--warning`/`--error` mörkare): 15+ Tailwind-klasskonsumenter (`text-warning`, `bg-error/10` m.fl.) hittades över hela appen — ingen hårdkodar hex eller gör en JS-kontrastberäkning mot det exakta värdet. Säker att ändra isolerat i `.scheme-slate`.
+- **§5.1** (sidebar tap-targets `p-2`→`p-3`, `p-1.5`→`p-3`): ingen fast-pixel-layout i närheten bryts — hamburgerknappen sitter fritt i hörnet, stäng-knappen ligger i en flex-rad (`items-end`) som redan tål varierande knappstorlek.
+- **§5.2** (coach-sidofältets default-state): ingen annan logik (fetch, scroll, analytics) är kopplad till `sidebarOpen`s initiala värde — rent visuell ändring.
+
+### 9.4 §8.3 — strokeWidth-detaljen korrigerad (se rättningen i §8.3 ovan)
+
+Ursprungstexten påstod "en enda propändring i `ICON_SIZE`-konstanterna"; verifierat felaktigt — noll call-sites sätter `strokeWidth` idag, så `ICON_SIZE` styr aldrig linjebredd. Rätt fix är en global CSS-regel mot Lucides `lucide`-klass, inte en kod-konstant. Se §8.3 för den rättade texten.
+
+### 9.5 §8.4 — gradientfyllning avgränsad bort från TSB och den inverterade scatter-axeln (se rättningen i §8.4 ovan)
+
+`TrainingLoadChart.tsx`s TSB-linje korsar legitimt noll och är streckad — en gradient ner mot botten hade sett trasig ut. `WeatherPaceScatterChart.tsx` har en inverterad Y-axel där gradientriktningen hade känts bakvänd. Båda undantagna explicit i §8.4; `SleepTrendChart.tsx` och övriga alltid-positiva trendgrafer är oförändrat säkra.
+
+### 9.6 Inget annat i §2–§7 (UX/mobil-fynden) påverkades
+
+Resten av granskningen (§2, §3, §6, §7) beskriver bara redan uppmätt nuvarande beteende eller en explicit "rör INTE"-lista — inget regressionsarbete krävdes där eftersom de inte föreslår kodändringar i sig, bara dokumenterar fynd som redan validerats mot faktisk kod när de skrevs.
