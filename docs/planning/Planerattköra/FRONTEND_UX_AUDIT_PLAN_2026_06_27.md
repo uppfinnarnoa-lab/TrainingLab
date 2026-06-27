@@ -67,7 +67,26 @@ Samtliga teman: bordern mot surface/bakgrund ligger på 1.18–2.29:1, långt un
 
 ### 4.4 Nit (en kommentarsrad, ingen funktionell effekt)
 
-`app/globals.css:122-139` — kommentarsblocket ovanför temat heter "Theme: Sand" och har forskningsanteckningar som refererar till "Sand"-paletten, men CSS-selektorn är `.scheme-sky` (rad 140) och hela resten av kodbasen (`ColorScheme` typ, `COLOR_SCHEMES`-array, mobildefault-kommentaren i `color-scheme-provider.tsx:23`) kallar det "sky". Temat döptes om vid något tillfälle men kommentaren glömdes. Noll användarpåverkan — ren kodhygien, en enrads-omdöpning av kommentaren om man råkar vara i filen av annan anledning.
+`app/globals.css:122-139` — kommentarsblocket ovanför temat heter "Theme: Sand" och har forskningsanteckningar som refererar till "Sand"-paletten, men CSS-selektorn är `.scheme-sky` (rad 140) och hela resten av kodbasen (`ColorScheme` typ, `COLOR_SCHEMES`-array, mobildefault-kommentaren i `color-scheme-provider.tsx:23`) kallar det "sky". Temat döptes om vid något tillfälle men kommentaren glömdes. Verifierat att det inte är användarsynligt heller: `appearance-settings.tsx:15` visar konsekvent `label: "Sand"` i temaväljaren — användaren ser bara "Sand", överallt, så det enda som drabbas är en utvecklarförvirrande kommentar/kod-namn-skillnad. Ren kodhygien, en enrads-omdöpning av kommentaren om man råkar vara i filen av annan anledning.
+
+### 4.5 NY, verifierad bugg: samma sport har redan idag olika färg i olika diagram
+
+Letade upp **alla** ställen i kodbasen som hårdkodar sportfärger (11 filer träffade på samma hex-värden) för att kunna svara på frågan "har samma sport samma färg överallt redan idag?" — svaret är **nej**, och det är inte en hypotetisk risk utan ett redan levande, mätbart fel:
+
+| Sport | `WeeklyVolumeChart.tsx:10-15` | `volume-client.tsx:42-47` |
+|---|---|---|
+| Running | `#10B981` (grön) | `#6EE7B7` (ljusgrön) |
+| Orienteering | `#059669` (grön) | `#F472B6` (**rosa**) |
+| Cycling | `#6366F1` (indigo) | `#FBBF24` (**gul/amber**) |
+| Skiing | `#38BDF8` (himmelsblå) | `#60A5FA` (annan blånyans) |
+| Roller Skiing | `#0EA5E9` (blå) | `#A78BFA` (**lila**) |
+| Strength | `#F87171` (röd) | `#F97316` (**orange**) |
+
+Två oberoende, lokalt deklarerade `SPORT_COLORS: Record<string,string>`-objekt med exakt samma sportnamn som nycklar men helt olika hex — Orientering är grön i veckovolym-diagrammet på Dashboard men rosa i volymstatistiken på `/stats/volume`. Detta är precis den typ av inkonsekvens som gör appen svårare att läsa, inte lättare — en användare som lär sig "grönt = orientering" på en sida möter "rosa = orientering" på en annan.
+
+**Övriga filer som matchade samma hex-sökning är INTE samma bugg, och ska inte ändras:** `fitness-metrics.tsx`/`stats-client.tsx`/`TrainingLoadChart.tsx`/`activity-charts.tsx` återanvänder bara de mörka temats `--error`/`--accent`/`--accent-2`-nyanser hårdkodat för **statusfärger** (ACWR-risk, CTL/ATL/TSB, mätsäkerhet) — orelaterat till sportidentitet, men värt en egen, separat notering: dessa hårdkodade statusfärger anpassar sig inte till ljust/mörkt läge eller temaval, till skillnad från `--error`/`--warning`-token som redan finns och borde användas istället. Lägre prioritet än sport-färgbuggen, men samma rotorsak (hårdkodad hex istället för delad källa). `WorkoutBuilder.tsx`/`BlockEditorModal.tsx`/`sports-manager.tsx`s träffar är färgVÄLJAR-paletter (`PRESET_COLORS`/`TYPE_COLOR_PALETTE`) — listor av valbara svatcher användaren kan tilldela en sport/typ, helt korrekt och avsiktligt annorlunda än en fast sport→färg-bindning; rör inte dessa.
+
+**Föreslagen åtgärd:** en enda delad konstant (t.ex. `lib/sports/colors.ts`, exporterad `SPORT_COLORS`) som båda diagramfilerna importerar istället för att deklarera sin egen — och som själv läser samma `--sport-*`-värden (inkl. §4.1:s nya light-mode-varianter) som `globals.css` redan definierar, så en framtida färgändring bara görs på ett ställe och automatiskt syns konsekvent överallt: diagram, sportväljare och (nya, se §8.3) sportikoner.
 
 ## 5. Mobilanvändbarhet
 
@@ -98,6 +117,7 @@ Detta är exakt det problem huvudnavigeringen (`components/sidebar.tsx`) redan h
 | 4 | Sportfärger (run/ski/rski/strength) <3:1 i alla ljusa teman | `globals.css` (sport-vars), `WeeklyVolumeChart.tsx` | **Medel** — legend mildrar, men mätbar brist |
 | 5 | `--border` <3:1 generellt | `globals.css` (alla teman) | **Låg** — verifiera input-fält specifikt, annars lämna |
 | 6 | Kommentarsmissmatch "Sand"/"sky" | `globals.css:122` | **Triviell** — gör bara om man redan är i filen |
+| 7 | Samma sport olika färg i olika diagram (§4.5) | `WeeklyVolumeChart.tsx`, `volume-client.tsx` | **Hög** — redan ett verifierat, levande fel, inte en risk |
 
 ## 7. Explicit utanför scope (för §2–§6)
 
@@ -147,7 +167,9 @@ Implementation: lägg till `-light`-suffixerade CSS-variabler bredvid varje `--s
 
 ### 8.3 Ikoner — egen sportkaraktär, generisk navigation orörd
 
-Lucide förblir ikonbiblioteket för **all** navigation, knappar och generiska UI-ikoner (sidebar, inställningar, planner-actions) — noll risk, noll ändring. Det enda nya: **fem egna, enkla linjeikoner** för sporterna (löpning, orientering, cykel, skidor, styrka) som ersätter dagens generiska Lucide-substitut specifikt i sport-väljaren (`sports-manager.tsx`) och aktivitets-badges — renderade i respektive sports (nu kontrastkorrigerade) färg. Plus en global detaljjustering: `strokeWidth` på samtliga ikoner `1.75` istället för Lucides default `2` — en enda propändring i `ICON_SIZE`-konstanterna, ger en något lättare/mer "ritad" känsla rakt över appen utan att forma om en enda ikon.
+Lucide förblir ikonbiblioteket för **all** navigation, knappar och generiska UI-ikoner (sidebar, inställningar, planner-actions) — noll risk, noll ändring. Det enda nya: **fem egna, enkla linjeikoner** för sporterna (löpning, orientering, cykel, skidor, styrka) som ersätter dagens generiska Lucide-substitut specifikt i sport-väljaren (`sports-manager.tsx`) och aktivitets-badges. Varje ikon hämtar sin färg från **samma delade `SPORT_COLORS`-konstant** som §4.5 föreslår — inte en fjärde, egen färggissning — så en sport ser exakt likadan ut i diagram, väljare och ikon. Plus en global detaljjustering: `strokeWidth` på samtliga ikoner `1.75` istället för Lucides default `2` — en enda propändring i `ICON_SIZE`-konstanterna, ger en något lättare/mer "ritad" känsla rakt över appen utan att forma om en enda ikon.
+
+Första ikon-utkastet (i [FRONTEND_VISUAL_PROFILE_2026_06_27.html](FRONTEND_VISUAL_PROFILE_2026_06_27.html)) höll inte måttet — för abstrakta/oproportionerliga för att läsas som sin sport vid en snabb blick. Ritades om till tydligare siluetter: löpning som en proportionerlig löparpose med tydligt isärsärade fram-/bakben (huvud, lutande bål, ben i motsatta diagonaler) istället för en stel, korsbent pinngubbe; orientering som en kompass med en kort/lång nål (N/S) och mittpunkt istället för bara en tom cirkel; cykel med korrekt hjul-till-ram-geometri (två hjul + en sluten ramtriangel + sadel + styre) istället för korsande linjer; skidor som korsade skidor med uppåtvinklade spetsar — det universella skidspår-skylt-motivet — istället för två raka streck som lätt lästes som bokstaven "H"; styrka oförändrad (redan tydlig).
 
 ### 8.4 Diagram — samma data, mer karaktär, inte mer att tolka
 
