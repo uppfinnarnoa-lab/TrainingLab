@@ -69,7 +69,7 @@ Samtliga teman: bordern mot surface/bakgrund ligger på 1.18–2.29:1, långt un
 
 `app/globals.css:122-139` — kommentarsblocket ovanför temat heter "Theme: Sand" och har forskningsanteckningar som refererar till "Sand"-paletten, men CSS-selektorn är `.scheme-sky` (rad 140) och hela resten av kodbasen (`ColorScheme` typ, `COLOR_SCHEMES`-array, mobildefault-kommentaren i `color-scheme-provider.tsx:23`) kallar det "sky". Temat döptes om vid något tillfälle men kommentaren glömdes. Verifierat att det inte är användarsynligt heller: `appearance-settings.tsx:15` visar konsekvent `label: "Sand"` i temaväljaren — användaren ser bara "Sand", överallt, så det enda som drabbas är en utvecklarförvirrande kommentar/kod-namn-skillnad. Ren kodhygien, en enrads-omdöpning av kommentaren om man råkar vara i filen av annan anledning.
 
-### 4.5 NY, verifierad bugg: samma sport har redan idag olika färg i olika diagram
+### 4.5 NY, verifierad bugg: samma sport/typ har olika färg på flera ställen i appen — utökad efter användarens rättning, se §9.2
 
 Letade upp **alla** ställen i kodbasen som hårdkodar sportfärger (11 filer träffade på samma hex-värden) för att kunna svara på frågan "har samma sport samma färg överallt redan idag?" — svaret är **nej**, och det är inte en hypotetisk risk utan ett redan levande, mätbart fel:
 
@@ -90,7 +90,27 @@ Två oberoende, lokalt deklarerade `SPORT_COLORS: Record<string,string>`-objekt 
 
 En delad statisk konstant (ursprungligt förslag ovan) hade bara bytt ut en omöjlig-att-ändra lista mot en annan — fortfarande frikopplad från databasen. **Rätt fix:** föräldrasidorna (`app/(dashboard)/dashboard/page.tsx` respektive `app/(dashboard)/stats/volume/page.tsx`) hämtar redan `SportCategory`-raderna för andra syften (sport-/typhantering) — de behöver skicka ner en `sportColors: Record<string, string>`-prop (sportnamn → `SportCategory.color`) till diagrammen istället för att diagrammen gissar själva. `--sport-*`-CSS-variablerna (inkl. §4.1:s ljusa light-mode-fix) blir kvar som **default-/fallback-värde** — använt när en sport saknar egen `SportCategory`-rad, eller som startfärg när en ny sport skapas — inte som den körande render-källan när en riktig anpassad färg finns. Detta löser samtidigt §4.1:s kontrastbugg och dagens "byter inte i Settings"-problem i en och samma ändring, eftersom diagrammen då alltid visar exakt den färg som faktiskt är sparad.
 
-## 5. Mobilanvändbarhet
+### 4.6 Samma fix utökad till Planner, Aktiviteter och Historik — användaren bekräftade detta SKA vara enhetligt, inte bara diagrammen
+
+Användaren rättade §9.2:s ursprungliga slutsats ("lämna `lib/planner/colors.ts` orörd") explicit: planner-kalendern, aktivitetslistan och historiken ska visa **samma** sport-/typfärg som Settings, inte en fjärde separat palett. Spårade alla anropsställen till `workoutColor()`/`activityColor()`/`sportOnlyColor()` (`lib/planner/colors.ts`) innan jag skrev om rekommendationen, så fixen blir komplett:
+
+**Planner-sidan — redan nästan klar, bara ett byte av vilken variabel som läses:**
+
+| Anropsställe | Har redan riktig `.color` laddad? |
+|---|---|
+| `components/planner/WorkoutPill.tsx:45` | Ja — `workout.template?.type` |
+| `components/planner/WorkoutBuilder.tsx:205` | Ja — `selectedSport` |
+| `app/(dashboard)/planner/planner-client.tsx:193` | Ja — `template.sport`/`template.type` |
+| `components/planner/TemplateCard.tsx:20` | Ja — `template.sport`/`template.type` |
+| `app/(dashboard)/planner/week/page.tsx:68,135,256` | Delvis — rad 256 gör redan `w.color ?? workoutColor(...)` (föredrar sparad färg!), rad 68/135 gör det inte än |
+
+`PlannedWorkout.typeId` är en riktig FK till `WorkoutType` (`prisma/schema.prisma:302`) och queries laddar redan relationen (`include: { template: { include: { sport: true, type: true } } }`, `week/page.tsx:42-48`). **Inga nya databasfrågor behövs** — varje anropsställe har redan `sport.color`/`type.color` i scope och ska använda dem direkt istället för att räkna om via regex. Rad 256:s `w.color ?? workoutColor(...)`-mönster är beviset att detta redan fungerar säkert någonstans i kodbasen — bara inte konsekvent överallt än.
+
+**Aktiviteter/Historik — kräver namnslagning, samma form som diagramfixen:** `Activity` har **ingen** FK till `SportCategory`/`WorkoutType` (`prisma/schema.prisma:142-200`) — bara fritext `sportType` (från Strava), `workoutType: Int?` (Stravas egen kod), `customTypeName: String?` och `isRace: Boolean`. `activity-list.tsx:124,139` och `history-client.tsx:27,157` måste matcha den normaliserade sportsträngen mot användarens `SportCategory[]`-lista (hämtad en gång, litet bord) — exakt samma namnslagningsmönster som §4.5:s diagramfix, inte en ny teknik.
+
+**Tävlingsgult behöver inte vara ett hårdkodat specialfall längre:** det finns redan en delad `WorkoutType` med namnet **"Race"** (`color: "#FBBF24"`, `isShared: true`), skapad av `app/api/planner/backfill-shared-race-type/route.ts:23-26` — alltså redan en redigerbar typfärg i samma system, inte en separat konstant. `workoutColor()`s regex-genväg (`/tävl|race|.../` → hårdkodad `#FBBF24`) och `activityColor()`s `if (isRace) return "#FBBF24"` kan båda bytas mot en slagning på den riktiga, delade "Race"-typens sparade färg. Eftersom den är `isShared: true` och egen, inte återanvänder en sports egen färg, finns ingen kollisionsrisk (en användare som väljer gult som sin löpfärg påverkar inte "Race"-typens egen, separat inställbara färg) — och om användaren vill ha tävlingar i en annan färg går det nu faktiskt att ändra, vilket det inte gjorde innan. `Activity.isRace` (Stravas boolean, ingen FK) slår upp samma delade "Race"-typ via namn, likt sportmatchningen ovan.
+
+**Vad som blir kvar av `lib/planner/colors.ts` efter fixen:** `statusBorderColor()` (komplettering-status, ej sport-/typfärg) rörs inte. `sportOnlyColor()` har redan noll anropsställen — kan tas bort helt. `workoutColor()`/`activityColor()` kan retireras helt när alla ovanstående anropsställen är migrerade — inget anropsställe behöver dem längre. `scripts/recolor-workouts.ts:41,57,74` (ett engångs-bulkscript) använder samma funktion men är inte UI — låg prioritet, kan lämnas eller uppdateras separat, påverkar inget en användare ser.
 
 ### 5.1 Två ikonknappar i mobilnavigeringen är mindre än rekommenderad tap-target (44×44px)
 
@@ -120,6 +140,7 @@ Detta är exakt det problem huvudnavigeringen (`components/sidebar.tsx`) redan h
 | 5 | `--border` <3:1 generellt | `globals.css` (alla teman) | **Låg** — verifiera input-fält specifikt, annars lämna |
 | 6 | Kommentarsmissmatch "Sand"/"sky" | `globals.css:122` | **Triviell** — gör bara om man redan är i filen |
 | 7 | Diagram ignorerar `SportCategory.color` helt — varken konsekvent diagram-till-diagram eller styrbart i Settings (§4.5) | `WeeklyVolumeChart.tsx`, `volume-client.tsx`, `app/api/sports/route.ts` (redan korrekt) | **Hög** — redan ett verifierat, levande fel, inte en risk |
+| 8 | Samma sak gäller Planner/Aktiviteter/Historik — fjärde separat färgkälla (§4.6) | `lib/planner/colors.ts`, `WorkoutPill.tsx`, `activity-list.tsx`, `history-client.tsx` m.fl. | **Hög** — samma rotorsak som #7, planner-delen är låg risk (ingen ny query) |
 
 ## 7. Explicit utanför scope (för §2–§6)
 
@@ -192,7 +213,8 @@ Explicit **inte**: 3D-diagram, polära/radar-diagram, animerade enter-transition
 |---|---|---|---|
 | 1 | Space Grotesk för stora tal/H1 | `app/layout.tsx`, `globals.css`, stat-komponenter | Låg — additiv fontroll |
 | 2 | `--feature`-token (ljus/mörk) | `app/globals.css`, en signaturplats/vy | Låg — ny token, sparsam användning |
-| 3 | Trä riktig `SportCategory.color` ner till diagrammen, ny delad fallback-konstant (ersätter §4.1:s döda CSS-variabler, se §9.1/§9.2) | `WeeklyVolumeChart.tsx`, `volume-client.tsx`, deras föräldrasidor, ny `lib/sports/colors.ts`-liknande hjälpare | Låg-medel — löser §4.1 OCH §4.5 i samma ändring; rör **inte** `lib/planner/colors.ts` (§9.2, avsiktligt separat) |
+| 3a | Trä riktig `SportCategory.color` ner till diagrammen, ny delad fallback-konstant (ersätter §4.1:s döda CSS-variabler, se §9.1) | `WeeklyVolumeChart.tsx`, `volume-client.tsx`, deras föräldrasidor, ny delad färghjälpare | Låg-medel — löser §4.1 OCH §4.5 i samma ändring |
+| 3b | Samma riktiga färg till Planner (byt regex-anrop mot redan inladdad `sport.color`/`type.color`) + Aktiviteter/Historik (namnslagning) + gör "Race" till en vanlig redigerbar typfärg (§4.6, utökat efter användarens rättning av §9.2) | `WorkoutPill.tsx`, `WorkoutBuilder.tsx`, `planner-client.tsx`, `TemplateCard.tsx`, `week/page.tsx`, `activity-list.tsx`, `history-client.tsx`, `lib/planner/colors.ts` (retireras) | Låg (planner, ingen ny query) till Medel (aktiviteter/historik, kräver namnslagning) |
 | 4 | 5 egna sportikoner + global strokeWidth 1.75 via CSS (rättad, se §9.4) | `sports-manager.tsx`, aktivitets-badges, `app/globals.css` (`svg.lucide` regel) | Låg — CSS-regel istället för per-call-site-ändring |
 | 5 | Gradientfyllning (avgränsad, se §9.5), zon-band, tooltip-omdesign i diagram | `components/charts/*` utom `TrainingLoadChart.tsx`s TSB-linje och `WeatherPaceScatterChart.tsx` | Medel — flest filer berörs, men varje ändring är mekanisk/repetitiv |
 
@@ -209,11 +231,11 @@ På uttrycklig begäran: hela planen (§2–§8) gicks igenom punkt för punkt m
 
 Grep mot hela kodbasen hittade **noll** komponenter som läser `var(--sport-run)` etc. — variablerna i `app/globals.css:17-22` är helt oanvända (orphanade). `WeeklyVolumeChart.tsx` och `volume-client.tsx` har, som §4.5 redan visade, sina egna helt separata hårdkodade kopior — de läser aldrig CSS-variabeln, råkar bara historiskt ha haft samma startvärde i ett av fallen. Att "fixa" §4.1 genom att ändra `globals.css` hade alltså inte synts någonstans i den körande appen. **Konsekvens:** §4.1:s kontrastarbete är inte bortkastat, men målet flyttas — de korrigerade hex-värdena (5.3–7.2:1) ska in som default/fallback-konstant i den nya delade färghjälparen §4.5 beskriver (se 9.2), inte som en CSS-variabeländring. De gamla `--sport-*`-variablerna bör städas bort vid implementation snarare än uppdateras, för att inte lämna kvar ännu en död, vilseledande källa.
 
-### 9.2 §4.5: en TREDJE oberoende sportfärg-källa hittades — måste lämnas orörd, inte förenas
+### 9.2 RETRAKTERAD av användaren: en tredje sportfärg-källa hittades, men ska FÖRENAS, inte lämnas — se §4.6
 
-Utöver de två diagrammens hårdkodade kartor (§4.5) och de döda CSS-variablerna (9.1) finns ett tredje, helt separat system: `lib/planner/colors.ts`s `workoutColor()`/`activityColor()`/`sportOnlyColor()`, som driver aktivitetslistans badges, aktivitetsdetaljsidan och planner-kalenderns pills. Detta är **inte** samma bugg — det är en avsiktligt annorlunda, regelbaserad palett som kodar **passtyp**, inte bara sport: tävling/race blir alltid gul (`#FBBF24`) oavsett sport (rad 41 i filen), och löpning särskiljs per passtyp (lätt/tempo/intervall etc.), vilket en enkel sport→färg-koppling inte kan uttrycka. Att ersätta detta med `SportCategory.color` hade tagit bort verklig information (t.ex. "detta var en tävling") och riskerat kollision (en användare som sätter sin "Löpning"-färg till gult hade fått tävlingspass att smälta in i vanliga pass).
+**Detta avsnitt påstod ursprungligen** att `lib/planner/colors.ts`s `workoutColor()`/`activityColor()`/`sportOnlyColor()` (driver aktivitetslistan, aktivitetsdetaljsidan och planner-kalenderns pills) var ett avsiktligt separat system som inte skulle förenas med `SportCategory.color`, av rädsla för informationsförlust (tävlingsmarkering) och färgkollision. **Användaren rättade detta direkt:** planner, historik och aktiviteter ska visa exakt samma sport-/typfärg som ställs in i Settings — precis som diagrammen, inte ett fjärde separat visuellt språk. Det var ett antagande jag gjorde själv, inte ett bekräftat produktbeslut — fel av mig att dra slutsatsen utan att fråga.
 
-**Bekräftat men avsiktligt:** för icke-löpande sporter faller `workoutColor()` tillbaka på ytterligare en egen hårdkodad uppsättning (cykel `#FB923C`, orientering `#14B8A6`, styrka `#D97706` — ANNU en fjärde uppsättning hex, skild från både diagrammens och CSS-variablernas). Detta innebär att appen efter §4.5:s fix fortfarande, helt medvetet, kommer visa t.ex. cykel i användarens egna valda färg i statistikdiagrammen men i en fast orange nyans i planneraren/aktivitetslistan. **Detta ska inte "fixas" till att vara samma** — det är två olika, var för sig rimliga visuella språk (sportidentitet vs. passtyp-information) som råkar dela ursprungsdata. Dokumenterat här uteslutande för att en framtida implementerande session inte ska förväxla detta med §4.5:s faktiska bugg och av misstag bygga ihop dem.
+Spårade om hela kedjan efter rättningen (alla anropsställen till de fyra funktionerna, vad varje plats redan har laddat) innan jag skrev en ny rekommendation — se den fullständiga, utökade lösningen i **§4.6**. Kort sammanfattat: planner-sidans anropsställen har redan den riktiga `sport.color`/`type.color` inladdad (inga nya databasfrågor behövs, bara sluta ignorera vad som redan finns i scope) — och tävlingsgult visade sig **redan** existera som en riktig, delad, redigerbar `WorkoutType` ("Race", `#FBBF24`, `isShared: true`) i databasen, vilket löser precis den oro jag ursprungligen hade: ingen informationsförlust, ingen kollisionsrisk, tävlingar får en egen inställbar färg istället för en hårdkodad konstant. Aktiviteter/Historik kräver en namnslagning mot `SportCategory`/`WorkoutType` (samma mönster som §4.5:s diagramfix) eftersom `Activity` saknar en riktig databasrelation.
 
 ### 9.3 §4.2, §5.1, §5.2 — verifierade säkra, inga ändringar i planen
 
