@@ -132,6 +132,12 @@ export function StatsClient(props: Props) {
             {s}
           </button>
         ))}
+        <Link
+          href="/stats/trends"
+          className="shrink-0 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px border-transparent text-muted hover:text-primary"
+        >
+          Trends
+        </Link>
       </nav>
 
       {/* ── Overview ── */}
@@ -336,16 +342,6 @@ export function StatsClient(props: Props) {
       {section === "Fitness" && (
         <div className="space-y-6">
           <FitnessMetrics vo2max={vo2max} paceZones={paceZones} todayLoad={todayLoad} predictions={predictions} acwr={acwr} />
-
-          {/* Deeper analytics (AEI, RE, ramp rate, injury risk, streak, heat, weather,
-              cadence/stride, EF, VO2max trend, LT/AT trend, terrain factor) live on their
-              own page — this tab stays focused on the numbers checked day to day. */}
-          <SectionCard title="Performance trends & analytics →" href="/stats/trends">
-            <p className="text-xs text-muted">
-              AEI, Running Economy, ramp rate, injury risk, weather sensitivity, cadence/stride,
-              Efficiency Factor, VO2max and LT/AT development over time, and OL terrain factor.
-            </p>
-          </SectionCard>
         </div>
       )}
     </div>
