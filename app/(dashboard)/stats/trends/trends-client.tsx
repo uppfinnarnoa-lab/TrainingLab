@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { ChevronLeft } from "lucide-react";
 import { EasyPaceTrendChart } from "@/components/charts/EasyPaceTrendChart";
 import { LTPaceTrendChart } from "@/components/charts/LTPaceTrendChart";
 import { VO2maxTrendChart } from "@/components/charts/VO2maxTrendChart";
@@ -53,14 +52,16 @@ export function TrendsClient({
   vdotTrend, ltPaceTrend, currentLT1Pace, currentLT2Pace, terrainFactor,
 }: Props) {
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/stats" className="inline-flex items-center gap-1 text-xs text-muted hover:text-primary transition-colors mb-1">
-          <ChevronLeft className="w-3.5 h-3.5" /> Back to Stats
-        </Link>
-        <h1 className="text-2xl font-semibold text-primary">Performance Trends</h1>
-        <p className="text-sm text-muted mt-1">Deeper aerobic, weather, and biomechanical analytics — separated from the Fitness tab's daily numbers.</p>
-      </div>
+    <div className="min-h-screen bg-background">
+      <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+        {/* Header — matches /stats/volume's page chrome */}
+        <div className="flex items-center gap-4 flex-wrap">
+          <Link href="/stats" className="text-sm text-muted hover:text-primary transition-colors">
+            ← Stats
+          </Link>
+          <h1 className="text-xl font-semibold text-primary">Performance Trends</h1>
+        </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="sm:col-span-2 rounded-xl border border-border p-4 space-y-3">
@@ -243,6 +244,7 @@ export function TrendsClient({
       </Card>
 
       <TerrainFactorCard tf={terrainFactor} />
+      </div>
     </div>
   );
 }

@@ -672,13 +672,17 @@ export default async function StatsPage() {
       const windowStart = subDays(windowEnd, 90);
       const windowActs = (activities as A[]).filter(a => a.startDate >= windowStart && a.startDate <= windowEnd);
       if (windowActs.length < 5) continue;
+      // racePBs filtered to "known by windowEnd" (no hindsight) — see lib/fitness/cache.ts's
+      // identical vdotTrend loop for why this is required, not optional: without racePBs, the
+      // race-PB-weighted models never fire, so even the current month disagreed with the live
+      // VDOT shown on the Fitness tab.
       const v = estimateVO2max(
         windowActs.map(a => ({
           distanceM: a.distance, timeSec: a.movingTime,
           avgHR: a.averageHeartrate, isRace: a.isRace,
           sportType: a.sportType, name: a.name, startDate: a.startDate,
         })),
-        computedMaxHR, restHR,
+        computedMaxHR, restHR, racePBs.filter(pb => pb.date <= windowEnd), slowAvgWeeklyRunKm,
       );
       const month = format(windowEnd, "yyyy-MM");
       if (!vdotTrend.find(x => x.month === month))

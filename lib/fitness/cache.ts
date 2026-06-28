@@ -386,9 +386,12 @@ export async function updateVO2maxAndPaces(userId: string) {
       const windowStart = subDays(windowEnd, 90);
       const windowActs = (activities as Act[]).filter(a => a.startDate >= windowStart && a.startDate <= windowEnd);
       if (windowActs.length < 5) continue;
+      // racePBs filtered to "known by windowEnd" (no hindsight) — without this, every point
+      // omitted the race-PB-weighted models entirely (they need racePBs to fire at all), so
+      // the trend disagreed with the live VDOT shown elsewhere even for the current month.
       const v = estimateVO2max(
         windowActs.map(a => ({ distanceM: a.distance, timeSec: a.movingTime, avgHR: a.averageHeartrate, isRace: a.isRace, sportType: a.sportType, name: a.name, startDate: a.startDate })),
-        maxHR, restHR,
+        maxHR, restHR, racePBs.filter(pb => pb.date <= windowEnd), cacheAvgWeeklyRunKm,
       );
       const month = format(windowEnd, "yyyy-MM");
       if (!vdotTrend.find(x => x.month === month)) vdotTrend.push({ month, vdot: Math.round(v.vdot * 10) / 10 });
