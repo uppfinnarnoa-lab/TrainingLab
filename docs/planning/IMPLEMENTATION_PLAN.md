@@ -4041,4 +4041,11 @@ User pointed out (after the previous session's investigation found `computeZoneT
 
 ---
 
-*Last updated: 2026-06-28 — Fixed Training Paces zone-order bug (buildPaceZonesFromLT), investigated HR-zone-donut and race-prediction reports, added a VO2max trend chart, and split the Fitness tab into /stats/trends.*
+**Session 2026-06-28b — User feedback on the same session's Fitness-tab restructure: Performance Trends should be a top-level tab, not a card buried inside Fitness.**
+
+1. **Promoted Trends to the tab bar** ([stats-client.tsx](../../app/(dashboard)/stats/stats-client.tsx)): added a `Link` to `/stats/trends` styled identically to the `SECTIONS` tab buttons, placed right after them in the same `<nav>`. Removed the now-redundant "Performance trends & analytics →" `SectionCard` link-card from inside the Fitness tab, since the same destination is now one click away from every tab.
+2. **Verification:** `npx tsc --noEmit` and `pnpm build --no-lint` both clean.
+
+---
+
+*Last updated: 2026-06-28b — Promoted the new Performance Trends page to a top-level Stats tab per direct user feedback, removed the redundant in-Fitness-tab link card.*
