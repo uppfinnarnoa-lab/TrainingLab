@@ -6,17 +6,24 @@ export default async function HistoryPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const activities = await prisma.activity.findMany({
-    where: { userId },
-    orderBy: { startDate: "asc" },
-    select: {
-      id: true, name: true, description: true, sportType: true,
-      startDate: true, distance: true, movingTime: true,
-      totalElevationGain: true, averageHeartrate: true,
-      averageSpeed: true, isRace: true, weatherTemp: true, stravaId: true,
-      laps: true, workoutType: true, customTypeName: true,
-    },
-  });
+  const [activities, sportCategories] = await Promise.all([
+    prisma.activity.findMany({
+      where: { userId },
+      orderBy: { startDate: "asc" },
+      select: {
+        id: true, name: true, description: true, sportType: true,
+        startDate: true, distance: true, movingTime: true,
+        totalElevationGain: true, averageHeartrate: true,
+        averageSpeed: true, isRace: true, weatherTemp: true, stravaId: true,
+        laps: true, workoutType: true, customTypeName: true,
+      },
+    }),
+    prisma.sportCategory.findMany({
+      where: { userId },
+      orderBy: { order: "asc" },
+      include: { workoutTypes: { orderBy: { order: "asc" } } },
+    }),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -35,6 +42,7 @@ export default async function HistoryPage() {
           workoutType: a.workoutType ?? null,
           customTypeName: a.customTypeName ?? null,
         }))}
+        sportCategories={sportCategories}
       />
     </div>
   );

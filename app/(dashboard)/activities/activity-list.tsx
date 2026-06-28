@@ -4,7 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { Heart, Mountain, Thermometer, Trophy } from "lucide-react";
 import { cn, formatDistance, formatDuration, formatPace } from "@/lib/utils";
-import { activityColor } from "@/lib/planner/colors";
+import { resolveActivityColor } from "@/lib/planner/colors";
+import type { SportCategory } from "@/lib/planner/types";
 import { TypePicker } from "@/components/activity/TypePicker";
 import { useState } from "react";
 
@@ -31,12 +32,13 @@ interface Props {
   page: number;
   perPage: number;
   sports: string[];
+  sportCategories: SportCategory[];
   selectedSport?: string;
   sort: string;
   racesOnly: boolean;
 }
 
-export function ActivityList({ activities, total, page, perPage, sports, selectedSport, sort, racesOnly }: Props) {
+export function ActivityList({ activities, total, page, perPage, sports, sportCategories, selectedSport, sort, racesOnly }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [typeOverrides, setTypeOverrides] = useState<Record<string, string | null>>({});
@@ -121,7 +123,7 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
                 ? "text-white dark:text-background"
                 : "bg-surface-2 text-muted hover:text-primary"
             )}
-            style={selectedSport === s ? { backgroundColor: activityColor(s, false, null, null) } : {}}
+            style={selectedSport === s ? { backgroundColor: resolveActivityColor(sportCategories, s, false, null, null, s) } : {}}
           >
             {s.replace(/([A-Z])/g, " $1").trim()}
           </button>
@@ -136,7 +138,7 @@ export function ActivityList({ activities, total, page, perPage, sports, selecte
           </div>
         ) : (
           activities.map((activity) => {
-            const color = activityColor(activity.sportType, activity.isRace, activity.workoutType, getTypeName(activity));
+            const color = resolveActivityColor(sportCategories, activity.sportType, activity.isRace, activity.workoutType, getTypeName(activity), activity.name);
             return (
             <a
               key={activity.id}

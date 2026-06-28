@@ -92,6 +92,8 @@ En delad statisk konstant (ursprungligt förslag ovan) hade bara bytt ut en omö
 
 ### 4.6 Samma fix utökad till Planner, Aktiviteter och Historik — användaren bekräftade detta SKA vara enhetligt, inte bara diagrammen
 
+**Status 2026-06-28d: Aktiviteter/Historik-delen implementerad** (`resolveActivityColor()` i `lib/planner/colors.ts` — se IMPLEMENTATION_PLAN.md, sessionen 2026-06-28d). Planner-delen (tabellen nedan) och §4.5:s diagramfix är fortfarande inte implementerade.
+
 Användaren rättade §9.2:s ursprungliga slutsats ("lämna `lib/planner/colors.ts` orörd") explicit: planner-kalendern, aktivitetslistan och historiken ska visa **samma** sport-/typfärg som Settings, inte en fjärde separat palett. Spårade alla anropsställen till `workoutColor()`/`activityColor()`/`sportOnlyColor()` (`lib/planner/colors.ts`) innan jag skrev om rekommendationen, så fixen blir komplett:
 
 **Planner-sidan — redan nästan klar, bara ett byte av vilken variabel som läses:**

@@ -38,7 +38,7 @@ export default async function ActivitiesPage({
     : sort === "pace_desc" ? { averageSpeed: "asc" as const }
     : { startDate: "desc" as const };
 
-  const [activities, total, sports] = await Promise.all([
+  const [activities, total, sports, sportCategories] = await Promise.all([
     prisma.activity.findMany({
       where,
       orderBy,
@@ -67,6 +67,11 @@ export default async function ActivitiesPage({
       select: { sportType: true },
       distinct: ["sportType"],
     }),
+    prisma.sportCategory.findMany({
+      where: { userId },
+      orderBy: { order: "asc" },
+      include: { workoutTypes: { orderBy: { order: "asc" } } },
+    }),
   ]);
 
   return (
@@ -87,6 +92,7 @@ export default async function ActivitiesPage({
         page={page}
         perPage={perPage}
         sports={sports.map((s: { sportType: string }) => s.sportType).sort()}
+        sportCategories={sportCategories}
         selectedSport={params.sport}
         sort={sort}
         racesOnly={racesOnly}

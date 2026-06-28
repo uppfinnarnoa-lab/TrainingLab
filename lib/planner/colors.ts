@@ -1,3 +1,6 @@
+import type { SportCategory, WorkoutType } from "./types";
+import { STRAVA_SPORT_MAP } from "./sportTypeMap";
+
 /**
  * Centralized color logic for the planner.
  *
@@ -92,6 +95,90 @@ export function activityColor(
 /** Colour from a sport name alone (for non-running sports in templates) */
 export function sportOnlyColor(sportName: string): string {
   return workoutColor(sportName, null);
+}
+
+// ── Settings-backed resolution (Activities/History) ──────────────────────────
+//
+// Activity has no FK to SportCategory/WorkoutType — only free-text sportType (from
+// Strava), isRace, workoutType (Strava's own int) and customTypeName (this app's
+// override). resolveActivityColor() looks up the SAME color the user configured in
+// Settings → Training Types, instead of the static palette above — falling back to
+// activityColor()/workoutColor() only when no matching sport/type exists yet (e.g. a
+// sport Settings hasn't seen, or a bucket the user hasn't given its own color to).
+
+const OL_NAME_RE = /\bol\b|\borienteringsl|\bskogsl|\bolpass|\bmoc\b|stafett/i;
+const OL_SPORT_RE = /orienteer|ol\b|ol-/i;
+
+const TYPE_BUCKET_PATTERNS: Record<string, RegExp> = {
+  tempo: /\btempo\b/i,
+  lt: /\blt\b|tröskel|threshold|lactate/i,
+  at: /\bat\b|aerob tröskel|aerobic threshold/i,
+  intervall: /speed|speedwork|intervall|interval|fartlek|tabata/i,
+};
+
+// customTypeName/inferTypeName are null for the "easy/default" bucket — matched separately
+// since it has no key in TYPE_BUCKET_PATTERNS above.
+const EASY_TYPE_PATTERN = /easy|distans|lugn|recovery|\bbas\b/i;
+
+function matchSportCategory(sportType: string, name: string, sports: SportCategory[]): SportCategory | undefined {
+  // Orienteering has no real Strava sport_type — Strava reports it as Run/TrailRun — so it
+  // can only be recognised from the activity name, the same keywords already used to exclude
+  // OL from pace analysis (lib/fitness/secondary-analytics.ts::isOL()).
+  if (OL_SPORT_RE.test(sportType) || OL_NAME_RE.test(name)) {
+    const ol = sports.find(s => /orienteer|orientering/i.test(s.name));
+    if (ol) return ol;
+  }
+  const exact = sports.find(s => s.name === sportType);
+  if (exact) return exact;
+  const ci = sports.find(s => s.name.toLowerCase() === sportType.toLowerCase());
+  if (ci) return ci;
+  const alias = STRAVA_SPORT_MAP[sportType];
+  if (alias) return sports.find(s => s.name === alias);
+  return undefined;
+}
+
+function findSharedRaceType(sports: SportCategory[]): WorkoutType | undefined {
+  for (const s of sports) {
+    const race = s.workoutTypes.find(t => t.isShared);
+    if (race) return race;
+  }
+  return undefined;
+}
+
+/**
+ * Same colour a Strava activity would show if it were the matching SportCategory/WorkoutType
+ * row in Settings → Training Types. "Race" resolves to the real, shared, editable WorkoutType
+ * (so changing it in Settings changes every race's colour) instead of a hardcoded yellow; other
+ * sports/types resolve to their saved `.color`. Falls back to the static workoutColor()
+ * palette above for any sport/bucket the user hasn't configured a colour for yet, so nothing
+ * goes blank before Settings has been visited.
+ */
+export function resolveActivityColor(
+  sports: SportCategory[],
+  sportType: string,
+  isRace: boolean,
+  workoutType: number | null | undefined,
+  customTypeName: string | null | undefined,
+  name: string,
+): string {
+  if (isRace) {
+    const race = findSharedRaceType(sports);
+    return race?.color ?? "#FBBF24";
+  }
+
+  const sport = matchSportCategory(sportType, name, sports);
+  if (!sport) return activityColor(sportType, isRace, workoutType, customTypeName);
+
+  const bucket = customTypeName ?? inferTypeName(workoutType);
+  const pattern = bucket && TYPE_BUCKET_PATTERNS[bucket] ? TYPE_BUCKET_PATTERNS[bucket] : EASY_TYPE_PATTERN;
+  const match = sport.workoutTypes.find(t => t.color && pattern.test(t.name));
+  if (match?.color) return match.color;
+
+  // No matching WorkoutType configured for this bucket yet — keep the existing static
+  // per-bucket colour for a real bucket instead of collapsing into the sport's base colour;
+  // for the easy/default bucket, the sport's own colour IS the right fallback.
+  if (bucket && TYPE_BUCKET_PATTERNS[bucket]) return workoutColor(sportType, bucket);
+  return sport.color;
 }
 
 /** The border/indicator colour that shows completion status, layered ON TOP of workout colour */

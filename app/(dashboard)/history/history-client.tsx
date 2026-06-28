@@ -9,7 +9,8 @@ import {
   addMonths, subMonths, parseISO,
 } from "date-fns";
 import { formatDistance, formatDuration, formatPace } from "@/lib/utils";
-import { activityColor } from "@/lib/planner/colors";
+import { resolveActivityColor } from "@/lib/planner/colors";
+import type { SportCategory } from "@/lib/planner/types";
 import { cn } from "@/lib/utils";
 import { TypePicker } from "@/components/activity/TypePicker";
 
@@ -23,8 +24,8 @@ interface Activity {
   workoutType: number | null; customTypeName: string | null;
 }
 
-function ActivityPill({ a, customTypeName }: { a: Activity; customTypeName: string | null }) {
-  const color = activityColor(a.sportType, a.isRace, a.workoutType, customTypeName);
+function ActivityPill({ a, customTypeName, sportCategories }: { a: Activity; customTypeName: string | null; sportCategories: SportCategory[] }) {
+  const color = resolveActivityColor(sportCategories, a.sportType, a.isRace, a.workoutType, customTypeName, a.name);
   return (
     <div
       className="rounded px-1 py-0.5 text-[9px] font-medium leading-tight flex items-center gap-0.5 min-w-0"
@@ -39,7 +40,7 @@ function ActivityPill({ a, customTypeName }: { a: Activity; customTypeName: stri
   );
 }
 
-export function HistoryClient({ activities }: { activities: Activity[] }) {
+export function HistoryClient({ activities, sportCategories }: { activities: Activity[]; sportCategories: SportCategory[] }) {
   const router = useRouter();
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selected, setSelected] = useState<Activity[] | null>(null);
@@ -133,7 +134,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
               {/* Activity pills */}
               <div className="space-y-0.5">
                 {acts.slice(0, 4).map(a => (
-                  <ActivityPill key={a.id} a={a} customTypeName={getTypeName(a)} />
+                  <ActivityPill key={a.id} a={a} customTypeName={getTypeName(a)} sportCategories={sportCategories} />
                 ))}
                 {acts.length > 4 && (
                   <p className="text-[9px] text-muted pl-0.5">+{acts.length - 4}</p>
@@ -154,7 +155,7 @@ export function HistoryClient({ activities }: { activities: Activity[] }) {
             <p className="text-sm text-muted">No activities on this day.</p>
           ) : (
             selected.map(a => {
-              const color = activityColor(a.sportType, a.isRace, a.workoutType, getTypeName(a));
+              const color = resolveActivityColor(sportCategories, a.sportType, a.isRace, a.workoutType, getTypeName(a), a.name);
               const cardColor = a.hasLaps ? color : "#94A3B8";
               return (
               <div
