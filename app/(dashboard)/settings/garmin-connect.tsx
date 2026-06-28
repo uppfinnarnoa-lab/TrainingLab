@@ -148,14 +148,14 @@ export function GarminConnectSection({ connected, displayName, origin }: Props) 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           try {
-            const d = JSON.parse(line.slice(6)) as { type: string; done?: number; total: number; synced?: number; empty?: number; failed?: number };
+            const d = JSON.parse(line.slice(6)) as { type: string; done?: number; total: number; synced?: number; empty?: number; failed?: number; skipped?: number };
             if (d.type === "start") {
               setBackfillProgress({ done: 0, total: d.total });
             } else if (d.type === "progress") {
               setBackfillProgress({ done: d.done ?? 0, total: d.total });
             } else if (d.type === "done") {
               setBackfillProgress({ done: d.total, total: d.total });
-              setBackfillMsg(`✓ Backfilled ${d.total} days — ${d.synced} with data, ${d.empty} empty, ${d.failed} failed.`);
+              setBackfillMsg(`✓ Backfilled ${d.total} days — ${d.synced} with data, ${d.empty} empty, ${d.failed} failed, ${d.skipped ?? 0} already had data.`);
             }
           } catch { /* skip malformed */ }
         }

@@ -1,7 +1,8 @@
 import { auth } from "@/auth";
+import { prisma } from "@/lib/db/prisma";
 import { syncGarminDaily } from "@/lib/garmin/sync";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { subDays } from "date-fns";
+import { subDays, format } from "date-fns";
 
 /**
  * POST — SSE stream: backfill Garmin daily wellness data for the last N days (default/max 2 years).
@@ -28,24 +29,42 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const now = new Date();
-      let synced = 0, empty = 0, failed = 0;
+      const rangeStart = subDays(now, days - 1);
+
+      // Skip days already backfilled — re-fetching them would hit Garmin's
+      // bot-detection-sensitive API for data we already have, burning the
+      // tight 3/hour rate limit on this endpoint for nothing.
+      const existing = await prisma.garminDailySummary.findMany({
+        where: { userId, date: { gte: rangeStart, lte: now } },
+        select: { date: true },
+      });
+      const haveSet = new Set(existing.map((e: { date: Date }) => format(e.date, "yyyy-MM-dd")));
+
+      let synced = 0, empty = 0, failed = 0, skipped = 0;
 
       controller.enqueue(send({ type: "start", total: days }));
 
       for (let i = 0; i < days; i++) {
+        const date = subDays(now, i);
+        if (haveSet.has(format(date, "yyyy-MM-dd"))) {
+          skipped++;
+          controller.enqueue(send({ type: "progress", done: i + 1, total: days, synced, empty, failed, skipped }));
+          continue;
+        }
+
         try {
-          const gotData = await syncGarminDaily(userId, subDays(now, i));
+          const gotData = await syncGarminDaily(userId, date);
           if (gotData) synced++; else empty++;
         } catch (e) {
           failed++;
           console.error(`[garmin/backfill] day -${i} failed:`, e instanceof Error ? e.message : e);
         }
-        controller.enqueue(send({ type: "progress", done: i + 1, total: days, synced, empty, failed }));
+        controller.enqueue(send({ type: "progress", done: i + 1, total: days, synced, empty, failed, skipped }));
         // Gentle pacing — Garmin's unofficial API is bot-detection-sensitive (see docs/planning/archive/GARMIN_AUTH_REWORK_PLAN.md)
         if (i < days - 1) await new Promise(r => setTimeout(r, 300));
       }
 
-      controller.enqueue(send({ type: "done", done: days, total: days, synced, empty, failed }));
+      controller.enqueue(send({ type: "done", done: days, total: days, synced, empty, failed, skipped }));
       controller.close();
     },
   });
