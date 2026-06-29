@@ -60,6 +60,11 @@ export default async function SettingsPage() {
   if (hasGoogleClientId && hasGoogleClientSecret) {
     try { googleAuthUrl = await getGoogleAuthUrl(userId, googleCallback); } catch { /* not configured */ }
   }
+  // Accounts connected before the calendar.app.created scope existed are still on
+  // calendar.events — reconnecting is the only way to upgrade an OAuth grant's scope.
+  const googleScopeOutdated = !!googleCalendarAccount
+    && !googleCalendarAccount.needsReconnect
+    && !googleCalendarAccount.scope.includes("calendar.app.created");
 
   return (
     <>
@@ -95,6 +100,7 @@ export default async function SettingsPage() {
         <GoogleCalendarConnectSection
           connected={!!googleCalendarAccount}
           needsReconnect={!!googleCalendarAccount?.needsReconnect}
+          scopeOutdated={googleScopeOutdated}
           authUrl={googleAuthUrl}
           callbackUrl={googleCallback}
           lastSyncAt={googleCalendarAccount?.lastSyncAt?.toISOString() ?? null}

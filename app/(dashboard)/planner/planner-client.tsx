@@ -13,7 +13,6 @@ import { BlockEditorModal } from "@/components/planner/BlockEditorModal";
 import type {
   SportCategory, WorkoutTemplate, PlannedWorkout, TrainingBlock,
 } from "@/lib/planner/types";
-import { workoutColor } from "@/lib/planner/colors";
 import { STRAVA_SPORT_MAP } from "@/lib/planner/sportTypeMap";
 
 // Normalize Strava/legacy sport type strings to user's sport category names
@@ -94,6 +93,22 @@ export function PlannerClient(props: Props) {
         if (data) {
           localStorage.setItem("planner_shared_race_type_backfilled_v1", "1");
           if ((data.sportsFixed ?? 0) > 0) startTransition(() => router.refresh());
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // One-time backfill: recompute stale workout/template colors that were baked in
+  // from the static workoutColor() regex instead of the real Settings color.
+  useEffect(() => {
+    if (localStorage.getItem("planner_workout_colors_backfilled_v1")) return;
+    fetch("/api/planner/backfill-workout-colors", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          localStorage.setItem("planner_workout_colors_backfilled_v1", "1");
+          if ((data.templatesFixed ?? 0) > 0 || (data.workoutsFixed ?? 0) > 0) startTransition(() => router.refresh());
         }
       })
       .catch(() => {});
@@ -190,7 +205,7 @@ export function PlannerClient(props: Props) {
       typeId: template.typeId ?? null,
       targetDuration: template.estimatedDuration,
       targetDistance: template.estimatedDistance,
-      color: workoutColor(template.sport.name, template.type?.name ?? null),
+      color: template.type?.color ?? template.sport.color,
     });
   }
 

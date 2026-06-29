@@ -184,10 +184,12 @@ export function HistoryClient({ activities, sportCategories }: { activities: Act
                       </span>
                       <TypePicker
                         activityId={a.id}
+                        name={a.name}
                         sportType={a.sportType}
                         isRace={a.isRace}
                         workoutType={a.workoutType}
                         customTypeName={getTypeName(a)}
+                        sports={sportCategories}
                         onUpdate={v => updateType(a.id, v)}
                         size="xs"
                       />

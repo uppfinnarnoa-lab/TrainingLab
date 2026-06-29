@@ -1,6 +1,6 @@
 # Google Calendar Integration
 
-One-way sync: planned workouts (`PlannedWorkout`) → the user's Google Calendar, as all-day events. Not two-way — edits made directly in Google Calendar are never read back into TrainingLab.
+One-way sync: planned workouts (`PlannedWorkout`) → a dedicated "TrainingLab" calendar in the user's Google account, as all-day, color-coded events. Not two-way — edits made directly in Google Calendar are never read back into TrainingLab.
 
 ## Data flow
 
@@ -14,12 +14,18 @@ PlannedWorkout created/edited/deleted (Planner UI)
 
 All calendar calls are fire-and-forget from the planner routes (same pattern as the existing weather-fetch side effect in `lib/strava/sync.ts`) — a Google API failure never blocks or fails a planner CRUD operation.
 
-## Scope and event shape
+## Dedicated calendar
 
-- OAuth scope: `https://www.googleapis.com/auth/calendar.events` — events-only, not the full `calendar` scope. The app can create/update/delete events it created; it can never read other events, modify calendar settings, or see other calendars.
+- OAuth scope: `https://www.googleapis.com/auth/calendar.app.created` — lets the app create and manage *only* calendars it creates itself. It can never read or write the user's primary calendar, any other existing calendar, or see their names — narrower than the original `calendar.events` scope, which could write events into the primary calendar.
+- `lib/google-calendar/sync.ts`'s `ensureDedicatedCalendar()` runs once per account, called from the OAuth callback right after token exchange: if `GoogleCalendarAccount.calendarId` is still the schema default (`"primary"`), it calls `POST /calendars` (`summary: "TrainingLab"`) and stores the returned id as `calendarId`. A no-op on every subsequent reconnect once a real calendar id is stored — never creates a second calendar for the same user.
+- **Migration note:** accounts connected before this scope existed are stuck on the old `calendar.events` scope until the user reconnects (Google has no API to upgrade a granted scope — only a fresh consent screen visit does it). The Settings card detects this (`scope` doesn't include `calendar.app.created`) and shows a "reconnect for dedicated calendar" prompt instead of silently continuing to write to `"primary"`.
+
+## Event shape and colors
+
 - Events are **all-day** (`start: { date: "YYYY-MM-DD" }`, not `dateTime`) — `PlannedWorkout.date` has no time-of-day, and Google's Calendar API doesn't expose a way to set a custom default reminder time for all-day events anyway, so a timed event wouldn't have bought anything without also adding a "preferred workout time" setting (a decision deliberately deferred — see `docs/planning/archive/GOOGLE_CALENDAR_SYNC_PLAN_2026_06_23.md` §4 if that's revisited later).
 - **Google all-day event quirk:** `end.date` is *exclusive* — a one-day event on 2026-06-24 needs `start.date: "2026-06-24"` and `end.date: "2026-06-25"` (the day after). Handled in `lib/google-calendar/sync.ts`'s `toAllDayRange()`.
 - Title = `PlannedWorkout.name` (prefixed `✓ ` / `✗ ` once a workout is marked completed/missed). Description = sport type + notes + a short per-section summary if the workout has a linked `WorkoutTemplate`.
+- Color: Google Calendar events only support a fixed 11-color `colorId` palette (Lavender/Sage/Grape/.../Tomato — see `lib/google-calendar/colors.ts`'s `GOOGLE_EVENT_COLORS`), not arbitrary hex. `nearestGoogleColorId()` maps `PlannedWorkout.color` (the same hex the Planner UI shows — see `lib/planner/colors.ts`) to the closest of the 11 by RGB distance. Needs no special scope — applies on every `createEvent`/`updateEvent` call, independent of the dedicated-calendar migration above.
 
 ## Setting up a Google Cloud OAuth client (one-time, per-deployment)
 
@@ -29,9 +35,9 @@ This is a manual step in a browser — done once by whoever administers the Trai
 2. **APIs & Services → Library** → search "Google Calendar API" → **Enable**.
 3. **APIs & Services → OAuth consent screen**:
    - User type: **External** (unless using Google Workspace).
-   - Add the `calendar.events` scope under "Scopes".
+   - Add the `calendar.app.created` scope under "Scopes".
    - Add yourself as a **Test user** while the app is in "Testing" mode.
-   - ⚠️ **Important:** apps in "Testing" mode have refresh tokens that expire after ~7 days, which would silently break the sync weekly. Once you've confirmed it works, go to **Publishing status** and move the app to **"In production"**. For a `calendar.events`-only scope (a "sensitive", not "restricted", scope) this does **not** require Google's verification review — it's a one-click change.
+   - ⚠️ **Important:** apps in "Testing" mode have refresh tokens that expire after ~7 days, which would silently break the sync weekly. Once you've confirmed it works, go to **Publishing status** and move the app to **"In production"**. For a `calendar.app.created`-only scope (a "sensitive", not "restricted", scope) this does **not** require Google's verification review — it's a one-click change.
 4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Application type: **Web application**.
    - Authorized redirect URI: `https://training.helgars.se/api/google-calendar/callback` (add `http://localhost:3000/api/google-calendar/callback` too if testing locally).

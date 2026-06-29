@@ -31,6 +31,7 @@ interface Props {
   weeklyRecords: WeeklyRecord[];
   sports: string[];
   availableYears: number[];
+  sportColors: Record<string, string>;
 }
 
 type ViewMode = "yearly" | "cumulative" | "sports" | "period" | "weekly";
@@ -38,11 +39,12 @@ type Metric = "distance" | "time";
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEAR_COLORS = ["#818CF8","#6EE7B7","#F472B6","#FBBF24","#60A5FA","#F87171"];
+// Fallback only — used when the sport has no real SportCategory match (sportColors prop).
 const SPORT_COLORS: Record<string, string> = {
   Running: "#6EE7B7",
   Orienteering: "#F472B6",
   Cycling: "#FBBF24",
-  Skiing: "#60A5FA",
+  "Nordic Skiing": "#60A5FA",
   "Roller Skiing": "#A78BFA",
   Strength: "#F97316",
 };
@@ -98,7 +100,7 @@ function ChartTooltip({ active, payload, label, metric }: CustomTooltipProps) {
   );
 }
 
-export function VolumeClient({ records, weeklyRecords, sports, availableYears }: Props) {
+export function VolumeClient({ records, weeklyRecords, sports, availableYears, sportColors }: Props) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -210,7 +212,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
       const total = months.reduce((sum, m) =>
         sum + records.filter(r => r.year === singleYear && r.month === m && r.sport === s)
           .reduce((ss, r) => ss + getValue(r), 0), 0);
-      return { sport: s, total, color: SPORT_COLORS[s] ?? "#94A3B8" };
+      return { sport: s, total, color: sportColors[s.toLowerCase()] ?? SPORT_COLORS[s] ?? "#94A3B8" };
     }).filter(s => s.total > 0.1).sort((a, b) => b.total - a.total);
     const grandTotal = result.reduce((s, r) => s + r.total, 0);
     return result.map(r => ({ ...r, pct: grandTotal > 0 ? Math.round((r.total / grandTotal) * 100) : 0 }));
@@ -657,7 +659,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
                           {sportListW.length <= 1
                             ? <Bar dataKey="total" fill="#6EE7B7" radius={[2, 2, 0, 0]} maxBarSize={24} />
                             : sportListW.map(s => (
-                              <Bar key={s} dataKey={s} stackId="a" fill={SPORT_COLORS[s] ?? "#94A3B8"}
+                              <Bar key={s} dataKey={s} stackId="a" fill={sportColors[s.toLowerCase()] ?? SPORT_COLORS[s] ?? "#94A3B8"}
                                 radius={sportListW.indexOf(s) === sportListW.length - 1 ? [2, 2, 0, 0] : [0, 0, 0, 0]} />
                             ))
                           }
@@ -745,7 +747,7 @@ export function VolumeClient({ records, weeklyRecords, sports, availableYears }:
                   <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-muted)" }} />
                   {sportList.map(s => (
                     <Bar key={s} dataKey={s} stackId="a"
-                      fill={SPORT_COLORS[s] ?? "#94A3B8"} radius={sportList.indexOf(s) === sportList.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
+                      fill={sportColors[s.toLowerCase()] ?? SPORT_COLORS[s] ?? "#94A3B8"} radius={sportList.indexOf(s) === sportList.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
                   ))}
                 </BarChart>
               </ResponsiveContainer>

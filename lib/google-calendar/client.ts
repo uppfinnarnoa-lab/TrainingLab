@@ -8,7 +8,10 @@ import { encrypt, safeDecrypt } from "@/lib/encrypt";
 const AUTH_URL      = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL     = "https://oauth2.googleapis.com/token";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
-export const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+// calendar.app.created — narrower than calendar.events: lets the app create and manage
+// only a calendar it creates itself, with zero access to the primary calendar or any
+// other calendar the user owns. See docs/integrations/google-calendar.md.
+export const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.app.created";
 
 export class GoogleCalendarNotFoundError extends Error {}
 

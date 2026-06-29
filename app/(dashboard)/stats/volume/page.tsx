@@ -3,11 +3,13 @@ import { prisma } from "@/lib/db/prisma";
 import { format, startOfWeek, getISOWeek } from "date-fns";
 import { VolumeClient, type VolumeRecord, type WeeklyRecord } from "./volume-client";
 
+// Bucket names match the default SportCategory.name values seeded in scripts/seed-user.ts
+// exactly, so VolumePage's color lookup can match by name without fuzzy matching.
 function normalizeSport(t: string): string {
   const s = t.toLowerCase();
   if (s.includes("run") || s.includes("trail")) return "Running";
   if (s.includes("ride") || s.includes("cycl")) return "Cycling";
-  if (s.includes("nordicski") || s.includes("backcountry")) return "Skiing";
+  if (s.includes("nordicski") || s.includes("backcountry")) return "Nordic Skiing";
   if (s.includes("rollerski")) return "Roller Skiing";
   if (s.includes("orienteer")) return "Orienteering";
   if (s.includes("weight") || s.includes("strength") || s.includes("workout")) return "Strength";
@@ -18,11 +20,16 @@ export default async function VolumePage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const activities = await prisma.activity.findMany({
-    where: { userId },
-    select: { sportType: true, distance: true, movingTime: true, startDate: true },
-    orderBy: { startDate: "asc" },
-  });
+  const [activities, sportCategories] = await Promise.all([
+    prisma.activity.findMany({
+      where: { userId },
+      select: { sportType: true, distance: true, movingTime: true, startDate: true },
+      orderBy: { startDate: "asc" },
+    }),
+    prisma.sportCategory.findMany({ where: { userId }, select: { name: true, color: true } }),
+  ]);
+  const sportColors: Record<string, string> = {};
+  for (const s of sportCategories) sportColors[s.name.toLowerCase()] = s.color;
 
   const recordMap = new Map<string, { km: number; timeSec: number }>();
   for (const a of activities) {
@@ -74,5 +81,5 @@ export default async function VolumePage() {
   const sports = [...new Set(records.map(r => r.sport))].sort();
   const availableYears = [...new Set(records.map(r => r.year))].sort();
 
-  return <VolumeClient records={records} weeklyRecords={weeklyRecords} sports={sports} availableYears={availableYears} />;
+  return <VolumeClient records={records} weeklyRecords={weeklyRecords} sports={sports} availableYears={availableYears} sportColors={sportColors} />;
 }

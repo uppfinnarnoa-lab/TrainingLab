@@ -108,7 +108,7 @@ model GoogleCalendarAccount {
   refreshToken   String    // AES-256-GCM encrypted — Google only re-issues this on first consent, kept across refreshes
   expiresAt      DateTime
   scope          String
-  calendarId     String    @default("primary")
+  calendarId     String    @default("primary") // sentinel meaning "no dedicated calendar yet" — ensureDedicatedCalendar() replaces it with a real id
   lastSyncAt     DateTime?
   needsReconnect Boolean   @default(false) // set when a refresh fails with invalid_grant — token revoked or (Testing-mode) expired
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)

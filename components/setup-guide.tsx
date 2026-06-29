@@ -130,7 +130,7 @@ export const GOOGLE_CALENDAR_GUIDE: Step[] = [
     link: { label: "console.cloud.google.com", url: "https://console.cloud.google.com" },
   },
   {
-    text: 'On the OAuth consent screen, add the scope ".../auth/calendar.events" and add yourself as a Test user. Once it works, switch Publishing status to "In production" — otherwise refresh tokens expire after ~7 days (no Google review needed for this scope).',
+    text: 'On the OAuth consent screen, add the scope ".../auth/calendar.app.created" and add yourself as a Test user. Once it works, switch Publishing status to "In production" — otherwise refresh tokens expire after ~7 days (no Google review needed for this scope).',
   },
   {
     text: 'Under Credentials, create an OAuth client ID of type "Web application", and add the redirect URI below as an Authorized redirect URI.',
@@ -139,7 +139,7 @@ export const GOOGLE_CALENDAR_GUIDE: Step[] = [
     text: "Copy the Client ID and Client Secret into the fields above and save.",
   },
   {
-    text: 'Click "Connect with Google" below — each user (including you) connects their own calendar with the same Client ID/Secret.',
+    text: 'Click "Connect with Google" below — each user (including you) connects their own calendar with the same Client ID/Secret. A dedicated "TrainingLab" calendar is created automatically on first connect.',
   },
 ];
 

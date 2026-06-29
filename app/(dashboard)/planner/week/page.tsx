@@ -38,15 +38,20 @@ export default async function WeekDetailPage({
   const weekStart = startOfWeek(parseISO(date), { weekStartsOn: 1 });
   const weekEnd   = endOfWeek(weekStart, { weekStartsOn: 1 });
 
-  const workouts = await prisma.plannedWorkout.findMany({
-    where: { userId, date: { gte: weekStart, lte: weekEnd } },
-    orderBy: { date: "asc" },
-    include: {
-      template: {
-        include: { sport: true, type: true, sections: { orderBy: { order: "asc" } } },
+  const [workouts, sports] = await Promise.all([
+    prisma.plannedWorkout.findMany({
+      where: { userId, date: { gte: weekStart, lte: weekEnd } },
+      orderBy: { date: "asc" },
+      include: {
+        template: {
+          include: { sport: true, type: true, sections: { orderBy: { order: "asc" } } },
+        },
       },
-    },
-  });
+    }),
+    prisma.sportCategory.findMany({ where: { userId }, select: { name: true, color: true } }),
+  ]);
+  const sportColorByName: Record<string, string> = {};
+  for (const s of sports as { name: string; color: string }[]) sportColorByName[s.name.toLowerCase()] = s.color;
 
   // Aggregate stats
   const bySport: Record<string, { km: number; timeSec: number; count: number }> = {};
@@ -65,7 +70,10 @@ export default async function WeekDetailPage({
     // By type (e.g. "Easy run", "LT", "Speedwork")
     const typeName = w.template?.type?.name ?? null;
     const typeKey  = typeName ?? `${sport} (no type)`;
-    const typeColor = workoutColor(sport, typeName);
+    const typeColor = w.template?.type?.color
+      ?? w.template?.sport?.color
+      ?? sportColorByName[sport.toLowerCase()]
+      ?? workoutColor(sport, typeName);
     if (!byType[typeKey]) byType[typeKey] = { km: 0, timeSec: 0, color: typeColor };
     if (w.targetDistance) byType[typeKey].km += w.targetDistance / 1000;
     if (w.targetDuration) byType[typeKey].timeSec += w.targetDuration;
@@ -132,7 +140,7 @@ export default async function WeekDetailPage({
         <div className="rounded-xl bg-surface border border-border p-5 space-y-3">
           <h2 className="text-sm font-semibold text-primary">Volume by sport</h2>
           {Object.entries(bySport).map(([sport, d]) => {
-            const color = workoutColor(sport, null);
+            const color = sportColorByName[sport.toLowerCase()] ?? workoutColor(sport, null);
             const maxKm = Math.max(...Object.values(bySport).map(x => x.km), 1);
             return (
               <div key={sport} className="space-y-1">

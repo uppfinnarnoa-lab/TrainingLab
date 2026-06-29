@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { RUN_TYPE_OPTIONS, activityColor, inferTypeName } from "@/lib/planner/colors";
+import { RUN_TYPE_OPTIONS, resolveActivityColor, inferTypeName } from "@/lib/planner/colors";
+import type { SportCategory } from "@/lib/planner/types";
 
 interface Props {
   activityId: string;
+  name: string;
   sportType: string;
   isRace: boolean;
   workoutType: number | null;
   customTypeName: string | null;
+  sports: SportCategory[];
   onUpdate: (customTypeName: string | null) => void;
   size?: "sm" | "xs";
 }
@@ -16,7 +19,7 @@ interface Props {
 const IS_RUN = /run|trail|virtual/i;
 
 export function TypePicker({
-  activityId, sportType, isRace, workoutType, customTypeName, onUpdate, size = "sm",
+  activityId, name, sportType, isRace, workoutType, customTypeName, sports, onUpdate, size = "sm",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -25,7 +28,7 @@ export function TypePicker({
   // Only show the picker for running sports — other sports are coloured by sport, not type
   if (isRace || !IS_RUN.test(sportType)) return null;
 
-  const color = activityColor(sportType, isRace, workoutType, customTypeName);
+  const color = resolveActivityColor(sports, sportType, isRace, workoutType, customTypeName, name);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {

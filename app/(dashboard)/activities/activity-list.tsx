@@ -165,10 +165,12 @@ export function ActivityList({ activities, total, page, perPage, sports, sportCa
                     </span>
                     <TypePicker
                       activityId={activity.id}
+                      name={activity.name}
                       sportType={activity.sportType}
                       isRace={activity.isRace}
                       workoutType={activity.workoutType}
                       customTypeName={getTypeName(activity)}
+                      sports={sportCategories}
                       onUpdate={v => updateType(activity.id, v)}
                       size="xs"
                     />

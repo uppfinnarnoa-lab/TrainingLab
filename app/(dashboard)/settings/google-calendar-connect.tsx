@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 interface Props {
   connected:       boolean;
   needsReconnect:  boolean;
+  scopeOutdated:   boolean;
   authUrl:         string | null;
   callbackUrl:     string;
   lastSyncAt:      string | null;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export function GoogleCalendarConnectSection({
-  connected, needsReconnect, authUrl, callbackUrl, lastSyncAt, hasClientId, hasClientSecret, isAdmin,
+  connected, needsReconnect, scopeOutdated, authUrl, callbackUrl, lastSyncAt, hasClientId, hasClientSecret, isAdmin,
 }: Props) {
   const [clientId,     setClientId]     = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -141,12 +142,19 @@ export function GoogleCalendarConnectSection({
             </div>
           )}
 
-          {!connected || needsReconnect ? (
+          {!needsReconnect && scopeOutdated && (
+            <div className="flex items-center gap-2 text-sm rounded-lg bg-accent/10 text-accent px-3 py-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              New feature available — reconnect to move events to a dedicated TrainingLab calendar with workout colors.
+            </div>
+          )}
+
+          {!connected || needsReconnect || scopeOutdated ? (
             <a href={authUrl ?? "#"}
               className={cn("inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition",
                 authUrl ? "bg-blue-500 hover:bg-blue-600" : "bg-surface-2 text-muted cursor-not-allowed")}>
               <ExternalLink size={15} />
-              {needsReconnect ? "Reconnect Google Calendar" : "Connect with Google"}
+              {needsReconnect ? "Reconnect Google Calendar" : scopeOutdated ? "Reconnect for dedicated calendar" : "Connect with Google"}
             </a>
           ) : (
             <div className="space-y-3">

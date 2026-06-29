@@ -1,6 +1,7 @@
 // Planner → Google Calendar one-way sync. See docs/integrations/google-calendar.md.
 import { prisma } from "@/lib/db/prisma";
 import { googleCalendarFetch, GoogleCalendarNotFoundError } from "./client";
+import { nearestGoogleColorId } from "./colors";
 
 interface SectionForDescription {
   order: number;
@@ -23,6 +24,7 @@ export interface WorkoutForEvent {
   date: Date;
   notes: string | null;
   status: string;
+  color: string | null;
   googleEventId: string | null;
   template?: { sections: SectionForDescription[] } | null;
 }
@@ -79,6 +81,7 @@ function buildEventBody(w: WorkoutForEvent) {
     description: buildDescription(w),
     start: { date: start },
     end: { date: end },
+    ...(w.color ? { colorId: nearestGoogleColorId(w.color) } : {}),
   };
 }
 
@@ -86,6 +89,24 @@ async function getActiveAccount(userId: string) {
   const account = await prisma.googleCalendarAccount.findUnique({ where: { userId } });
   if (!account || account.needsReconnect) return null;
   return account;
+}
+
+/**
+ * Creates a dedicated "TrainingLab" calendar on first connect (or after reconnecting
+ * with the calendar.app.created scope) and stores its id as calendarId. A no-op if the
+ * account already has a real (non-"primary") calendarId from a previous call — never
+ * creates a second calendar for the same user.
+ */
+export async function ensureDedicatedCalendar(userId: string): Promise<void> {
+  const account = await prisma.googleCalendarAccount.findUnique({ where: { userId } });
+  if (!account || (account.calendarId && account.calendarId !== "primary")) return;
+
+  const created = await googleCalendarFetch(userId, "/calendars", {
+    method: "POST",
+    body: JSON.stringify({ summary: "TrainingLab" }),
+  }) as { id: string };
+
+  await prisma.googleCalendarAccount.update({ where: { userId }, data: { calendarId: created.id } });
 }
 
 export async function createEvent(userId: string, workout: WorkoutForEvent): Promise<string | null> {

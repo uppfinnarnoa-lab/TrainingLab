@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, Trophy, Thermometer, Heart, Zap, Flame } from "lucide-react";
 import { format } from "date-fns";
 import { formatDuration, formatDistance, formatPace } from "@/lib/utils";
-import { workoutColor } from "@/lib/planner/colors";
+import { resolveActivityColor } from "@/lib/planner/colors";
 import { gradeAdjustedPace } from "@/lib/fitness/vo2max";
 import { computeDrift, SplitWithHR } from "@/lib/fitness/decoupling";
 import { ActivityMap } from "./activity-map";
@@ -36,18 +36,24 @@ export default async function ActivityDetailPage({
       sufferScore: true, isRace: true, mapPolyline: true,
       splitsMetric: true, laps: true, bestEfforts: true,
       weatherTemp: true, weatherWind: true, weatherCode: true,
-      workoutType: true,
+      workoutType: true, customTypeName: true,
     },
   });
 
   if (!activity || activity.userId !== userId) notFound();
 
-  const fitnessCache = await prisma.fitnessCache.findUnique({
-    where: { userId },
-    select: { maxHR: true },
-  });
+  const [fitnessCache, sportCategories] = await Promise.all([
+    prisma.fitnessCache.findUnique({ where: { userId }, select: { maxHR: true } }),
+    prisma.sportCategory.findMany({
+      where: { userId },
+      orderBy: { order: "asc" },
+      include: { workoutTypes: { orderBy: { order: "asc" } } },
+    }),
+  ]);
 
-  const color = activity.isRace ? "#FBBF24" : workoutColor(activity.sportType, null);
+  const color = resolveActivityColor(
+    sportCategories, activity.sportType, activity.isRace, activity.workoutType, activity.customTypeName, activity.name,
+  );
   const pace = activity.averageSpeed ? formatPace(activity.averageSpeed) : null;
 
   function secPerKmToStr(s: number): string {

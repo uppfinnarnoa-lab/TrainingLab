@@ -32,7 +32,7 @@ export default async function StatsPage() {
   const now = new Date();
 
   // ── Always fetch ────────────────────────────────────────────────────────
-  const [profile, fitnessCache, garminRecent, allRacePBs, weatherActs] = await Promise.all([
+  const [profile, fitnessCache, garminRecent, allRacePBs, weatherActs, sportCategories] = await Promise.all([
     prisma.athleteProfile.findUnique({ where: { userId } }),
     prisma.fitnessCache.findUnique({ where: { userId } }),
     prisma.garminDailySummary.findMany({
@@ -57,7 +57,10 @@ export default async function StatsPage() {
       },
       select: { averageSpeed: true, weatherTemp: true, weatherWind: true, weatherPrecip: true, distance: true, startDate: true, name: true, sportType: true, averageHeartrate: true },
     }),
+    prisma.sportCategory.findMany({ where: { userId }, select: { name: true, color: true } }),
   ]);
+  const sportColors: Record<string, string> = {};
+  for (const s of sportCategories) sportColors[s.name.toLowerCase()] = s.color;
 
   // See lib/fitness/cache.ts::loadRacePBs() for the shared isManual trust rule — both
   // implementations must call the same buildTrustedRacePBs(), see vo2max.ts doc comment on
@@ -387,7 +390,7 @@ export default async function StatsPage() {
       profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
       fpEasyPaceTrend, statZonesLapsCached,
       fpCadenceScatter, fpEfByWeek, fpMonotony, fpStrain, fpAvgRecoveryDays, fpRecoveryDays.length,
-      garminWellness, hrvBaseline, restHRBaseline);
+      garminWellness, hrvBaseline, restHRBaseline, sportColors);
   }
 
   // ── SLOW PATH: full computation (cache miss or stale) ───────────────────
@@ -810,7 +813,7 @@ export default async function StatsPage() {
     profile?.maxHeartRate ?? null, profile?.restingHeartRate ?? null, weatherStats,
     easyPaceTrend, statZonesLapsCached,
     cadenceScatter, efByWeek, monotony, strain, avgRecoveryDays, recoveryDays.length,
-    garminWellness, hrvBaseline, restHRBaseline);
+    garminWellness, hrvBaseline, restHRBaseline, sportColors);
 }
 
 // Shared render — used by both fast and slow paths
@@ -865,6 +868,7 @@ function renderStats(
   garminWellness?: GarminWellnessPoint[],
   hrvBaseline?: HrvBaseline,
   restHRBaseline?: { latest: number | null; baseline30dAvg: number | null; deltaBpm: number | null },
+  sportColors?: Record<string, string>,
 ) {
   const latestGarminPoint = garminWellness?.at(-1) ?? null;
   const readiness = computeReadinessScore({
@@ -909,6 +913,7 @@ function renderStats(
         garminWellness={garminWellness ?? []}
         readiness={readiness}
         hrvBaseline={hrvBaseline ?? null}
+        sportColors={sportColors ?? {}}
       />
       </StatsErrorBoundary>
     </div>
@@ -946,11 +951,13 @@ export type GarminWellnessPoint = {
   trainingReadiness: number | null;
 };
 
+// Bucket names match the default SportCategory.name values seeded in scripts/seed-user.ts
+// exactly, so the color lookup below can match by name without fuzzy matching.
 function normalizeSport(t: string): string {
   const s = t.toLowerCase();
   if (s.includes("run") || s.includes("trail")) return "Running";
   if (s.includes("ride") || s.includes("cycl")) return "Cycling";
-  if (s.includes("nordicski") || s.includes("backcountry")) return "Skiing";
+  if (s.includes("nordicski") || s.includes("backcountry")) return "Nordic Skiing";
   if (s.includes("rollerski")) return "Roller Skiing";
   if (s.includes("orienteer")) return "Orienteering";
   if (s.includes("weight") || s.includes("strength") || s.includes("workout")) return "Strength";

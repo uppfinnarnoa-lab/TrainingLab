@@ -238,6 +238,16 @@ Update a training block (all fields optional, plus `archived`).
 
 **Response (200):** Updated `TrainingBlock`.
 
+---
+
+## POST /api/planner/backfill-workout-colors
+
+One-time migration, auto-triggered once from the planner page (localStorage flag `planner_workout_colors_backfilled_v1`, same pattern as the other one-time `/api/planner/backfill-*`/`fix-ol-colors` routes). Recomputes `color` on every `WorkoutTemplate`/`PlannedWorkout` for the user from the real `WorkoutType.color`/`SportCategory.color` — needed because both used to bake in a color computed from the static `workoutColor()` regex at creation time, so a Settings color change never affected already-created rows.
+
+**Auth:** Required. **Request:** No body.
+
+**Response (200):** `{ "templatesFixed": number, "workoutsFixed": number }`.
+
 **Response (error):** `{ "error": "not_found" }` — 404, doesn't exist or wrong user. `{ "error": "invalid" }` — 400.
 
 ---

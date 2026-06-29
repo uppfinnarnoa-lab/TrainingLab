@@ -4,7 +4,6 @@ import { Clock, Ruler, Plus, Trash2, Pencil } from "lucide-react";
 import { ZoneBar } from "./ZoneBar";
 import { formatDuration, formatDistance } from "@/lib/utils";
 import type { WorkoutTemplate } from "@/lib/planner/types";
-import { workoutColor } from "@/lib/planner/colors";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -16,8 +15,8 @@ interface Props {
 }
 
 export function TemplateCard({ template, onAddToDate, onDelete, onEdit, compact }: Props) {
-  // Always derive color from sport + type so new type-based colors apply automatically
-  const color = workoutColor(template.sport.name, template.type?.name ?? null);
+  // Always derive color from sport + type so Settings color changes apply automatically
+  const color = template.type?.color ?? template.sport.color;
 
   return (
     <div

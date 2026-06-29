@@ -202,7 +202,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   const selectedSport = localSports.find(s => s.id === sportId);
   const selectedType  = selectedSport?.workoutTypes.find(t => t.id === typeId);
   const effectiveTypeName = selectedType?.name ?? null;
-  const autoColor = workoutColor(selectedSport?.name ?? "", effectiveTypeName);
+  const autoColor = selectedType?.color ?? selectedSport?.color ?? workoutColor(selectedSport?.name ?? "", effectiveTypeName);
 
   // ── Sync helpers for the single default section ───────────────────────────
 

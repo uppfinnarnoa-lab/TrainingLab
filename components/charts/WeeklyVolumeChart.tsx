@@ -6,21 +6,23 @@ import {
 } from "recharts";
 import { format, parseISO } from "date-fns";
 
+// Fallback only — used when the sport has no real SportCategory match (sportColors prop).
 const SPORT_COLORS: Record<string, string> = {
-  "Running":      "#10B981",
-  "Orienteering": "#059669",
-  "Cycling":      "#6366F1",
-  "Skiing":       "#38BDF8",
-  "Roller Skiing":"#0EA5E9",
-  "Strength":     "#F87171",
+  "Running":       "#10B981",
+  "Orienteering":  "#059669",
+  "Cycling":       "#6366F1",
+  "Nordic Skiing": "#38BDF8",
+  "Roller Skiing": "#0EA5E9",
+  "Strength":      "#F87171",
 };
 
 interface Props {
   weeklyVolumes: Record<string, Record<string, { km: number; timeSec: number }>>;
   mode?: "distance" | "time";
+  sportColors?: Record<string, string>;
 }
 
-export function WeeklyVolumeChart({ weeklyVolumes, mode = "distance" }: Props) {
+export function WeeklyVolumeChart({ weeklyVolumes, mode = "distance", sportColors = {} }: Props) {
   const sports = Array.from(
     new Set(Object.values(weeklyVolumes).flatMap(w => Object.keys(w)))
   ).sort();
@@ -65,7 +67,7 @@ export function WeeklyVolumeChart({ weeklyVolumes, mode = "distance" }: Props) {
         />
         <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
         {sports.map(sport => (
-          <Bar key={sport} dataKey={sport} stackId="a" fill={SPORT_COLORS[sport] ?? "#94A3B8"} radius={sports.indexOf(sport) === sports.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
+          <Bar key={sport} dataKey={sport} stackId="a" fill={sportColors[sport.toLowerCase()] ?? SPORT_COLORS[sport] ?? "#94A3B8"} radius={sports.indexOf(sport) === sports.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
         ))}
         <Line dataKey="rolling" type="monotone" stroke="var(--accent-2)" strokeWidth={2} dot={false} name="4-week avg" strokeDasharray="5 3" />
       </ComposedChart>

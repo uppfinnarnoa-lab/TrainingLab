@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { exchangeGoogleCode, GOOGLE_CALENDAR_SCOPE } from "@/lib/google-calendar/client";
+import { ensureDedicatedCalendar } from "@/lib/google-calendar/sync";
 import { prisma } from "@/lib/db/prisma";
 import { invalidateCredentialsCache } from "@/lib/config";
 import { verifyOAuthState } from "@/lib/oauth-state";
@@ -49,6 +50,18 @@ export async function GET(req: NextRequest) {
     });
 
     invalidateCredentialsCache();
+
+    try {
+      await ensureDedicatedCalendar(session.user.id);
+    } catch (e) {
+      // Token exchange succeeded but creating the dedicated calendar failed — most likely
+      // the Google Cloud OAuth consent screen hasn't been updated to include the
+      // calendar.app.created scope yet. Surface distinctly rather than silently leaving
+      // calendarId at "primary".
+      console.error("Google Calendar dedicated-calendar creation error:", e);
+      return NextResponse.redirect(new URL("/settings?google=calendar_create_failed", req.url));
+    }
+
     return NextResponse.redirect(new URL("/settings?google=connected", req.url));
   } catch (e) {
     console.error("Google Calendar callback error:", e);

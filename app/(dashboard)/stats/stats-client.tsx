@@ -73,6 +73,7 @@ interface Props {
     perfByDistYear: { distance: string; period: string; time: number }[];
     ltPaceTrend?: { month: string; lt1PaceSecPerKm: number; lt2PaceSecPerKm: number; r2: number }[];
   } | null;
+  sportColors: Record<string, string>;
 }
 
 function pct(curr: number, prev: number) {
@@ -90,7 +91,7 @@ export function StatsClient(props: Props) {
     zoneSeconds, vo2max, paceZones, predictions, hrZones, ltBounds, polarisation, acwr, statZonesLaps, paceZoneSeconds,
     extraViz, manualMaxHR, manualRestHR,
     monotony, strain, avgRecoveryDays, recoveryDaysCount, garminWellness,
-    readiness, hrvBaseline } = props;
+    readiness, hrvBaseline, sportColors } = props;
   const [section, setSection] = useState<Section>("Overview");
   const [volumeMode, setVolumeMode] = useState<"distance" | "time">("distance");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -195,7 +196,7 @@ export function StatsClient(props: Props) {
               <VolumeToggle mode={volumeMode} setMode={setVolumeMode} />
             </div>
           }>
-            <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
+            <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} sportColors={sportColors} />
           </SectionCard>
 
           <SectionCard title="Training load (ATL / CTL / TSB)" tips={[tooltips.atl, tooltips.ctl, tooltips.tsb]}>
@@ -214,7 +215,7 @@ export function StatsClient(props: Props) {
           </div>
 
           <SectionCard title="Weekly volume" href="/stats/volume?mode=weekly">
-            <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} />
+            <WeeklyVolumeChart weeklyVolumes={filteredVolumes} mode={volumeMode} sportColors={sportColors} />
           </SectionCard>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <OverviewCard label="This week" value={`${o.thisWeek.km} km`} sub={formatDuration(o.thisWeek.timeSec)} delta={pct(o.thisWeek.km, o.lyWeek.km)} />
