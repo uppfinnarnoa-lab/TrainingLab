@@ -80,11 +80,10 @@
 
   /* Brand row — mirrors components/logo.tsx's LogoWordmark: flex items-end (NOT center),
      icon margin-right = -(size*0.20), text font-size = size*0.52, padding-bottom = size*0.03.
-     margin-bottom on icon = size*(2/40): T path ends at y=38, leaving 5% gap. Without this,
-     items-end aligns SVG *box* bottom to text box bottom, placing T's visual foot below the
-     text baseline. The 5% margin shifts the container so they share the same typographic floor. */
+     T path ends at y=40 (fills SVG to bottom), so items-end aligns SVG box bottom = T visual
+     bottom = text box bottom — shared typographic floor, no extra margins needed. */
   .brand-row{display:flex; align-items:flex-end; gap:0; margin-bottom:14px;}
-  .brand-logo{margin-right:-8px; margin-bottom:2px;}
+  .brand-logo{margin-right:-8px;}
   .brand-word{font-family:'Inter'; font-weight:600; font-size:21px; color:var(--text); letter-spacing:-0.01em; padding-bottom:1px;}
 
   /* 0. Logotyp */
@@ -121,7 +120,7 @@
   <div class="cover">
     <div class="brand-row">
       <svg class="brand-logo" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="TrainingLab">
-        <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+        <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="var(--accent)" />
         <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
       </svg>
       <span class="brand-word">raining<span style="color:var(--accent)">Lab</span></span>
@@ -139,7 +138,7 @@
     <div class="logo-grid">
       <div class="logo-card">
         <svg width="84" height="84" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="var(--accent)" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="lc-cap"><strong>Konstruktion:</strong> 40×40 viewBox. Bokstaven "T" (tak 36×10, stam 14×21) med en inskuren aktivitetspuls-vågform genom stammens mittlinje (y=27.5) — samma motiv som appens syfte.</div>
@@ -158,7 +157,7 @@
     <div class="theme-logo-row">
       <div class="theme-logo-cell">
         <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#059669" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="#059669" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="tl-name">Forest</div>
@@ -166,7 +165,7 @@
       </div>
       <div class="theme-logo-cell">
         <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#0284C7" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="#0284C7" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="tl-name">Ocean</div>
@@ -174,7 +173,7 @@
       </div>
       <div class="theme-logo-cell">
         <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#EA580C" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="#EA580C" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="tl-name">Ember</div>
@@ -182,7 +181,7 @@
       </div>
       <div class="theme-logo-cell">
         <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#2563EB" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="#2563EB" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="tl-name">Slate</div>
@@ -190,7 +189,7 @@
       </div>
       <div class="theme-logo-cell">
         <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#7C3AED" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="#7C3AED" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="tl-name">Sky (Sand)</div>
@@ -198,7 +197,7 @@
       </div>
       <div class="theme-logo-cell">
         <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#18181B" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="#18181B" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="tl-name">Mono</div>
@@ -209,8 +208,8 @@
     <div class="lockup-row">
       <div class="logo-card">
         <div class="brand-row" style="margin:4px 0;">
-          <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right:-6.4px; margin-bottom:1.6px;">
-            <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+          <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right:-6.4px;">
+            <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="var(--accent)" />
             <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
           </svg>
           <span class="brand-word" style="font-size:16.64px; padding-bottom:0.96px;">raining<span style="color:var(--accent)">Lab</span></span>
@@ -219,7 +218,7 @@
       </div>
       <div class="logo-card">
         <svg width="36" height="36" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+          <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="var(--accent)" />
           <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
         </svg>
         <div class="lc-cap">Endast märke (<span class="mono">Logo</span>) — favicon, PWA-ikon, hopfälld sidopanel. Samma form, ingen text.</div>
@@ -227,7 +226,7 @@
       <div class="logo-card">
         <div class="clearspace-box">
           <svg width="30" height="30" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+            <path d="M2,7 H38 V17 H27 V40 H13 V17 H2 Z" fill="var(--accent)" />
             <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
           </svg>
         </div>

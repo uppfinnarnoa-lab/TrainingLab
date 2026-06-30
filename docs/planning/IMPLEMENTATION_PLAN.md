@@ -4201,6 +4201,18 @@ Fix: `marginBottom: size * 0.05` on the SVG icon in every logo+text layout. This
 3. **`FRONTEND_VISUAL_PROFILE_2026_06_27.html/.pdf`** — Cover header (40px, `margin-bottom:2px`) and lockup card (32px, `margin-bottom:1.6px`). PDF regenerated and visually confirmed.
 4. **`FRONTEND_UX_AUDIT_PLAN_2026_06_27.md §8.7.3`** — Updated lockup math section with the baseline-alignment explanation and the correct formula.
 
+**Session 2026-07-01a — Logo baseline alignment re-fixed: wrong marginBottom approach reverted, correct path fix applied.**
+
+The 2026-06-30i fix was incorrect. Adding `marginBottom: size * 0.05` to the SVG did not close the gap — it widened it. Reason: `marginBottom` on the SVG pushes the text span *down* (the flex container grows taller), so the text floor moved away from the T, doubling the visible gap rather than closing it. User screenshot confirmed: T was sitting too low, not too high.
+
+Correct fix: extend the T stem path from `V38` to `V40` (`M2,7 H38 V17 H27 V38 H13 V17 H2 Z` → `M2,7 H38 V17 H27 V40 H13 V17 H2 Z`). This makes the T's visual bottom land exactly at the SVG box's bottom edge. With `align-items:flex-end`, SVG box bottom = text box bottom — so T and text share the same visual floor. No extra margin needed.
+
+1. **`components/logo.tsx:33`** — T path changed `V38` → `V40`; removed the wrong `marginBottom: size * 0.05` from `LogoWordmark`.
+2. **`components/sidebar.tsx:83`** — removed wrong `marginBottom: LOGO_SIZE * 0.05` from expanded-state Logo.
+3. **`FRONTEND_VISUAL_PROFILE_2026_06_27.html`** — all 11 T paths changed `V38` → `V40`; removed `margin-bottom:2px` from `.brand-logo` CSS; removed `margin-bottom:1.6px` from lockup card SVG inline style; CSS comment updated.
+4. **`FRONTEND_UX_AUDIT_PLAN_2026_06_27.md §8.7.1`** — path description updated to show `V40` and explain that the stem fills to the SVG bottom.
+5. **`FRONTEND_UX_AUDIT_PLAN_2026_06_27.md §8.7.3`** — lockup alignment note updated: correct path-extension explanation replaces the wrong marginBottom explanation; notes the 2026-06-30 error and its retraction.
+
 ---
 
-*Last updated: 2026-06-30i — Logo baseline alignment fix: `marginBottom: size*0.05` on SVG icon in `LogoWordmark` and sidebar, so T visual bottom sits on text typographic baseline (not below it in the descender zone). Applied to both website code and graphical profile artifact.*
+*Last updated: 2026-07-01a — Logo baseline alignment: T path extended to y=40 (V40) so T visual bottom = SVG box bottom = text box bottom under `items-end`. Previous wrong `marginBottom` approach reverted. Applied to both website code and graphical profile artifact.*

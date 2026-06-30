@@ -80,7 +80,7 @@ export function Sidebar() {
           Link's px-3 = 24px), not a literal center — a centered logo would
           float inconsistently above the left-aligned nav column below it. */}
       <div className={cn("flex h-16 items-end pb-3 border-b border-border shrink-0", rail ? "px-3 justify-center" : "pl-6 pr-3")}>
-        <Logo size={LOGO_SIZE} className="shrink-0" style={rail ? undefined : { marginRight: logoPullIn(LOGO_SIZE), marginBottom: LOGO_SIZE * 0.05 }} />
+        <Logo size={LOGO_SIZE} className="shrink-0" style={rail ? undefined : { marginRight: logoPullIn(LOGO_SIZE) }} />
         <span className={labelClass(rail)}>
           <LogoText size={LOGO_SIZE} />
         </span>
