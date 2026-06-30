@@ -1129,4 +1129,373 @@ Once E1-E4 are all checked off and any findings from "Step 5/manual verification
 - **Does not add a test framework.** Out of scope for this bug-fix plan; verification follows the project's existing manual/build-check convention. Worth a separate, explicit decision with the user if ongoing AI-coach reliability work continues to need this much manual re-verification per change.
 - **Does not implement literal "send unprompted follow-up chat messages over time."** The transcript's "let it continue" read as wanting multi-step *tool use within one turn* (which Claude already does and this plan extends to the rest), not autonomous messaging without a user prompt — flagged explicitly in case that's a distinct, separate feature request the user actually meant.
 - **Does not build a literal multi-agent system** (separate planner/retriever/writer agents talking to each other). "Köra flera agenter åt gången" in the original prompt is read here as the same underlying ask as "call multiple tools in parallel / keep going across several tool calls" — which the system prompt ([lib/ai/prompts.ts:79](lib/ai/prompts.ts#L79)) already frames as "you can call multiple tools per turn in parallel," and which Tasks 2-3 make actually work for every provider. If a genuinely separate multi-agent architecture (distinct specialized agents, not one model calling tools) was intended instead, that's a much larger, separate design question worth its own brainstorming session before a plan — flagged here rather than assumed.
-- **No Prisma schema changes.** Every fix in this plan is application logic; nothing here requires `prisma db push`.
+- **No Prisma schema changes.** Every fix in this plan is application logic; nothing here requires `prisma db push`. (Part G below adds one *optional* task that does need a schema change — flagged explicitly there, separate from this constraint.)
+
+---
+
+## Part G — Roadmap: building a genuinely competent AI coach (research-grounded)
+
+Parts A-F fix the plumbing — every provider can now reliably call tools. This section answers the follow-up question: once the plumbing works, what does it actually take to make the coach *competent* — able to answer questions, run specific analyses, and do reliable comparisons against the athlete's full history, the way the user described wanting? Grounded in a focused pass of current (2025-2026) research and industry practice, not intuition.
+
+### G1. Research summary
+
+**G1.1 — Scientific grounding is the dominant failure mode, not raw capability.** A scoping review of LLM-based exercise/health coaching found no standardized evaluation framework and flagged factual accuracy/hallucination as the foundational challenge (Evaluation Strategies for LLM-Based Models in Exercise and Health Coaching, JMIR 2025). A direct test of chatbot sports-nutrition accuracy found a **31-74% accuracy range across models** depending on provider. This matches what actually happened in the original transcript: the model produced confident, precisely-numbered heat-adjustment claims ("3-6 sek/km" / "2-4% per 5°C") with no cited source — plausible-sounding, unverifiable numbers, the exact pattern this research warns about.
+
+**G1.2 — Domain knowledge grounding measurably fixes this.** A knowledge-grounded LLM system for personalized training plans (LLM-SPTRec, *Scientific Reports* 2026) built a ~10,000-triple sports-science knowledge graph (exercises, principles, contraindications) and a retrieval pipeline that injects relevant entries into the prompt before generation, plus a rule-based post-generation validator. Ablating the knowledge graph dropped the system's Plan Coherence score by **31.8%** and human-rated Safety from **4.8/5 down to 3.1/5** for the same base model with no grounding. The lesson generalizes directly: an LLM with *no* curated domain reference invents plausible numbers; one with a small, curated, citable reference doesn't.
+
+**G1.3 — Tool-augmented numeric reasoning measurably beats "mental math."** Research on tool-integrated reasoning (Program-of-Thoughts, ReTool, SciAgent and related 2025-2026 work) consistently shows LLMs given a callable computation tool outperform the same model reasoning in plain text — one survey found **+5.3 percentage points absolute / +61.6% relative accuracy** when math moves from in-context reasoning to an executable tool call. TrainingLab's existing design already follows this for *single-number* queries (every fitness metric is precomputed server-side and handed to the model as text — see `lib/fitness/`), but **comparisons between two periods/activities are not precomputed** — the model is left to subtract two separate tool outputs in its head, which is exactly the failure mode this research warns about, and exactly what the original transcript's "jämför med liknande pass" (compare with a similar session) request needed and didn't get.
+
+**G1.4 — Coaching-dialogue architecture: prompt chaining over single-shot prompting.** GPTCoach (CHI 2025) found a single vanilla LLM call for physical-activity coaching "struggled to adhere to structure... had a strong tendency to give unsolicited advice," and fixed this with staged prompt chains (what stage of the conversation → what coaching strategy → whether to pull data) rather than one big prompt. Its most relevant *failure* mode for TrainingLab: even with data access, the system scored only **3.7/5 on providing new insights** and **2.5/5 on avoiding generic advice** — access to data alone doesn't guarantee the model actually uses it well; tool use "was variable, sometimes failing to proactively incorporate data into its advice." [lib/ai/prompts.ts](lib/ai/prompts.ts)'s existing "Be concise — cite actual sessions, dates, and metrics from tool output" instruction is the right idea but, per this finding, needs reinforcing rather than assuming it's sufficient on its own.
+
+**G1.5 — Memory architecture for personal AI agents.** 2026 surveys of agent-memory frameworks (Mem0, Letta/MemGPT, Zep) converge on a common pattern: production agents need **working memory** (current context — TrainingLab already has this via the cached system prompt), **semantic memory** (durable extracted facts/preferences — TrainingLab does **not** have this; nothing persists "the athlete mentioned a chronic left knee issue" or "doesn't like Sunday long runs" across conversations beyond whatever's in the last 20 raw messages), and a **forgetting/relevance policy**. Mem0 is explicitly recommended as "the right default for 2026 consumer apps where 'remember the user' is the feature" over heavier frameworks like Letta, which is aimed at autonomous long-horizon agents — a relevant calibration signal for an app this size.
+
+**G1.6 — Industry pattern: establish a baseline from historical data, then layer the LLM on top.** WHOOP Coach (GPT-4-based), and aggregator apps like SensAI/Athletedata, all follow the same shape — a non-LLM analytics layer establishes recovery/fitness baselines from wearable history, and the LLM is a *reasoning and explanation layer* on top of those precomputed numbers, never the thing computing them. This is precisely TrainingLab's existing `FitnessCache` + `lib/fitness/` architecture — confirms it's the right foundation, not something to rearchitect.
+
+**G1.7 — Injury/overtraining signal: ACWR + HRV, already computed, not yet surfaced proactively.** A systematic review and meta-analysis of Acute:Chronic Workload Ratio (ACWR) found the **0.8-1.3 range associated with lower injury risk** and **sustained ratios above ~1.5 associated with elevated risk**; separate ML work ranks **ACWR as the single most influential predictor of injury risk, with HRV second**. TrainingLab's `FitnessCache.acwr` and Garmin HRV data are both already computed and queryable (`get_fitness_summary`, `get_readiness`) — but neither is surfaced *proactively* in the cached system prompt; the model only sees them if it happens to call the right tool.
+
+**G1.8 — Evaluation/QA frameworks exist but are sized for product teams, not personal apps.** Rubric-based LLM-as-judge evaluation pipelines are now standard practice for production AI products (continuous evaluation on every prompt change, multi-model grading, human calibration). This is real, useful infrastructure — and explicitly disproportionate to build out for a single-developer, closed-invite personal app. Noted here so the decision to *not* build it is informed rather than an oversight (see Task 13).
+
+Sources: [Evaluation Strategies for LLM-Based Models in Exercise and Health Coaching (JMIR 2025)](https://www.jmir.org/2025/1/e79217), [sports nutrition chatbot accuracy study (PMC)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12165421/), [Knowledge-grounded LLM for personalized sports training plan generation (Scientific Reports 2026 / PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC12916763/), [GPTCoach (CHI 2025)](https://arxiv.org/html/2405.06061v2), [Best AI Agent Memory Frameworks 2026 (Atlan)](https://atlan.com/know/best-ai-agent-memory-frameworks-2026/), [Mem0 vs Letta (MemGPT) comparison](https://vectorize.io/articles/mem0-vs-letta), [WHOOP Coach announcement](https://www.whoop.com/us/en/thelocker/whoop-unveils-the-new-whoop-coach-powered-by-openai/), [ACWR systematic review and meta-analysis (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC12487117/), [ML-based sports injury risk assessment using training load (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC11366842/).
+
+### G2. What TrainingLab already gets right — confirmed, not redone
+
+- **Precomputed metrics, not LLM mental math** (`lib/fitness/`, `FitnessCache`) — matches G1.3 and G1.6 directly. No change needed.
+- **Curated/summarized context instead of context stuffing** (Part B of this plan) — matches the 2026 agentic-RAG consensus in G1.6/G1.5. No change needed.
+- **`search_training_research` (PubMed) and `web_search` (Tavily) tools already exist** — a partial answer to G1.1/G1.2's grounding concern for *novel* questions. Task 10 below adds the missing piece: a curated reference for the small set of *recurring* physiological questions (heat, altitude, taper) where live web search produces inconsistent, unsourced numbers each time instead of one vetted answer reused consistently.
+
+### G3. New tasks
+
+These are additive to Tasks 1-8 — they assume the agentic-loop fix (Tasks 2-3) is already in place, since several of these tools are only reliably reachable once multi-step tool calling works for every provider.
+
+---
+
+#### Task 9: `compare_activities` and `compare_periods` tools — server-side comparison, not LLM mental math
+
+Directly fixes the scenario in the original bug report ("jämför med liknande pass") and is the most direct implementation of G1.3.
+
+**Files:**
+- Modify: `lib/ai/tools.ts` (add two tool schemas to `COACH_TOOLS`, two executor cases)
+- Modify: `lib/ai/prompts.ts` (point the model at these instead of manual diffing)
+
+**Interfaces:**
+- `compare_activities(activity_id_a, activity_id_b)` — returns a precomputed side-by-side diff: distance/time/pace/HR/elevation/weather deltas, plus a rep-by-rep split comparison when both activities have a similar split count (the exact "5x4min vs 7x4min" case from the transcript — compares as many corresponding reps as both have, flags the count mismatch explicitly rather than silently misaligning them).
+- `compare_periods(date_from_a, date_to_a, date_from_b, date_to_b, sport?)` — returns precomputed volume/pace/HR/TSS deltas between two date ranges, reusing the same aggregation `get_volume_stats` already does per-period, but computing the diff server-side instead of leaving it to the model.
+
+- [ ] **Step 1: Add the two tool schemas**
+
+In [lib/ai/tools.ts](lib/ai/tools.ts), add to `COACH_TOOLS` (after `get_segment_history`, staying in the "Activity tools" group):
+
+```typescript
+  {
+    name: "compare_activities",
+    description: "Compares two specific activities side by side: distance, time, pace, HR, elevation, weather deltas, and a rep-by-rep split comparison if both have comparable interval structure. Use this instead of calling get_activity_detail twice and comparing manually — the deltas are computed exactly, not estimated.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        activity_id_a: { type: "string", description: "First activity ID (e.g. the more recent one)" },
+        activity_id_b: { type: "string", description: "Second activity ID to compare against" },
+      },
+      required: ["activity_id_a", "activity_id_b"],
+    },
+  },
+  {
+    name: "compare_periods",
+    description: "Compares aggregate training volume, pace, HR, and TSS between two date ranges (e.g. this month vs the same month last year). Returns exact deltas computed server-side — use this instead of calling get_volume_stats twice and subtracting the numbers yourself.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date_from_a: { type: "string", description: "Period A start YYYY-MM-DD" },
+        date_to_a:   { type: "string", description: "Period A end YYYY-MM-DD" },
+        date_from_b: { type: "string", description: "Period B start YYYY-MM-DD" },
+        date_to_b:   { type: "string", description: "Period B end YYYY-MM-DD" },
+        sport:       { type: "string", description: "Sport filter (optional)" },
+      },
+      required: ["date_from_a", "date_to_a", "date_from_b", "date_to_b"],
+    },
+  },
+```
+
+- [ ] **Step 2: Implement the executors**
+
+In [lib/ai/tools.ts](lib/ai/tools.ts)'s `executeCoachTool` switch, add two new cases (after `get_segment_history`):
+
+```typescript
+      // ── compare_activities ────────────────────────────────────────────────
+      case "compare_activities": {
+        const [a, b] = await Promise.all([
+          prisma.activity.findUnique({ where: { id: input.activity_id_a as string }, select: { id: true, userId: true, name: true, sportType: true, startDate: true, distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, totalElevationGain: true, weatherTemp: true, splitsMetric: true } }),
+          prisma.activity.findUnique({ where: { id: input.activity_id_b as string }, select: { id: true, userId: true, name: true, sportType: true, startDate: true, distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, totalElevationGain: true, weatherTemp: true, splitsMetric: true } }),
+        ]);
+        if (!a || a.userId !== userId || !b || b.userId !== userId) return { success: false, message: "One or both activities not found.", data: "error: not found or unauthorized" };
+
+        const paceStr = (speedMs: number | null) => {
+          if (!speedMs) return "—";
+          const s = 1000 / speedMs;
+          return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}/km`;
+        };
+        const lines: string[] = [
+          `A: ${a.name} (${format(a.startDate, "yyyy-MM-dd")}) — ${(a.distance / 1000).toFixed(1)}km, ${Math.floor(a.movingTime / 60)}min, ${paceStr(a.averageSpeed)}, ${a.averageHeartrate ? Math.round(a.averageHeartrate) + "bpm" : "no HR"}, ${Math.round(a.totalElevationGain)}m elev${a.weatherTemp != null ? `, ${Math.round(a.weatherTemp)}°C` : ""}`,
+          `B: ${b.name} (${format(b.startDate, "yyyy-MM-dd")}) — ${(b.distance / 1000).toFixed(1)}km, ${Math.floor(b.movingTime / 60)}min, ${paceStr(b.averageSpeed)}, ${b.averageHeartrate ? Math.round(b.averageHeartrate) + "bpm" : "no HR"}, ${Math.round(b.totalElevationGain)}m elev${b.weatherTemp != null ? `, ${Math.round(b.weatherTemp)}°C` : ""}`,
+          "",
+          "Deltas (A − B):",
+          `  Distance: ${((a.distance - b.distance) / 1000).toFixed(1)}km`,
+          `  Time: ${Math.round((a.movingTime - b.movingTime) / 60)}min`,
+        ];
+        if (a.averageSpeed && b.averageSpeed) {
+          const paceDeltaSec = Math.round(1000 / a.averageSpeed - 1000 / b.averageSpeed);
+          lines.push(`  Pace: ${paceDeltaSec >= 0 ? "+" : ""}${paceDeltaSec}sec/km (positive = A slower)`);
+        }
+        if (a.averageHeartrate && b.averageHeartrate) lines.push(`  HR: ${Math.round(a.averageHeartrate - b.averageHeartrate)}bpm`);
+        if (a.weatherTemp != null && b.weatherTemp != null) lines.push(`  Weather: ${Math.round(a.weatherTemp - b.weatherTemp)}°C`);
+
+        type Split = { split: number; moving_time: number; average_speed: number; average_heartrate?: number };
+        const splitsA = (a.splitsMetric as Split[] | null)?.filter(s => s.moving_time > 0 && s.average_speed > 0) ?? [];
+        const splitsB = (b.splitsMetric as Split[] | null)?.filter(s => s.moving_time > 0 && s.average_speed > 0) ?? [];
+        if (splitsA.length >= 2 && splitsB.length >= 2) {
+          const n = Math.min(splitsA.length, splitsB.length);
+          lines.push("", `Rep-by-rep (first ${n} of ${splitsA.length} vs ${splitsB.length} — counts ${splitsA.length === splitsB.length ? "match" : "DIFFER, compare with care"}):`);
+          for (let i = 0; i < n; i++) {
+            const pa = paceStr(splitsA[i].average_speed), pb = paceStr(splitsB[i].average_speed);
+            const hrA = splitsA[i].average_heartrate ? `${Math.round(splitsA[i].average_heartrate!)}bpm` : "—";
+            const hrB = splitsB[i].average_heartrate ? `${Math.round(splitsB[i].average_heartrate!)}bpm` : "—";
+            lines.push(`  Rep ${i + 1}: A ${pa} ${hrA}  vs  B ${pb} ${hrB}`);
+          }
+        }
+        return { success: true, message: `Compared: ${a.name} vs ${b.name}`, data: lines.join("\n") };
+      }
+
+      // ── compare_periods ───────────────────────────────────────────────────
+      case "compare_periods": {
+        const sport = input.sport as string | undefined;
+        const where = (from: Date, to: Date) => ({ userId, startDate: { gte: from, lte: to }, ...(sport ? { sportType: { contains: sport, mode: "insensitive" as const } } : {}) });
+        const [actsA, actsB] = await Promise.all([
+          prisma.activity.findMany({ where: where(new Date(input.date_from_a as string), new Date(input.date_to_a as string)), select: { distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, trainingLoad: true } }),
+          prisma.activity.findMany({ where: where(new Date(input.date_from_b as string), new Date(input.date_to_b as string)), select: { distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, trainingLoad: true } }),
+        ]);
+        const agg = (acts: typeof actsA) => ({
+          km: acts.reduce((s, a) => s + a.distance / 1000, 0),
+          hours: acts.reduce((s, a) => s + a.movingTime, 0) / 3600,
+          tss: acts.reduce((s, a) => s + (a.trainingLoad ?? 0), 0),
+          count: acts.length,
+          avgPaceSecKm: (() => {
+            const speeds = acts.map(a => a.averageSpeed).filter((v): v is number => !!v && v > 0);
+            return speeds.length ? 1000 / (speeds.reduce((s, v) => s + v, 0) / speeds.length) : null;
+          })(),
+          avgHR: (() => {
+            const hrs = acts.map(a => a.averageHeartrate).filter((v): v is number => !!v);
+            return hrs.length ? hrs.reduce((s, v) => s + v, 0) / hrs.length : null;
+          })(),
+        });
+        const A = agg(actsA), B = agg(actsB);
+        const pct = (a: number, b: number) => b === 0 ? "n/a" : `${a - b >= 0 ? "+" : ""}${Math.round((a - b) / b * 100)}%`;
+        const lines = [
+          `Period A: ${A.count} sessions, ${A.km.toFixed(1)}km, ${A.hours.toFixed(1)}h, ${Math.round(A.tss)} TSS${A.avgPaceSecKm ? `, avg ${Math.floor(A.avgPaceSecKm / 60)}:${String(Math.round(A.avgPaceSecKm % 60)).padStart(2, "0")}/km` : ""}${A.avgHR ? `, ${Math.round(A.avgHR)}bpm avg` : ""}`,
+          `Period B: ${B.count} sessions, ${B.km.toFixed(1)}km, ${B.hours.toFixed(1)}h, ${Math.round(B.tss)} TSS${B.avgPaceSecKm ? `, avg ${Math.floor(B.avgPaceSecKm / 60)}:${String(Math.round(B.avgPaceSecKm % 60)).padStart(2, "0")}/km` : ""}${B.avgHR ? `, ${Math.round(B.avgHR)}bpm avg` : ""}`,
+          "",
+          `Volume: ${pct(A.km, B.km)} (${(A.km - B.km).toFixed(1)}km)`,
+          `Time: ${pct(A.hours, B.hours)}`,
+          `TSS: ${pct(A.tss, B.tss)}`,
+          A.avgPaceSecKm && B.avgPaceSecKm ? `Pace: ${Math.round(A.avgPaceSecKm - B.avgPaceSecKm) >= 0 ? "+" : ""}${Math.round(A.avgPaceSecKm - B.avgPaceSecKm)}sec/km (positive = A slower)` : "",
+          A.avgHR && B.avgHR ? `HR: ${Math.round(A.avgHR - B.avgHR) >= 0 ? "+" : ""}${Math.round(A.avgHR - B.avgHR)}bpm` : "",
+        ].filter(Boolean);
+        return { success: true, message: "Period comparison", data: lines.join("\n") };
+      }
+```
+
+- [ ] **Step 3: Point the model at the new tools**
+
+In [lib/ai/prompts.ts](lib/ai/prompts.ts)'s tool list (line 81), add `compare_activities, compare_periods` to the read-tools list, and add to "Coach instructions" (after the existing "For any analysis that compares two time periods..." line):
+
+```typescript
+- For comparing two specific activities or two date ranges, always call compare_activities/compare_periods rather than computing the difference yourself from two separate tool calls — the deltas it returns are exact, not estimated
+```
+
+- [ ] **Step 4: Verify**
+
+Run: `npx tsc --noEmit`
+Expected: no errors.
+
+- [ ] **Step 5: Manual verification**
+
+Ask the coach (any provider, post-Task-2/3 fix): "Jämför mitt senaste intervallpass med ett liknande från i våras" (compare my latest interval session with a similar one from spring). Confirm `compare_activities` gets called (visible as a tool-action card) instead of the model fetching both via `get_activity_detail` and eyeballing the difference in text.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/ai/tools.ts lib/ai/prompts.ts
+git commit -m "feat: add compare_activities and compare_periods tools for server-side comparison instead of LLM mental math"
+```
+
+---
+
+#### Task 10: curated training-science reference tool — ground physiological claims instead of inventing numbers
+
+Directly fixes the heat-adjustment scenario from the original transcript, grounded in G1.1/G1.2.
+
+**Files:**
+- Create: `lib/ai/training-science-reference.ts`
+- Modify: `lib/ai/tools.ts` (one new read-only tool, no DB access needed)
+- Modify: `lib/ai/prompts.ts`
+
+- [ ] **Step 1: Write the curated reference**
+
+```typescript
+// lib/ai/training-science-reference.ts
+// Curated, app-maintained reference for recurring physiological adjustment questions.
+// These are applied "rules of thumb" from the cited consensus literature, not measured
+// values for any specific athlete — the coach must present them as estimates and prefer
+// the athlete's own historical data (via search_activities/compare_activities) when available.
+
+export const TRAINING_SCIENCE_REFERENCE = {
+  heat: {
+    topic: "Heat adaptation and pace adjustment",
+    guidance: [
+      "Above ~15°C, expect a measurable pace decrement at the same HR/effort for a non-heat-acclimatized athlete; the effect accelerates non-linearly above ~25°C, more so with high humidity.",
+      "Commonly cited applied range for a non-acclimatized athlete at threshold effort: roughly +1 to +3 sec/km pace adjustment per °C above 15°C, upper end of the range at high humidity. Treat as a rough planning estimate, not a precise constant.",
+      "HR at a given pace commonly runs ~10-15 bpm higher above 25°C versus under 15°C for non-acclimatized athletes.",
+      "10-14 days of repeated heat exposure (heat acclimatization) meaningfully narrows this gap — always note whether the athlete is acclimatized when applying these numbers.",
+    ],
+    citeAs: "Applied heat-performance guidance (consensus literature on heat and athletic performance, e.g. Racinais et al. 2015; ACSM heat-illness guidance) — present as an estimate, not a measured value for this athlete.",
+  },
+  altitude: {
+    topic: "Altitude adaptation and pace adjustment",
+    guidance: [
+      "Below ~1,500m, performance effects are typically negligible for most athletes.",
+      "Above ~1,500-2,000m, expect a roughly 1-3% pace/power decrement per 300m of additional elevation at the same effort for a non-acclimatized athlete, more pronounced for higher-intensity efforts (VO2max-dependent work) than for easy aerobic pace.",
+      "Full acclimatization typically takes 1-3 weeks depending on altitude; the first 3-5 days often feel disproportionately hard before partial adaptation.",
+    ],
+    citeAs: "Applied altitude-performance guidance (consensus exercise-physiology literature on hypoxia and endurance performance) — present as an estimate, not a measured value for this athlete.",
+  },
+  taper: {
+    topic: "Taper volume/intensity guidance before a goal race",
+    guidance: [
+      "Typical evidence-based taper: reduce volume 40-60% over 1-3 weeks while maintaining (not cutting) intensity — frequency and some high-intensity work preserve fitness better than volume does.",
+      "Longer tapers (2-3 weeks) suit longer/harder training blocks (marathon, high weekly volume); shorter tapers (4-10 days) suit shorter races off lower volume.",
+    ],
+    citeAs: "Applied taper guidance (Bosquet et al. 2007 meta-analysis on tapering and performance, and related consensus literature).",
+  },
+} as const;
+
+export type TrainingScienceTopic = keyof typeof TRAINING_SCIENCE_REFERENCE;
+```
+
+- [ ] **Step 2: Add the tool**
+
+In [lib/ai/tools.ts](lib/ai/tools.ts), add to the schema list (in the "External tools" group, alongside `web_search`):
+
+```typescript
+  {
+    name: "get_training_science_reference",
+    description: "Returns curated, pre-vetted applied guidance on common physiological adjustment questions (heat adaptation, altitude adaptation, tapering) with their literature basis. Use this instead of estimating pace/HR adjustments for heat, altitude, or taper from memory — these numbers are app-maintained and citable, not invented per-conversation.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        topic: { type: "string", description: "'heat' | 'altitude' | 'taper'" },
+      },
+      required: ["topic"],
+    },
+  },
+```
+
+And to `executeCoachTool`'s switch:
+
+```typescript
+      // ── get_training_science_reference ────────────────────────────────────
+      case "get_training_science_reference": {
+        const topic = input.topic as TrainingScienceTopic;
+        const entry = TRAINING_SCIENCE_REFERENCE[topic];
+        if (!entry) return { success: false, message: "Unknown topic.", data: `error: unknown topic, valid: ${Object.keys(TRAINING_SCIENCE_REFERENCE).join(", ")}` };
+        const lines = [entry.topic, ...entry.guidance.map(g => `- ${g}`), "", `Source: ${entry.citeAs}`];
+        return { success: true, message: `Reference: ${entry.topic}`, data: lines.join("\n") };
+      }
+```
+
+Add the import at the top of `lib/ai/tools.ts`: `import { TRAINING_SCIENCE_REFERENCE, type TrainingScienceTopic } from "./training-science-reference";`
+
+- [ ] **Step 3: Update the system prompt**
+
+In [lib/ai/prompts.ts](lib/ai/prompts.ts), add `get_training_science_reference` to the read-tools list and add to "Coach instructions":
+
+```typescript
+- For heat/altitude/taper pace or HR adjustment questions, call get_training_science_reference first and present its numbers explicitly as estimates ("roughly", "applied guidance suggests") rather than precise measured values — prefer the athlete's own historical data (via compare_activities against a similar past session in similar conditions) when it exists
+```
+
+- [ ] **Step 4: Verify**
+
+Run: `npx tsc --noEmit`
+Expected: no errors.
+
+- [ ] **Step 5: Manual verification**
+
+Re-ask a version of the original transcript's opening question ("hur påverkar 27 grader och hög luftfuktighet prestationen, vilket tempo i 10 grader motsvarar det"). Confirm `get_training_science_reference` (topic: heat) is called and the answer's numbers visibly trace back to it rather than being freshly invented each time.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/ai/training-science-reference.ts lib/ai/tools.ts lib/ai/prompts.ts
+git commit -m "feat: add curated training-science reference tool to ground heat/altitude/taper claims instead of inventing numbers"
+```
+
+---
+
+#### Task 11: proactive ACWR + HRV risk flag in the cached system prompt
+
+Grounded in G1.7 — surfaces an already-computed signal the model currently only sees if it happens to call the right tool.
+
+**Files:**
+- Modify: `lib/ai/context-builder.ts` (the `healthLines` block in `buildCoachContext`)
+
+- [ ] **Step 1: Add the ACWR check**
+
+In [lib/ai/context-builder.ts](lib/ai/context-builder.ts), in the `healthLines` block (around where HRV trend is computed), add:
+
+```typescript
+  if (fitnessCache?.acwr != null && fitnessCache.acwr > 1.5) {
+    healthLines.push(`⚠ ACWR elevated (${fitnessCache.acwr.toFixed(2)}) — sustained ratios above ~1.5 are associated with increased injury risk in the literature; consider an easier week`);
+  }
+```
+
+Place this after the existing HRV-trend push and before the `missedWorkouts` block, so it reads naturally alongside the other recovery flags.
+
+- [ ] **Step 2: Verify**
+
+Run: `npx tsc --noEmit`
+Expected: no errors.
+
+- [ ] **Step 3: Manual verification**
+
+If `FitnessCache.acwr` is ever observed above 1.5 for the test account, confirm the flag appears in a fresh coach conversation's first response context (it's part of the cached system prompt, so check via a tool-free question like "hur mår min form?"). If never naturally reachable, temporarily verify by reading `FitnessCache.acwr` in Prisma Studio and confirming the threshold logic against that real value, then revert nothing (no test data should be fabricated in the DB).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add lib/ai/context-builder.ts
+git commit -m "feat: surface elevated ACWR as a proactive risk flag in the coach's health log"
+```
+
+---
+
+#### Task 12 (optional — requires explicit go-ahead, the one task in this plan with a schema change): lightweight semantic memory
+
+Grounded in G1.5. **Not started without separate confirmation** — this is the one piece of Part G that changes `prisma/schema.prisma`, which the rest of this plan deliberately avoided.
+
+**Proposal, not a committed task:** a small `AthleteMemoryNote` table (`id`, `userId`, `content`, `category` — e.g. `injury | preference | constraint`, `createdAt`, `sourceConversationId`) that the coach can write to via a new `remember_note` write tool (same approval-card flow as `update_profile`) and that gets included as a short bullet list in the cached system prompt (capped at, say, 15 most recent/relevant notes — not a vector store; this app's note volume is small enough that a flat recency-ordered list is sufficient, per G1.5's calibration that Mem0-style "consumer app" memory, not Letta-style autonomous-agent memory, is the right tier here). This is what would let the coach actually remember "the athlete mentioned a chronic left knee issue" or "prefers not to run intervals on Sundays" across conversations, which nothing in the current architecture does today (conversation history is per-`Conversation`, not shared across them).
+
+If this is wanted, it should go through `superpowers:brainstorming` as its own small design pass before a plan — it touches schema, a new write-tool-approval flow, and a "what's worth remembering vs. noise" policy that's worth thinking through deliberately rather than speccing inline here.
+
+---
+
+#### Task 13 (practice, not a code task): proportionate quality-checking, not a rubric pipeline
+
+Grounded in G1.8. The production LLM-as-judge/rubric evaluation pipelines surveyed in the research are sized for product teams shipping to many users with continuous prompt iteration — building that out for a single-developer, closed-invite personal app would be effort disproportionate to the payoff. The proportionate version: after Tasks 1-11 ship, periodically (e.g. monthly, or after any prompt/tool change) re-run a small fixed set of the same 4-5 representative questions (a heat-adjustment question, a multi-tool comparison question, a "how's my form" open question, a write-tool request) against the live coach and read the answers for the G1.1/G1.2/G1.4 failure modes specifically — invented numbers without a tool citation, generic advice despite having the data, ignored prior-conversation context. This is a checklist to run by hand, not infrastructure to build, and is flagged here so the decision not to build a judge pipeline is a documented choice rather than a gap nobody decided on.
+
+---
+
+### G4. Audit & testing additions for Part G
+
+Add to Part E's verification pass, once Tasks 9-11 are implemented:
+
+- [ ] **G-1:** Ask a comparison question matching Task 9's scenario; confirm `compare_activities`/`compare_periods` is the tool actually called (not two separate `get_activity_detail`/`get_volume_stats` calls followed by manual subtraction in the reply text).
+- [ ] **G-2:** Ask a heat/altitude/taper question; confirm `get_training_science_reference` is called and the reply's numbers are presented as estimates with the reference's caveat language, not as precise unsourced figures.
+- [ ] **G-3:** If/when ACWR is ever observed above 1.5 for the test account, confirm the system prompt's health log includes the flag without the model needing to call a tool for it.
+- [ ] **G-4:** Confirm `npx tsc --noEmit` and `pnpm build --no-lint` still pass clean with the new tools added (25 → 28 tools in `COACH_TOOLS` — also a good moment to sanity-check that tool count isn't approaching a real ceiling for any provider's context window; at ~28 short tool schemas this is nowhere close for any of the four providers' context limits, but worth a one-line note if this list keeps growing in future sessions).
