@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>TrainingLab — Visuell profil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  @page{ size:A4; margin:16mm; }
+  :root{
+    --background:#F8FAFC; --surface:#FFFFFF; --surface-2:#F1F5F9; --border:#E2E8F0;
+    --accent:#059669; --accent-2:#6366F1; --text:#0F172A; --muted:#64748B;
+    --feature-light:#B45A2C; --feature-dark:#E8956A;
+    --run-old:#10B981; --run-new:#0E7A55;
+    --ski-old:#38BDF8; --ski-new:#0369A1;
+    --rski-old:#0EA5E9; --rski-new:#0C5C8C;
+    --strength-old:#F87171; --strength-new:#C0392B;
+    --ol:#059669; --bike:#6366F1;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:#fff; color:var(--text); font-family:'Inter',sans-serif; font-size:13.5px; line-height:1.5;}
+  .sheet{max-width:760px; margin:0 auto; padding:0 4px;}
+  .display{font-family:'Space Grotesk'; font-weight:700;}
+  .mono{font-family:'JetBrains Mono';}
+
+  .cover{padding:6px 0 26px; border-bottom:2px solid var(--text); margin-bottom:28px;}
+  .cover .kicker{font-family:'JetBrains Mono'; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted);}
+  .cover h1{font-family:'Space Grotesk'; font-weight:700; font-size:34px; margin:6px 0 6px;}
+  .cover p{color:var(--muted); margin:0; max-width:60ch;}
+
+  section{margin-bottom:34px; page-break-inside:avoid;}
+  h2{font-family:'Space Grotesk'; font-weight:700; font-size:18px; margin:0 0 4px; display:flex; align-items:baseline; gap:10px;}
+  h2 .num{color:var(--muted); font-size:14px;}
+  .lede{color:var(--muted); margin:0 0 16px; max-width:62ch;}
+
+  .rule{height:1px; background:var(--border); margin:0 0 16px;}
+
+  /* 1. Typografi */
+  .type-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .type-card{border:1px solid var(--border); border-radius:6px; padding:16px 18px; background:var(--surface-2);}
+  .type-card .role{font-family:'JetBrains Mono'; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:10px;}
+  .type-card .sample-big{font-family:'Space Grotesk'; font-weight:700; font-size:40px; line-height:1;}
+  .type-card .sample-big small{font-family:'JetBrains Mono'; font-size:13px; color:var(--muted); font-weight:400; margin-left:4px;}
+  .type-card .sample-body{font-family:'Inter'; font-size:13.5px;}
+  .type-card .sample-mono{font-family:'JetBrains Mono'; font-size:13px;}
+  .type-card .usage{margin-top:10px; font-size:11.5px; color:var(--muted);}
+
+  /* 2. Färg */
+  .swrow{display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap;}
+  .sw{flex:1; min-width:84px;}
+  .sw .chip{height:46px; border-radius:6px; border:1px solid var(--border);}
+  .sw .lab{font-size:10.5px; margin-top:5px;}
+  .sw .hex{font-family:'JetBrains Mono'; font-size:10px; color:var(--muted);}
+
+  .sport-fix{display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:6px;}
+  .sport-fix .col{border:1px solid var(--border); border-radius:6px; padding:10px; text-align:center;}
+  .sport-fix .label{font-size:11px; font-weight:600; margin-bottom:8px;}
+  .sport-fix .pair{display:flex; gap:6px; justify-content:center;}
+  .sport-fix .dot{width:28px; height:28px; border-radius:50%; border:1px solid var(--border);}
+  .sport-fix .tag{font-family:'JetBrains Mono'; font-size:9px; color:var(--muted); margin-top:4px;}
+  .sport-fix .grade{font-family:'JetBrains Mono'; font-size:10px; margin-top:6px;}
+  .grade.fail{color:#C0392B;}
+  .grade.ok{color:#0E7A55;}
+
+  /* 3. Ikoner */
+  .icon-row{display:flex; gap:22px; flex-wrap:wrap;}
+  .icon-cell{text-align:center; width:84px;}
+  .icon-cell svg{width:40px; height:40px;}
+  .icon-cell .lab{font-size:11px; margin-top:6px; color:var(--text);}
+
+  /* 4. Diagram */
+  .chart-mock{border:1px solid var(--border); border-radius:6px; padding:18px 18px 8px; background:var(--surface);}
+  .chart-mock .tooltip-demo{display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:6px; padding:6px 10px; background:#fff; box-shadow:0 2px 6px rgba(15,23,42,.08); margin-top:-58px; margin-left:230px; position:relative; z-index:2;}
+  .tooltip-demo .dot{width:8px; height:8px; border-radius:50%; background:var(--accent);}
+  .tooltip-demo .val{font-family:'Space Grotesk'; font-weight:700; font-size:14px;}
+  .tooltip-demo .tlab{font-size:10.5px; color:var(--muted);}
+
+  footer{border-top:1px solid var(--border); padding-top:12px; margin-top:8px; font-family:'JetBrains Mono'; font-size:10px; color:var(--muted); display:flex; justify-content:space-between;}
+
+  /* Brand row — mirrors components/logo.tsx's LogoWordmark: flex items-end (NOT center),
+     icon margin-right = -(size*0.20), text font-size = size*0.52, padding-bottom = size*0.03.
+     margin-bottom on icon = size*(2/40): T path ends at y=38, leaving 5% gap. Without this,
+     items-end aligns SVG *box* bottom to text box bottom, placing T's visual foot below the
+     text baseline. The 5% margin shifts the container so they share the same typographic floor. */
+  .brand-row{display:flex; align-items:flex-end; gap:0; margin-bottom:14px;}
+  .brand-logo{margin-right:-8px; margin-bottom:2px;}
+  .brand-word{font-family:'Inter'; font-weight:600; font-size:21px; color:var(--text); letter-spacing:-0.01em; padding-bottom:1px;}
+
+  /* 0. Logotyp */
+  .logo-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;}
+  .logo-card{border:1px solid var(--border); border-radius:10px; padding:16px; background:var(--surface); display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px;}
+  .logo-card .lc-cap{font-size:11px; color:var(--muted); line-height:1.45;}
+  .lockup-row{display:flex; gap:12px; margin-bottom:14px;}
+  .lockup-row .logo-card{flex:1;}
+  .clearspace-box{border:1.5px dashed var(--border); border-radius:8px; padding:18px; display:inline-flex;}
+  .logo-size-table{width:100%; border-collapse:collapse; font-size:12px;}
+  .logo-size-table th{text-align:left; font-family:'JetBrains Mono'; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); border-bottom:1px solid var(--border); padding:6px 8px;}
+  .theme-logo-row{display:flex; gap:10px; margin-bottom:14px;}
+  .theme-logo-cell{flex:1; border:1px solid var(--border); border-radius:10px; padding:12px 6px; background:var(--surface); display:flex; flex-direction:column; align-items:center; gap:6px;}
+  .theme-logo-cell .tl-name{font-size:10.5px; font-weight:600; color:var(--text);}
+  .theme-logo-cell .tl-hex{font-family:'JetBrains Mono'; font-size:9px; color:var(--muted);}
+  .logo-size-table td{padding:7px 8px; border-bottom:1px solid var(--border);}
+
+  /* 5. Tillsammans i praktiken */
+  .applied-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  .applied-card{border:1px solid var(--border); border-radius:10px; padding:16px 18px; background:var(--surface);}
+  .applied-card .card-label{font-family:'JetBrains Mono'; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:6px;}
+  .applied-card .card-value{font-family:'Space Grotesk'; font-weight:700; font-size:30px; line-height:1; color:var(--text);}
+  .applied-card .card-value small{font-family:'JetBrains Mono'; font-size:12px; color:var(--muted); font-weight:400; margin-left:3px;}
+  .applied-card .card-sub{font-family:'JetBrains Mono'; font-size:11.5px; color:var(--muted); margin-top:10px; display:flex; align-items:center; gap:6px;}
+  .applied-card .card-sub svg{width:14px; height:14px; flex-shrink:0;}
+  .sport-pills{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;}
+  .pill{display:flex; align-items:center; gap:7px; border-radius:999px; padding:7px 14px 7px 10px; font-size:12.5px; font-weight:500;}
+  .pill svg{width:16px; height:16px; flex-shrink:0;}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="cover">
+    <div class="brand-row">
+      <svg class="brand-logo" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="TrainingLab">
+        <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+        <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+      </svg>
+      <span class="brand-word">raining<span style="color:var(--accent)">Lab</span></span>
+    </div>
+    <div class="kicker">Designdokument</div>
+    <h1>Visuell profil</h1>
+    <p>Tonad ner från <span class="mono">FRONTEND_DESIGN_SKILL_POC_2026_06_27.html</span>. Samma layout, navigation, informationsdensitet och 6-temasystem som idag — bara typografi, en accentfärg, sportikoner och diagramstil får mer karaktär. Se §8 i <span class="mono">FRONTEND_UX_AUDIT_PLAN_2026_06_27.md</span> för fullt resonemang och filreferenser. <strong>v2 (2026-06-30):</strong> hand-ritade sportikoner ersatta med riktiga Tabler Icons, loggan nu fullt specificerad som ett eget avsnitt (00) istället för bara dekorativt visad, och ett nytt avsnitt 05 visar elementen tillsammans i två verkliga komponentmönster. Ursprung 2026-06-27.</p>
+  </div>
+
+  <section>
+    <h2><span class="num">00</span> Logotyp — märke, färg, mått</h2>
+    <p class="lede">Loggan (<span class="mono">components/logo.tsx</span>) är redan byggd men har aldrig haft en egen specifikation förrän nu — extraherad direkt ur den faktiska komponenten, inte omritad. Full konstruktionsdata (path/mask-koordinater) i §8.7 i FRONTEND_UX_AUDIT_PLAN.</p>
+    <div class="rule"></div>
+
+    <div class="logo-grid">
+      <div class="logo-card">
+        <svg width="84" height="84" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="lc-cap"><strong>Konstruktion:</strong> 40×40 viewBox. Bokstaven "T" (tak 36×10, stam 14×21) med en inskuren aktivitetspuls-vågform genom stammens mittlinje (y=27.5) — samma motiv som appens syfte.</div>
+      </div>
+      <div class="logo-card" style="align-items:stretch; text-align:left;">
+        <div class="lc-cap" style="margin-bottom:0;"><strong>Färg — två regler:</strong></div>
+        <div class="swrow" style="margin-bottom:2px;">
+          <div class="sw"><div class="chip" style="background:var(--accent)"></div><div class="lab">I appen</div><div class="hex">fill-accent · tema-medveten</div></div>
+          <div class="sw"><div class="chip" style="background:#6EE7B7"></div><div class="lab">Favicon/PWA</div><div class="hex">#6EE7B7 · fast</div></div>
+        </div>
+        <div class="lc-cap">Märket byter färg automatiskt med appens 6 teman (12 varianter ljust/mörkt) eftersom det renderas som SVG i React. Favicon/PWA-ikonen kan inte läsa CSS-variabler och committar därför till en fast mintgrön — samma värde som <span class="mono">theme_color</span> i <span class="mono">manifest.json</span>.</div>
+      </div>
+    </div>
+
+    <p class="lede" style="margin-bottom:8px;">Märket har aldrig en fast färg i appen — det antar appens aktiva tema, verifierat här i samtliga 6 temans riktiga ljusa accentvärde (hämtat ur <span class="mono">app/globals.css</span>):</p>
+    <div class="theme-logo-row">
+      <div class="theme-logo-cell">
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#059669" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="tl-name">Forest</div>
+        <div class="tl-hex">#059669</div>
+      </div>
+      <div class="theme-logo-cell">
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#0284C7" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="tl-name">Ocean</div>
+        <div class="tl-hex">#0284C7</div>
+      </div>
+      <div class="theme-logo-cell">
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#EA580C" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="tl-name">Ember</div>
+        <div class="tl-hex">#EA580C</div>
+      </div>
+      <div class="theme-logo-cell">
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#2563EB" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="tl-name">Slate</div>
+        <div class="tl-hex">#2563EB</div>
+      </div>
+      <div class="theme-logo-cell">
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#7C3AED" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="tl-name">Sky (Sand)</div>
+        <div class="tl-hex">#7C3AED</div>
+      </div>
+      <div class="theme-logo-cell">
+        <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="#18181B" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="tl-name">Mono</div>
+        <div class="tl-hex">#18181B</div>
+      </div>
+    </div>
+
+    <div class="lockup-row">
+      <div class="logo-card">
+        <div class="brand-row" style="margin:4px 0;">
+          <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right:-6.4px; margin-bottom:1.6px;">
+            <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+            <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+          </svg>
+          <span class="brand-word" style="font-size:16.64px; padding-bottom:0.96px;">raining<span style="color:var(--accent)">Lab</span></span>
+        </div>
+        <div class="lc-cap">Fullständig lockup (<span class="mono">LogoWordmark</span>) — märket är bokstaven T, "rainingLab" följer utan mellanrum. Inter 600, mellanrum = -20&nbsp;% av storleken.</div>
+      </div>
+      <div class="logo-card">
+        <svg width="36" height="36" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+          <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+        </svg>
+        <div class="lc-cap">Endast märke (<span class="mono">Logo</span>) — favicon, PWA-ikon, hopfälld sidopanel. Samma form, ingen text.</div>
+      </div>
+      <div class="logo-card">
+        <div class="clearspace-box">
+          <svg width="30" height="30" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z" fill="var(--accent)" />
+            <polyline points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+          </svg>
+        </div>
+        <div class="lc-cap">Clearspace ≥25&nbsp;% av storleken, minsta storlek 16px. <strong>Ny regel</strong> — fanns inte i koden innan, fyller en lucka.</div>
+      </div>
+    </div>
+
+    <table class="logo-size-table">
+      <thead><tr><th>Plats</th><th>Komponent</th><th>Storlek</th></tr></thead>
+      <tbody>
+        <tr><td>Sidopanel</td><td class="mono">Logo + LogoText</td><td class="mono">30px</td></tr>
+        <tr><td>Login / Register / Pending</td><td class="mono">LogoWordmark</td><td class="mono">64px</td></tr>
+        <tr><td>Favicon / PWA-ikon</td><td class="mono">public/icon-*.png</td><td class="mono">16–512px (raster)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="num">01</span> Typografi — en displayfont, bara för tal &amp; rubriker</h2>
+    <p class="lede">Inter och JetBrains Mono ligger kvar oförändrade. Space Grotesk läggs till uteslutande för fristående stora tal och sidrubriker — aldrig löpande text eller tabeller, så läsbarheten i resten av appen påverkas inte.</p>
+    <div class="rule"></div>
+    <div class="type-grid">
+      <div class="type-card">
+        <div class="role">Display — Space Grotesk 700</div>
+        <div class="sample-big">61.4<small>ml/kg/min</small></div>
+        <div class="usage">Stora mätvärden (OverviewCard), H1, beredskapspoäng</div>
+      </div>
+      <div class="type-card">
+        <div class="role">Brödtext — Inter (oförändrad)</div>
+        <div class="sample-body">HRV 6&nbsp;% över 60-dagarssnittet, sömn 7&nbsp;h&nbsp;42&nbsp;min, vilopuls stabil.</div>
+        <div class="usage">Navigation, knappar, formulär, all löpande text</div>
+      </div>
+    </div>
+    <div class="type-grid" style="margin-top:14px;">
+      <div class="type-card">
+        <div class="role">Data — JetBrains Mono (oförändrad)</div>
+        <div class="sample-mono">21.4 km · 4:32/km · HR 148</div>
+        <div class="usage">Tabellrader, splits, kod</div>
+      </div>
+      <div class="type-card">
+        <div class="role">Var ändras filerna</div>
+        <div class="sample-mono" style="font-size:11.5px;">app/layout.tsx<br>app/globals.css → --font-display</div>
+        <div class="usage">next/font/google + en Tailwind-klass på stat-komponenter</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span> Färg — en ny accent, plus en redan känd bugg fixad</h2>
+    <p class="lede">Kärnpaletten (bakgrund/yta/border/text, alla 6 teman) rörs inte. Ett nytt delat token, <span class="mono">--feature</span>, används sparsamt — en signaturplats per vy (PB-badge, beredskapsring, sidans viktigaste tal). Visas här på Forest-temats ljusa läge som representativt exempel.</p>
+    <div class="rule"></div>
+    <div class="swrow">
+      <div class="sw"><div class="chip" style="background:var(--background)"></div><div class="lab">Background</div><div class="hex">oförändrad</div></div>
+      <div class="sw"><div class="chip" style="background:var(--surface)"></div><div class="lab">Surface</div><div class="hex">oförändrad</div></div>
+      <div class="sw"><div class="chip" style="background:var(--accent)"></div><div class="lab">Accent</div><div class="hex">oförändrad</div></div>
+      <div class="sw"><div class="chip" style="background:var(--accent-2)"></div><div class="lab">Accent-2</div><div class="hex">oförändrad</div></div>
+      <div class="sw"><div class="chip" style="background:var(--feature-light)"></div><div class="lab">Feature (ny)</div><div class="hex">#B45A2C · 4.5:1 AA</div></div>
+      <div class="sw"><div class="chip" style="background:var(--feature-dark)"></div><div class="lab">Feature, mörkt läge</div><div class="hex">#E8956A · 8.0:1 AAA</div></div>
+    </div>
+
+    <p class="lede" style="margin-top:18px;">Samtidigt fixas §4.1:s dokumenterade kontrastbrist — fyra sportfärger som idag failar 3:1 i ljust läge får riktiga, verifierade light-mode-varianter:</p>
+    <div class="sport-fix">
+      <div class="col">
+        <div class="label">Löpning</div>
+        <div class="pair">
+          <div><div class="dot" style="background:var(--run-old)"></div><div class="tag">2.4:1</div></div>
+          <div><div class="dot" style="background:var(--run-new)"></div><div class="tag">5.3:1</div></div>
+        </div>
+        <div class="grade fail">FAIL → <span class="grade ok">AA</span></div>
+      </div>
+      <div class="col">
+        <div class="label">Skidor</div>
+        <div class="pair">
+          <div><div class="dot" style="background:var(--ski-old)"></div><div class="tag">2.0:1</div></div>
+          <div><div class="dot" style="background:var(--ski-new)"></div><div class="tag">5.9:1</div></div>
+        </div>
+        <div class="grade fail">FAIL → <span class="grade ok">AA</span></div>
+      </div>
+      <div class="col">
+        <div class="label">Rullskidor</div>
+        <div class="pair">
+          <div><div class="dot" style="background:var(--rski-old)"></div><div class="tag">2.6:1</div></div>
+          <div><div class="dot" style="background:var(--rski-new)"></div><div class="tag">7.2:1</div></div>
+        </div>
+        <div class="grade fail">FAIL → <span class="grade ok">AAA</span></div>
+      </div>
+      <div class="col">
+        <div class="label">Styrka</div>
+        <div class="pair">
+          <div><div class="dot" style="background:var(--strength-old)"></div><div class="tag">2.6:1</div></div>
+          <div><div class="dot" style="background:var(--strength-new)"></div><div class="tag">5.4:1</div></div>
+        </div>
+        <div class="grade fail">FAIL → <span class="grade ok">AA</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span> Ikoner — sportkaraktär, navigation orörd</h2>
+    <p class="lede">Lucide förblir ikonbiblioteket för all navigation och generisk UI. Fem ikoner hämtade från <a href="https://tabler.io/icons" style="color:var(--text); text-decoration:underline;">Tabler Icons</a> (MIT-licens — inte hand-ritade, se rättningen nedan) ersätter sportväljarens generiska substitut, i respektive korrigerade färg. Global strokeWidth sänks 2→1.75 rakt över appen.</p>
+    <div class="rule"></div>
+    <div class="icon-row">
+      <div class="icon-cell">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--run-new)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11.007 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+          <path d="M4 17l5 1l.75 -1.5" />
+          <path d="M15 21v-4l-4 -3l1 -6" />
+          <path d="M7 12v-3l5 -1l3 3l3 1" />
+        </svg>
+        <div class="lab">Löpning</div>
+      </div>
+      <div class="icon-cell">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--ol)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 16l2 -6l6 -2l-2 6l-6 2" />
+          <path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" />
+          <path d="M12 3l0 2" />
+          <path d="M12 19l0 2" />
+          <path d="M3 12l2 0" />
+          <path d="M19 12l2 0" />
+        </svg>
+        <div class="lab">Orientering</div>
+      </div>
+      <div class="icon-cell">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--bike)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 18a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+          <path d="M16 18a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+          <path d="M12 19v-4l-3 -3l5 -4l2 3h3" />
+          <path d="M13.007 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+        </svg>
+        <div class="lab">Cykel</div>
+      </div>
+      <div class="icon-cell">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--ski-new)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 17.5l-5 -4.5v-6l5 4" />
+          <path d="M7 17.5l5 -4.5" />
+          <path d="M15.103 21.58l6.762 -14.502a2 2 0 0 0 -.968 -2.657" />
+          <path d="M8.897 21.58l-6.762 -14.503a2 2 0 0 1 .968 -2.657" />
+          <path d="M7 11l5 -4" />
+          <path d="M10.007 4a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+        </svg>
+        <div class="lab">Skidor</div>
+      </div>
+      <div class="icon-cell">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--strength-new)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12h1" />
+          <path d="M6 8h-2a1 1 0 0 0 -1 1v6a1 1 0 0 0 1 1h2" />
+          <path d="M6 7v10a1 1 0 0 0 1 1h1a1 1 0 0 0 1 -1v-10a1 1 0 0 0 -1 -1h-1a1 1 0 0 0 -1 1" />
+          <path d="M9 12h6" />
+          <path d="M15 7v10a1 1 0 0 0 1 1h1a1 1 0 0 0 1 -1v-10a1 1 0 0 0 -1 -1h-1a1 1 0 0 0 -1 1" />
+          <path d="M18 8h2a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-2" />
+          <path d="M22 12h-1" />
+        </svg>
+        <div class="lab">Styrka</div>
+      </div>
+    </div>
+    <p class="lede" style="margin-top:10px; font-size:11px;">v3 — ersatte v1/v2:s hand-ritade ikoner ovan med riktiga filer från Tabler Icons (<span class="mono">run.svg</span>, <span class="mono">compass.svg</span>, <span class="mono">bike.svg</span>, <span class="mono">ski-jumping.svg</span>, <span class="mono">barbell.svg</span>), efter feedback att hand-ritade ikoner inte ser tillräckligt korrekta ut oavsett antal omritningar. Ingen befintlig ikonkälla har en dedikerad längdskidor-ikon — <span class="mono">ski-jumping</span> är närmaste etablerade alternativ, en medveten kompromiss dokumenterad i §8.3.</p>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span> Diagram — samma data, mer karaktär</h2>
+    <p class="lede">Gradientfyllning under kurvan, ett tonat zon-band istället för bara en streckad linje, och en kort-stilad tooltip i Space Grotesk. Ingen ny diagramtyp, ingen ny tolkningsbörda.</p>
+    <div class="rule"></div>
+    <div class="chart-mock">
+      <svg viewBox="0 0 600 180" width="100%" height="160">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#059669" stop-opacity="0.28"/>
+            <stop offset="100%" stop-color="#059669" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <rect x="0" y="55" width="600" height="32" fill="#059669" opacity="0.08"/>
+        <line x1="0" y1="71" x2="600" y2="71" stroke="#059669" stroke-width="1" stroke-dasharray="4 4" opacity=".5"/>
+        <path d="M0,120 L60,108 L120,96 L180,100 L240,80 L300,70 L360,60 L420,68 L480,50 L540,58 L600,45 L600,180 L0,180 Z" fill="url(#g1)"/>
+        <path d="M0,120 L60,108 L120,96 L180,100 L240,80 L300,70 L360,60 L420,68 L480,50 L540,58 L600,45" fill="none" stroke="#059669" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="480" cy="50" r="4" fill="#059669"/>
+      </svg>
+      <div class="tooltip-demo">
+        <div class="dot"></div>
+        <div><div class="val">61.4</div><div class="tlab">VO2max · 18 jun</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">05</span> Tillsammans i praktiken — inte bara isolerade exempel</h2>
+    <p class="lede">Typografi, färg och ikoner används aldrig var för sig i appen — så här ser de ut tillsammans, i två mönster som redan finns idag: ett statistik-kort (<span class="mono">OverviewCard</span>) och sportbadges (sport-väljare/aktivitetslista).</p>
+    <div class="rule"></div>
+    <div class="applied-grid">
+      <div class="applied-card">
+        <div class="card-label">VO2max</div>
+        <div class="card-value">61.4<small>ml/kg/min</small></div>
+        <div class="card-sub">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--run-new)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11.007 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 17l5 1l.75 -1.5" /><path d="M15 21v-4l-4 -3l1 -6" /><path d="M7 12v-3l5 -1l3 3l3 1" /></svg>
+          21.4 km · 4:32/km
+        </div>
+      </div>
+      <div class="applied-card">
+        <div class="card-label">Beredskap</div>
+        <div class="card-value" style="color:var(--feature-light)">82<small>/100</small></div>
+        <div class="card-sub">HRV 6&nbsp;% över 60-dagarssnitt · sömn 7h42m</div>
+      </div>
+    </div>
+    <div class="sport-pills">
+      <div class="pill" style="background:#0E7A5533; color:#0E7A55;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11.007 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 17l5 1l.75 -1.5" /><path d="M15 21v-4l-4 -3l1 -6" /><path d="M7 12v-3l5 -1l3 3l3 1" /></svg>
+        Löpning
+      </div>
+      <div class="pill" style="background:#05966933; color:#059669;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 16l2 -6l6 -2l-2 6l-6 2" /><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" /><path d="M12 3l0 2" /><path d="M12 19l0 2" /><path d="M3 12l2 0" /><path d="M19 12l2 0" /></svg>
+        Orientering
+      </div>
+      <div class="pill" style="background:#6366F133; color:#6366F1;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /><path d="M16 18a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /><path d="M12 19v-4l-3 -3l5 -4l2 3h3" /><path d="M13.007 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /></svg>
+        Cykel
+      </div>
+      <div class="pill" style="background:#0369A133; color:#0369A1;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 17.5l-5 -4.5v-6l5 4" /><path d="M7 17.5l5 -4.5" /><path d="M15.103 21.58l6.762 -14.502a2 2 0 0 0 -.968 -2.657" /><path d="M8.897 21.58l-6.762 -14.503a2 2 0 0 1 .968 -2.657" /><path d="M7 11l5 -4" /><path d="M10.007 4a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /></svg>
+        Skidor
+      </div>
+      <div class="pill" style="background:#C0392B33; color:#C0392B;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h1" /><path d="M6 8h-2a1 1 0 0 0 -1 1v6a1 1 0 0 0 1 1h2" /><path d="M6 7v10a1 1 0 0 0 1 1h1a1 1 0 0 0 1 -1v-10a1 1 0 0 0 -1 -1h-1a1 1 0 0 0 -1 1" /><path d="M9 12h6" /><path d="M15 7v10a1 1 0 0 0 1 1h1a1 1 0 0 0 1 -1v-10a1 1 0 0 0 -1 -1h-1a1 1 0 0 0 -1 1" /><path d="M18 8h2a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-2" /><path d="M22 12h-1" /></svg>
+        Styrka
+      </div>
+    </div>
+    <p class="lede" style="margin-top:14px; font-size:11px;">Vänster: stora tal i Space Grotesk + JetBrains Mono för delmått, en sportikon i samma rad — §8.1 och §8.3:s kombination i ett verkligt kort. Höger: sportbadges med ikon + korrigerad ljusläges-färg (§8.2) i samma 20&nbsp;%-bakgrundsopacitet-mönster <span class="mono">activity-list.tsx</span> redan använder för sportmärken — skillnaden är bara att källan för både ikon och färg nu är riktig (Tabler Icons + <span class="mono">SportCategory.color</span>) istället för en gissning.</p>
+  </section>
+
+  <footer>
+    <span>TrainingLab — Visuell profil v2</span>
+    <span>Se FRONTEND_UX_AUDIT_PLAN_2026_06_27.md §8 för implementation</span>
+  </footer>
+
+</div>
+</body>
+</html>

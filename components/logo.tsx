@@ -75,7 +75,12 @@ export function LogoText({ size = 32, className }: Props) {
 export function LogoWordmark({ size = 32, className }: Props) {
   return (
     <div className={`flex items-end ${className ?? ""}`} style={{ gap: 0 }}>
-      <Logo size={size} style={{ marginRight: logoPullIn(size) }} />
+      {/* marginBottom = size*(2/40): the T path ends at y=38 (not y=40), so the SVG has
+          a 5% visual gap below the T. Without this, items-end aligns the SVG *box* bottom
+          to the text box bottom, placing the T's visual foot below the text's baseline.
+          Adding 5% as bottom margin shifts the flex baseline so T and text share the same
+          typographic floor. */}
+      <Logo size={size} style={{ marginRight: logoPullIn(size), marginBottom: size * 0.05 }} />
       <LogoText size={size} />
     </div>
   );
