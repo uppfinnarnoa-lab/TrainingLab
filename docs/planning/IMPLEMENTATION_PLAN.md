@@ -4215,4 +4215,27 @@ Correct fix: extend the T stem path from `V38` to `V40` (`M2,7 H38 V17 H27 V38 H
 
 ---
 
-*Last updated: 2026-07-01a — Logo baseline alignment: T path extended to y=40 (V40) so T visual bottom = SVG box bottom = text box bottom under `items-end`. Previous wrong `marginBottom` approach reverted. Applied to both website code and graphical profile artifact.*
+**Session 2026-07-01b — Logo baseline alignment: combined SVG for LogoWordmark, V35 path everywhere.**
+
+Previous V40 approach still left T extending too far into the descender zone. Correct approach confirmed by browser measurement (Playwright):
+
+- **`LogoWordmark`** (`logo.tsx`) rewritten as a single combined SVG (T icon + SVG `<text>` element). SVG text `y=35`, T path ends at `y=35` — they share an identical baseline by coordinate definition. Playwright confirmed: T bottom and text baseline both at the same pixel position (106.8px in the login page at size=64).
+- **`Logo` standalone** path changed `V40` → `V35`. In sidebar flex layout (`items-end`), this lands T bottom within ~0.3px of the text typographic baseline — sub-pixel, imperceptible.
+- **`LogoWordmark`** no longer uses flex + separate Logo/LogoText. It is now one SVG with `viewBox="0 0 148 40"`, height=size, width=size×148/40. Text: fontSize=20.8 SVG units, fontWeight=600, tracking-tight class, fill=currentColor + text-primary/text-accent for theming.
+- **HTML visual profile**: all T paths updated V40→V35; CSS comment updated.
+
+1. **`components/logo.tsx`** — `Logo` path: V40→V35; `LogoWordmark`: rewritten as single SVG.
+2. **`components/sidebar.tsx`** — unchanged (Logo V35 path improves alignment in flex layout automatically).
+3. **`FRONTEND_VISUAL_PROFILE_2026_06_27.html`** — all 11 T paths: V40→V35; CSS comment updated.
+4. **`FRONTEND_UX_AUDIT_PLAN_2026_06_27.md §8.7.1/8.7.3`** — updated with V35 path and combined SVG explanation.
+
+Note on PDF: Chrome headless `--print-to-pdf` does not wait for Google Fonts (CDN) to load, producing wrong fallback fonts. Open the HTML in Chrome and print manually (Ctrl+P → Save as PDF) for correct font rendering.
+
+**Waveform redesign (same session):** The mask polyline was redesigned for cleaner shape and higher position per user sketch:
+- Old: `points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5"` (9 points, baseline y=27.5, awkward flat peak at y=22.5)
+- New: `points="7,25 15,25 18,20 21,31 24,25 33,25"` (6 points, baseline y=25 — raised 2.5 units, clean peak at y=20, trough at y=31, no kinks)
+- Updated in: `components/logo.tsx` (both Logo and LogoWordmark masks), `public/icon.svg`, `FRONTEND_VISUAL_PROFILE_2026_06_27.html` (all 11 instances), `FRONTEND_UX_AUDIT_PLAN_2026_06_27.md §8.7.1`.
+
+---
+
+*Last updated: 2026-07-01b — Logo baseline correctly aligned: LogoWordmark is now a single combined SVG (T + text at identical y=35), Logo standalone uses V35 path. Pixel-verified with Playwright.*
