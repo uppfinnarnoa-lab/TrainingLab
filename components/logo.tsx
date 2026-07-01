@@ -20,7 +20,7 @@ export function Logo({ size = 32, className, style }: Props) {
         <mask id="act-cut">
           <rect width="40" height="40" fill="white" />
           <polyline
-            points="7,22 14,22 16,17 20,17 22,28 24,28 26,22 33,22"
+            points="7,22 13,22 16,17 19,17 21,28 24,28 26,22 27,22"
             stroke="black"
             strokeWidth="3"
             strokeLinecap="butt"
@@ -84,7 +84,7 @@ export function LogoWordmark({ size = 32, className }: Props) {
         <mask id="wm-cut">
           <rect width="40" height="40" fill="white" />
           <polyline
-            points="7,22 14,22 16,17 20,17 22,28 24,28 26,22 33,22"
+            points="7,22 13,22 16,17 19,17 21,28 24,28 26,22 27,22"
             stroke="black"
             strokeWidth="3"
             strokeLinecap="butt"
