@@ -4267,4 +4267,27 @@ Coordinate normalization: original OCAD viewBox `0 0 31.45 30.40`. Scaled unifor
 
 ---
 
-*Last updated: 2026-07-01d — Logo replaced everywhere with the user's own OCAD-drawn SVG (two filled shapes, no mask): `components/logo.tsx`, `public/icon.svg`, and all 11 T instances in `FRONTEND_VISUAL_PROFILE_2026_06_27.html`.*
+**Session 2026-07-01e — T logo proportions revised: thicker crossbar and wider stem, icon closer to text.**
+
+User requested the T to look shorter/fatter with crossbar thickness = stem width (currently both 9.4, now both 12), and the icon moved closer to the text in all contexts.
+
+Transform applied:
+
+- **Crossbar** outer x-span stays identical (3.6→37.7, width 34.1). Thickness increases 9.4→12 by moving the crossbar bottom from y=11.4 to y=14.0.
+- **Stem** widens 9.4→12 by expanding symmetrically around center x=20.65 (left 15.9→14.6, right 25.3→26.7). Vertical length 14.0→35 = 21 units (was 23.6 from old junction).
+- **Waveform points** shifted down 2.6 (= junction y-change) and x-scaled proportionally from the old [15.9,25.3] domain to the new [14.6,26.7] domain.
+- **Total T height** unchanged: y=2 (crossbar top) to y=35 (stem bottom) = 33 units. "Samma längder" preserved.
+- **Crossbar arm lengths**: left = 14.6-3.6 = 11.0, right = 37.7-26.7 = 11.0 (symmetric; decreased from 12.3/12.4).
+
+- **Path 1** (lower stem): `M18.0,25.9 18.9,23.9 20.9,29.2 22.8,29.2 24.1,25.9 26.7,25.9 26.7,35 14.6,35 14.7,25.9 Z`
+- **Path 2** (crossbar + upper stem): `M14.6,24.3 16.5,24.3 18.0,21.1 19.9,21.1 21.9,26.3 22.7,24.3 26.7,24.3 26.7,14.0 37.7,14.0 37.7,2 3.6,2 3.6,14.0 14.6,14.0 Z`
+
+1. **`components/logo.tsx`** — `Logo`: updated paths. `LogoWordmark`: updated paths + text x moved from 32→29 (closer to stem right at 26.7) + W changed 148→145. `logoPullIn` increased from 0.20 to 0.27 (more pull-in = icon closer to text in flex sidebar).
+2. **`public/icon.svg`** — same new paths with `fill="#6EE7B7"`.
+3. **`docs/planning/Planerattköra/Visual/FRONTEND_VISUAL_PROFILE_2026_06_27.html`** — all 11 path1, 11 path2 instances replaced; text x=32→29 in 2 wordmark instances; wordmark SVG viewBox/width updated (cover: 148→145; lockup: 118→116).
+
+**Verification:** `pnpm build --no-lint` clean.
+
+---
+
+*Last updated: 2026-07-01e — T proportions revised (crossbar thickness = stem width = 12, from 9.4) and icon moved closer to text in all contexts.*
