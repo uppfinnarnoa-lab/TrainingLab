@@ -16,6 +16,7 @@ const sportUpdateSchema = z.object({
   name: z.string().min(1).max(60).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   isRunningRelated: z.boolean().optional(),
+  workoutFlagTypeId: z.string().cuid().optional().nullable(),
 });
 
 const typeSchema = z.object({
@@ -119,6 +120,15 @@ export async function PATCH(req: NextRequest) {
     const sport = await prisma.sportCategory.findUnique({ where: { id } });
     if (!sport || sport.userId !== session.user.id)
       return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+    if (data.workoutFlagTypeId) {
+      const wt = await prisma.workoutType.findUnique({
+        where: { id: data.workoutFlagTypeId },
+        select: { sportId: true, userId: true },
+      });
+      if (!wt || wt.userId !== session.user.id || wt.sportId !== id)
+        return NextResponse.json({ error: "invalid_workout_flag_type" }, { status: 400 });
+    }
 
     const updated = await prisma.sportCategory.update({ where: { id }, data });
     return NextResponse.json(updated);

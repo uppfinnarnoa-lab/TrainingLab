@@ -75,6 +75,11 @@ export const RUN_TYPE_OPTIONS = [
   { value: "intervall", label: "Intervals",          color: "#3B82F6" },
 ] as const;
 
+// Strava workout_type integers that represent a generic "workout" (not race, not default).
+// When a sport has workoutFlagTypeId set, these resolve to that type's color instead of
+// the regex-bucket guess below.
+export const GENERIC_WORKOUT_TYPES = new Set([3, 12]);
+
 /** Map Strava's integer workoutType to a type name recognised by workoutColor() */
 export function inferTypeName(workoutType: number | null | undefined): string | null {
   if (workoutType === 3) return "intervall"; // Strava "workout" → interval/speedwork colour
@@ -120,7 +125,7 @@ const TYPE_BUCKET_PATTERNS: Record<string, RegExp> = {
 // since it has no key in TYPE_BUCKET_PATTERNS above.
 const EASY_TYPE_PATTERN = /easy|distans|lugn|recovery|\bbas\b/i;
 
-function matchSportCategory(sportType: string, name: string, sports: SportCategory[]): SportCategory | undefined {
+export function matchSportCategory(sportType: string, name: string, sports: SportCategory[]): SportCategory | undefined {
   // Orienteering has no real Strava sport_type — Strava reports it as Run/TrailRun — so it
   // can only be recognised from the activity name, the same keywords already used to exclude
   // OL from pace analysis (lib/fitness/secondary-analytics.ts::isOL()).
@@ -168,6 +173,13 @@ export function resolveActivityColor(
 
   const sport = matchSportCategory(sportType, name, sports);
   if (!sport) return activityColor(sportType, isRace, workoutType, customTypeName);
+
+  // User-configured "workout flag" type takes precedence over the regex bucket for
+  // Strava's generic workout integers (3, 12) when no manual override is set.
+  if (!customTypeName && workoutType != null && GENERIC_WORKOUT_TYPES.has(workoutType) && sport.workoutFlagTypeId) {
+    const flagType = sport.workoutTypes.find(t => t.id === sport.workoutFlagTypeId);
+    if (flagType?.color) return flagType.color;
+  }
 
   const bucket = customTypeName ?? inferTypeName(workoutType);
   const pattern = bucket && TYPE_BUCKET_PATTERNS[bucket] ? TYPE_BUCKET_PATTERNS[bucket] : EASY_TYPE_PATTERN;

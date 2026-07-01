@@ -231,3 +231,8 @@ body {
   font-family: var(--font-sans);
   transition: background-color 150ms ease-out, color 150ms ease-out;
 }
+
+/* Slightly lighter stroke weight for Lucide icons — more refined than the default 2 */
+svg.lucide {
+  stroke-width: 1.75;
+}

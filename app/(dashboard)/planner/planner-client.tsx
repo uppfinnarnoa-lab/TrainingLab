@@ -196,7 +196,7 @@ export function PlannerClient(props: Props) {
     const template = templates.find(t => t.id === templateId);
     if (!template) return;
 
-    const targetDate = date ?? builderDate ?? new Date().toISOString().slice(0, 10);
+    const targetDate = date ?? builderDate ?? format(new Date(), "yyyy-MM-dd");
     createWorkout({
       date: targetDate,
       name: template.name,
@@ -273,7 +273,7 @@ export function PlannerClient(props: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date: newDate }),
     });
-    if (!res.ok) return;
+    if (!res.ok) { showError("Failed to move workout — please try again."); return; }
     setWorkouts(prev => prev.map(w => w.id === workoutId ? { ...w, date: newDate } : w));
   }
 
@@ -532,10 +532,16 @@ export function PlannerClient(props: Props) {
   async function handleBlockDelete() {
     if (!editingBlock) return;
     const id = editingBlock.id;
+    const prevBlocks = blocks;
     setEditingBlock(null);
     setBlocks(prev => prev.filter(b => b.id !== id));
-    await fetch(`/api/planner/blocks/${id}`, { method: "DELETE" });
-    startTransition(() => router.refresh());
+    const res = await fetch(`/api/planner/blocks/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      setBlocks(prevBlocks);
+      showError("Failed to delete block — please try again.");
+    } else {
+      startTransition(() => router.refresh());
+    }
   }
 
   // Debounced auto-save while editing an existing block (never fires for a new one).

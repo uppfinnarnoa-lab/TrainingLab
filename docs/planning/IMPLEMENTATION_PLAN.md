@@ -4346,4 +4346,51 @@ All changes below were implemented and verified by `pnpm build --no-lint` (clean
 - **`app/api/planner/workouts/route.ts`** — same change on POST schema.
 - **`components/planner/WorkoutBuilder.tsx`** — min attributes 1→0 (time) and 0.1→0 (distance); `|| ""` onChange handlers replaced with `Number.isNaN(v) ? "" : v`; `> 0` guards in `buildData()` and `syncDefaultSection()` → `>= 0`; removed `sectionsCustomized` from `syncDefaultSection` early return so Total-field changes propagate even for template-linked workouts.
 
-**Del C (Planner bug audit — C1.1-C1.7) — in progress, see session 2026-07-01f continuation.**
+**Del C (Planner bug audit — C1.1-C1.7):**
+- **`app/(dashboard)/planner/planner-client.tsx`** — C1.1: `toISOString().slice(0,10)` → `format(new Date(), "yyyy-MM-dd")` for local-time today (two callsites, lines 150 and 199); C1.2: `handleDeleteTemplate` now has a `confirm()` dialog and removes the deleted template's `PlannedWorkout` rows from local `workouts` state (no router-refresh stale cards); C2.7: `handleMoveWorkout` shows `showError(...)` when `!res.ok`; `handleBlockDelete` saves `prevBlocks`, rolls back state and calls `showError` on failure, only calls `startTransition(router.refresh)` on success.
+- **`components/planner/WorkoutBuilder.tsx`** — C1.4: `AbortController` wired to the debounced auto-save at line 389, cancelled on unmount/explicit save/cancel so in-flight calls cannot resolve after the builder closes.
+- **`app/api/planner/templates/[id]/route.ts`** — C1.5: section replace is now atomic via `prisma.$transaction([deleteMany, createMany])` so a mid-write failure cannot leave the template with zero sections.
+- **`app/api/planner/blocks/route.ts`** — C1.6: added `.refine(data => data.startDate <= data.endDate)` on the POST schema so overlapping blocks are rejected at the API boundary.
+- **`components/planner/PlannerCalendar.tsx`** — C1.7: `disabled={!!w.status && w.status !== "planned"}` on `DraggableWorkout` so completed/missed/partial workouts cannot be dragged to a new date without a status reset.
+
+### §8.3 — Sport icons
+
+- **`components/icons/sport-icons.tsx`** (NEW) — five Tabler Icons as inline React components: `RunIcon`, `BikeIcon`, `StrengthIcon`, `OrienteeringIcon`, `SkiIcon`. All 24×24 viewBox, `stroke-width={2}`, round caps/joins, color via `color` prop or `currentColor`. No `@tabler/icons-react` npm dependency.
+- **`app/globals.css`** — `svg.lucide { stroke-width: 1.75; }` added after body styles (slightly lighter than Lucide's default 2; more refined appearance).
+
+### §8.4 — Chart area gradients
+
+- **`components/charts/HrvTrendChart.tsx`** — `LineChart`/`Line` → `AreaChart`/`Area`; gradient defs `id="hrvGradient"` (`var(--text-muted)`, 0–25% → 0%); tooltip `font-display font-medium` class.
+- **`components/charts/RestingHRTrendChart.tsx`** — same treatment; gradient defs `id="restingHRGradient"` (`#60A5FA`).
+- **`components/charts/VO2maxTrendChart.tsx`** — VDOT series: `Line` → `Area` with gradient `id="vdotGradient"` (`var(--accent)`); trend line remains as dashed `Line` (no fill).
+
+---
+
+**Session 2026-07-02a — Continued from 2026-07-01f: completed §10.2-§10.4 (workout flag type system + auto-create sport on sync) and archived all four planning documents.**
+
+### §10.2 — `SportCategory.workoutFlagTypeId` schema
+
+- **`prisma/schema.prisma`** — added `workoutFlagTypeId String?` (nullable FK) and `workoutFlagType WorkoutType? @relation("WorkoutFlagType")` on `SportCategory`; added `flaggedBySport SportCategory[] @relation("WorkoutFlagType")` on `WorkoutType`. A sport can point to one of its own workout types as the canonical mapping for Strava's generic "workout" flag; constraint: the referenced type must belong to the same sport (enforced in the API, not as a DB composite constraint).
+
+### §10.3 — Settings UI + API
+
+- **`app/api/sports/route.ts`** — `sportUpdateSchema` gains `workoutFlagTypeId: z.string().cuid().optional().nullable()`; PATCH handler for `kind === "sport"` validates that if provided (non-null), the referenced `WorkoutType` belongs to this sport AND this user before updating.
+- **`app/(dashboard)/settings/sports/sports-manager.tsx`** — `Sport` interface adds `workoutFlagTypeId: string | null`; `updateSport` extends its Pick to include it; expanded sport section shows a new "Workout flag maps to:" `<select>` listing non-shared workout types (`Auto-detect (by name)` for null), saving on change.
+- **`app/(dashboard)/settings/sports/page.tsx`** — `workoutFlagTypeId` added to the explicit field-mapping passed to `SportsManager`.
+- **`lib/planner/types.ts`** — `SportCategory` interface gains `workoutFlagTypeId: string | null`.
+
+### §10.3 — Color resolution
+
+- **`lib/planner/colors.ts`** — `matchSportCategory` exported (was private); `GENERIC_WORKOUT_TYPES = new Set([3, 12])` exported (Strava's generic "workout" integers); `resolveActivityColor()` checks `sport.workoutFlagTypeId` BEFORE the regex bucket: if no `customTypeName`, `workoutType` ∈ `GENERIC_WORKOUT_TYPES`, and `sport.workoutFlagTypeId` is set, returns that type's color directly — bypassing the `inferTypeName → regex` fallback that previously hardcoded workoutType 3 → "intervall" bucket for ALL sports.
+
+### §10.4 — Auto-create sport on sync
+
+- **`lib/strava/sync.ts`** — `RACE_WORKOUT_TYPES = new Set([1, 11])` (extends race detection to workoutType 11 = Virtual Race, previously only `=== 1`); `mapActivity()`: `isRace: RACE_WORKOUT_TYPES.has(raw.workout_type)`; new `ensureSportCategoryExists(userId, sportType, seen)`: looks up matching `SportCategory` by case-insensitive name, creates a stub (gray `#94A3B8`, icon `run`, order 999) + shared Race type if none found, uses `seen: Set<string>` to skip repeat DB queries within a sync run, skips `"Unknown"` sportType; wired into `syncActivities` (per-activity, `seenSportTypes` created before outer loop), `resyncRecentActivities` (same pattern), and `syncSingleActivity` (single call, fresh `new Set()`).
+
+### Docs + archive
+
+- **`docs/schemas/sport-colors.md`** (NEW) — documents the full color-resolution chain: `SportCategory.color` → `WorkoutType.color` → `workoutFlagTypeId` coupling → `resolveActivityColor()` → each page; `matchSportCategory` export; `ensureSportCategoryExists` behavior; `RACE_WORKOUT_TYPES` expansion.
+- **`docs/design/`** (NEW directory) — moved graphical profile artifacts from `docs/planning/Planerattköra/Visual/`: `FRONTEND_VISUAL_PROFILE_2026_06_27.html`, `FRONTEND_VISUAL_PROFILE_2026_06_27.pdf`, `FRONTEND_DESIGN_SKILL_POC_2026_06_27.html`.
+- **`docs/planning/archive/`** — archived all four planning documents: `AI_COACH_AGENTIC_RELIABILITY_PLAN_2026_06_29.md`, `INTERVAL_LAP_MERGE_AND_PLANNER_SAVE_BUG_PLAN_2026_06_30.md`, `FRONTEND_UX_AUDIT_PLAN_2026_06_27.md`, `prompt3.md`.
+
+**Verification:** `pnpm exec prisma generate` clean (Prisma Client v6.19.3); `pnpm build --no-lint` clean (68 routes, no TypeScript errors).

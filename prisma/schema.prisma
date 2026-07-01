@@ -222,9 +222,13 @@ model SportCategory {
   isDefault Boolean  @default(false)
   order     Int      @default(0)
   isRunningRelated Boolean @default(false)
+  // Which WorkoutType should represent Strava's generic "workout" flag for this sport.
+  // Null = fall back to regex-bucket guessing (TYPE_BUCKET_PATTERNS). One of this sport's own types only.
+  workoutFlagTypeId String?
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutTypes WorkoutType[]
   templates    WorkoutTemplate[]
+  workoutFlagType WorkoutType? @relation("WorkoutFlagType", fields: [workoutFlagTypeId], references: [id])
 }
 
 model WorkoutType {
@@ -240,6 +244,7 @@ model WorkoutType {
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   templates WorkoutTemplate[]
   planned PlannedWorkout[]
+  flaggedBySport SportCategory[] @relation("WorkoutFlagType")
 }
 
 model WorkoutTemplate {

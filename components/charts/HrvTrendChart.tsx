@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from "recharts";
 import { format, parseISO } from "date-fns";
@@ -35,10 +35,14 @@ function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload as GarminWellnessPoint;
   if (d.hrvNightly == null) return null;
+  const color = balanceColor(d.hrvBalance);
   return (
     <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-lg space-y-0.5">
       <p className="font-semibold text-primary">{format(parseISO(label), "EEE d MMM yyyy")}</p>
-      <p style={{ color: balanceColor(d.hrvBalance) }}>HRV: {Math.round(d.hrvNightly)} ms{d.hrvBalance ? ` — ${d.hrvBalance}` : ""}</p>
+      <p style={{ color }}>
+        HRV: <span className="font-display font-medium">{Math.round(d.hrvNightly)} ms</span>
+        {d.hrvBalance ? ` — ${d.hrvBalance}` : ""}
+      </p>
     </div>
   );
 }
@@ -51,7 +55,13 @@ export function HrvTrendChart({ data }: Props) {
 
   return (
     <ResponsiveContainer width="100%" height={180}>
-      <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+      <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id="hrvGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="var(--text-muted)" stopOpacity={0.25} />
+            <stop offset="95%" stopColor="var(--text-muted)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
         <XAxis
           dataKey="date"
@@ -63,8 +73,17 @@ export function HrvTrendChart({ data }: Props) {
         />
         <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={36} domain={["auto", "auto"]} />
         <Tooltip content={<CustomTooltip />} />
-        <Line type="monotone" dataKey="hrvNightly" name="HRV (ms)" stroke="var(--text-muted)" strokeWidth={1.5} dot={<HrvDot />} connectNulls />
-      </LineChart>
+        <Area
+          type="monotone"
+          dataKey="hrvNightly"
+          name="HRV (ms)"
+          stroke="var(--text-muted)"
+          strokeWidth={1.5}
+          fill="url(#hrvGradient)"
+          dot={<HrvDot />}
+          connectNulls
+        />
+      </AreaChart>
     </ResponsiveContainer>
   );
 }

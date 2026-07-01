@@ -6,7 +6,7 @@ import { Plus, Trash2, ChevronDown, ChevronRight, ChevronUp, Loader2 } from "luc
 import { cn } from "@/lib/utils";
 
 interface WorkoutType { id: string; name: string; color: string | null; order: number; defaultZone: number | null; isShared: boolean; }
-interface Sport { id: string; name: string; color: string; icon: string; isDefault?: boolean; isRunningRelated: boolean; workoutTypes: WorkoutType[]; }
+interface Sport { id: string; name: string; color: string; icon: string; isDefault?: boolean; isRunningRelated: boolean; workoutFlagTypeId: string | null; workoutTypes: WorkoutType[]; }
 
 const PRESET_COLORS = [
   // Greens & teals
@@ -89,7 +89,7 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
     setSports(prev => prev.filter(s => s.id !== id));
   }
 
-  async function updateSport(id: string, patch: Partial<Pick<Sport, "name" | "color" | "isRunningRelated">>) {
+  async function updateSport(id: string, patch: Partial<Pick<Sport, "name" | "color" | "isRunningRelated" | "workoutFlagTypeId">>) {
     setSports(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
     await fetch("/api/sports", {
       method: "PATCH",
@@ -249,6 +249,20 @@ export function SportsManager({ sports: initial }: { sports: Sport[] }) {
                   onChange={e => updateSport(sport.id, { isRunningRelated: e.target.checked })} className="rounded" />
                 Related to running (counts toward weekly running distance)
               </label>
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <span className="shrink-0">Workout flag maps to:</span>
+                <select
+                  value={sport.workoutFlagTypeId ?? ""}
+                  onChange={e => updateSport(sport.id, { workoutFlagTypeId: e.target.value || null })}
+                  className="flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs text-primary focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
+                  title="Color used when Strava marks an activity as a generic workout (flag icon)"
+                >
+                  <option value="">Auto-detect (by name)</option>
+                  {sport.workoutTypes.filter(t => !t.isShared).map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="space-y-1.5">
                 {sport.workoutTypes.map((type, i) => (
                   <div key={type.id} className="rounded-xl border border-border bg-surface-2 overflow-hidden">

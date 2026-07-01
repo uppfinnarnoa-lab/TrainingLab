@@ -7,6 +7,7 @@ export interface SportCategory {
   icon: string;
   order: number;
   isRunningRelated: boolean;
+  workoutFlagTypeId: string | null;
   workoutTypes: WorkoutType[];
 }
 

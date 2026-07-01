@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { format, parseISO } from "date-fns";
@@ -26,7 +26,13 @@ export function RestingHRTrendChart({ data }: Props) {
 
   return (
     <ResponsiveContainer width="100%" height={180}>
-      <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+      <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id="restingHRGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#60A5FA" stopOpacity={0.25} />
+            <stop offset="95%" stopColor="#60A5FA" stopOpacity={0} />
+          </linearGradient>
+        </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
         <XAxis
           dataKey="date"
@@ -44,8 +50,17 @@ export function RestingHRTrendChart({ data }: Props) {
           formatter={(v: number) => [`${v} bpm`, "Resting HR"]}
         />
         <ReferenceLine y={baseline} stroke="var(--text-muted)" strokeDasharray="5 3" label={{ value: `avg ${baseline}`, fontSize: 10, fill: "var(--text-muted)", position: "insideTopLeft" }} />
-        <Line type="monotone" dataKey="restingHR" name="Resting HR" stroke="#60A5FA" strokeWidth={2} dot={false} connectNulls />
-      </LineChart>
+        <Area
+          type="monotone"
+          dataKey="restingHR"
+          name="Resting HR"
+          stroke="#60A5FA"
+          strokeWidth={2}
+          fill="url(#restingHRGradient)"
+          dot={false}
+          connectNulls
+        />
+      </AreaChart>
     </ResponsiveContainer>
   );
 }

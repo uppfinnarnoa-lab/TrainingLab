@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from "recharts";
 import { format, parseISO } from "date-fns";
@@ -128,7 +128,13 @@ export function VO2maxTrendChart({ data }: Props) {
         </p>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={withTrend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+          <AreaChart data={withTrend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="vdotGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
             <XAxis
               dataKey="month"
@@ -143,11 +149,12 @@ export function VO2maxTrendChart({ data }: Props) {
               width={32}
             />
             <Tooltip content={<CustomTooltip />} />
-            <Line
+            <Area
               type="monotone"
               dataKey="vdot"
               stroke="var(--accent)"
               strokeWidth={2}
+              fill="url(#vdotGradient)"
               dot={{ r: 3, fill: "var(--accent)" }}
               activeDot={{ r: 5 }}
               name="VDOT"
@@ -163,7 +170,7 @@ export function VO2maxTrendChart({ data }: Props) {
                 name="Trend"
               />
             )}
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       )}
     </div>

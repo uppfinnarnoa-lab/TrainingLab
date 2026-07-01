@@ -4,6 +4,49 @@ import { fetchAndSaveWeather } from "@/lib/weather/open-meteo";
 import { matchActivityToPlanned } from "@/lib/fitness/activity-matching";
 import { detectAndRecordPBs } from "@/lib/races/pb-detection";
 
+// Strava workout_type integers that map to race/competition status.
+// workoutType 1 = Race, 11 = Virtual Race — both should set isRace = true.
+const RACE_WORKOUT_TYPES = new Set([1, 11]);
+
+/**
+ * Ensure a SportCategory exists for this user and Strava sport type.
+ * The `seen` set short-circuits duplicate DB lookups within a single sync run.
+ * Creates the sport (+ shared Race type) on first encounter if missing.
+ */
+async function ensureSportCategoryExists(
+  userId: string,
+  sportType: string,
+  seen: Set<string>,
+): Promise<void> {
+  if (!sportType || sportType === "Unknown" || seen.has(sportType)) return;
+  seen.add(sportType);
+
+  const exists = await prisma.sportCategory.findFirst({
+    where: { userId, name: { equals: sportType, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (exists) return;
+
+  const newSport = await prisma.sportCategory.create({
+    data: { userId, name: sportType, color: "#94A3B8", icon: "run", isDefault: false, order: 999 },
+  });
+  const existingShared = await prisma.workoutType.findFirst({
+    where: { userId, isShared: true },
+    select: { name: true, color: true, defaultZone: true },
+  });
+  await prisma.workoutType.create({
+    data: {
+      name: existingShared?.name ?? "Race",
+      color: existingShared?.color ?? "#FBBF24",
+      defaultZone: existingShared?.defaultZone ?? 5,
+      sportId: newSport.id,
+      userId,
+      isShared: true,
+      order: 999,
+    },
+  });
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapActivity(raw: any, userId: string) {
   return {
@@ -30,7 +73,7 @@ function mapActivity(raw: any, userId: string) {
     sufferScore: raw.suffer_score ?? null,
     perceivedExertion: raw.perceived_exertion ?? null,
     workoutType: raw.workout_type ?? null,
-    isRace: raw.workout_type === 1,
+    isRace: RACE_WORKOUT_TYPES.has(raw.workout_type),
     mapPolyline: raw.map?.summary_polyline ?? null,
     splitsMetric: raw.splits_metric ?? null,
     laps: raw.laps ?? null,
@@ -49,6 +92,7 @@ export async function syncActivities(
   let synced = 0;
   let errors = 0;
   const perPage = 200;
+  const seenSportTypes = new Set<string>();
 
   const after = options.since ? Math.floor(options.since.getTime() / 1000) : undefined;
 
@@ -74,6 +118,9 @@ export async function syncActivities(
 
     for (const raw of activities) {
       try {
+        const sportType: string = raw.sport_type ?? raw.type ?? "Unknown";
+        await ensureSportCategoryExists(userId, sportType, seenSportTypes);
+
         const stravaId = BigInt(raw.id);
         const exists = await prisma.activity.findUnique({
           where: { stravaId },
@@ -162,9 +209,13 @@ export async function resyncRecentActivities(
   if (!Array.isArray(listRaw)) return { synced: 0, updated: 0, errors: 0 };
 
   let synced = 0, updated = 0, errors = 0;
+  const seenSportTypes = new Set<string>();
 
   for (const summary of listRaw) {
     try {
+      const sportType: string = summary.sport_type ?? summary.type ?? "Unknown";
+      await ensureSportCategoryExists(userId, sportType, seenSportTypes);
+
       // Step 2: fetch full individual activity (includes description, splits, best efforts)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const full: any = await stravaFetch(userId, `/activities/${summary.id}`);
@@ -230,6 +281,8 @@ export async function syncSingleActivity(userId: string, stravaActivityId: numbe
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const full: any = await stravaFetch(userId, `/activities/${stravaActivityId}`);
   const data = { ...mapActivity(full, userId), splitDetailFetched: true };
+
+  await ensureSportCategoryExists(userId, data.sportType, new Set());
 
   const exists = await prisma.activity.findUnique({ where: { stravaId: data.stravaId }, select: { stravaId: true } });
 
