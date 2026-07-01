@@ -20,7 +20,7 @@ export function Logo({ size = 32, className, style }: Props) {
         <mask id="act-cut">
           <rect width="40" height="40" fill="white" />
           <polyline
-            points="7,22 13,22 16,17 19,17 21,28 24,28 26,22 27,22"
+            points="7,23 15,23 17,17 19,17 21,29 23,29 25,23 33,23"
             stroke="black"
             strokeWidth="3"
             strokeLinecap="butt"
@@ -32,7 +32,7 @@ export function Logo({ size = 32, className, style }: Props) {
       {/* stem ends at y=35 — when placed next to text in a flex items-end row,
           T visual bottom lands at the text's typographic baseline (~0.3 px off) */}
       <path
-        d="M1,5 H39 V14 H27 V35 H13 V14 H1 Z"
+        d="M1,5 H39 V14 H25 V35 H15 V14 H1 Z"
         className="fill-accent"
         mask="url(#act-cut)"
       />
@@ -84,7 +84,7 @@ export function LogoWordmark({ size = 32, className }: Props) {
         <mask id="wm-cut">
           <rect width="40" height="40" fill="white" />
           <polyline
-            points="7,22 13,22 16,17 19,17 21,28 24,28 26,22 27,22"
+            points="7,23 15,23 17,17 19,17 21,29 23,29 25,23 33,23"
             stroke="black"
             strokeWidth="3"
             strokeLinecap="butt"
@@ -94,7 +94,7 @@ export function LogoWordmark({ size = 32, className }: Props) {
         </mask>
       </defs>
       <path
-        d="M1,5 H39 V14 H27 V35 H13 V14 H1 Z"
+        d="M1,5 H39 V14 H25 V35 H15 V14 H1 Z"
         className="fill-accent"
         mask="url(#wm-cut)"
       />
