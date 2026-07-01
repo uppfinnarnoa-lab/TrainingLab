@@ -9,8 +9,7 @@ import { resolveActivityColor } from "@/lib/planner/colors";
 import { gradeAdjustedPace } from "@/lib/fitness/vo2max";
 import { computeDrift, SplitWithHR } from "@/lib/fitness/decoupling";
 import { ActivityMap } from "./activity-map";
-import { SplitsTable } from "./splits-table";
-import { SplitsChart } from "./splits-chart";
+import { SplitsSection } from "./splits-section";
 import { ActivityCharts } from "./activity-charts";
 import { BestEffortsTable } from "./best-efforts";
 import { WorkoutAnalysis } from "./workout-analysis";
@@ -243,11 +242,16 @@ export default async function ActivityDetailPage({
         <ActivityCharts activityId={activity.id} />
       </div>
 
-      {/* Splits chart */}
+      {/* Splits chart + table */}
       {splits && splits.length > 1 && (
-        <div className="rounded-2xl bg-surface border border-border p-5">
-          <SplitsChart splits={splits} avgSpeedMs={activity.averageSpeed ?? 0} isLaps={isLaps} color={color} />
-        </div>
+        <SplitsSection
+          splits={splits}
+          isLaps={isLaps}
+          workoutType={activity.workoutType ?? null}
+          avgSpeedMs={activity.averageSpeed ?? 0}
+          color={color}
+          pvi={pvi}
+        />
       )}
 
       {/* 1B/3D — Aerobic decoupling (Pa:HR) */}
@@ -273,11 +277,6 @@ export default async function ActivityDetailPage({
           </div>
         );
       })()}
-
-      {/* Splits table */}
-      {splits && splits.length > 0 && (
-        <SplitsTable splits={splits} isLaps={isLaps} pvi={pvi} />
-      )}
 
       {/* Best efforts */}
       {bestEffortsRaw.length > 0 && (
@@ -308,5 +307,5 @@ interface Split {
   average_heartrate?: number;
   average_speed: number;
   elevation_difference?: number;
-  split: number;
+  split: number | string;
 }

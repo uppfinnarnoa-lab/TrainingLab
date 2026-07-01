@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 
 interface Split {
-  split: number;
+  split: number | string;
   distance: number;
   moving_time: number;
   average_speed: number;
@@ -156,6 +156,7 @@ export function SplitsChart({ splits, avgSpeedMs, isLaps, color = "#7DD3FC" }: P
                 <div className="bg-surface border border-border rounded-lg px-2.5 py-1.5 text-xs text-center whitespace-nowrap shadow-xl">
                   <p className="font-semibold font-mono text-primary">{secPerKmStr(pace)}/km</p>
                   <p className="text-muted">{isLaps ? "Lap" : "km"} {sp.split}</p>
+                  <p className="text-muted">{(sp.distance / 1000).toFixed(2)} km · {fmtDuration(sp.moving_time)}</p>
                   {sp.average_heartrate && (
                     <p className="text-muted">{Math.round(sp.average_heartrate)} bpm</p>
                   )}

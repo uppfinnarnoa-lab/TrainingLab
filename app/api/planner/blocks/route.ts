@@ -13,7 +13,7 @@ const schema = z.object({
   targetKmPerWeek:  z.number().positive().optional().nullable(),
   targetIntensity:  z.string().optional().nullable(),
   targetRaceId:     z.string().cuid().optional().nullable(),
-});
+}).refine(data => data.startDate <= data.endDate, { message: "endDate must be >= startDate", path: ["endDate"] });
 
 export async function GET() {
   const session = await auth();

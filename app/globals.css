@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* ── Theme: Forest (default) ── */
 :root,
@@ -13,6 +14,8 @@
   --text-muted:    #64748B;
   --error:         #DC2626;
   --warning:       #D97706;
+
+  --feature:       #B45A2C;
 
   --sport-run:     #10B981;
   --sport-ol:      #059669;
@@ -34,6 +37,7 @@
   --text-muted:    #94A3B8;
   --error:         #F87171;
   --warning:       #FBBF24;
+  --feature:       #E8956A;
 }
 
 /* ── Theme: Ocean ── */
@@ -48,6 +52,7 @@
   --text-muted:    #0369A1;
   --error:         #DC2626;
   --warning:       #D97706;
+  --feature:       #B45A2C;
 }
 .dark.scheme-ocean,
 .scheme-ocean.dark {
@@ -61,6 +66,7 @@
   --text-muted:    #7DD3FC;
   --error:         #F87171;
   --warning:       #FBBF24;
+  --feature:       #E8956A;
 }
 
 /* ── Theme: Ember ── */
@@ -75,6 +81,7 @@
   --text-muted:    #9A3412;
   --error:         #DC2626;
   --warning:       #D97706;
+  --feature:       #B45A2C;
 }
 .dark.scheme-ember,
 .scheme-ember.dark {
@@ -88,6 +95,7 @@
   --text-muted:    #FDBA74;
   --error:         #F87171;
   --warning:       #FBBF24;
+  --feature:       #E8956A;
 }
 
 /* ── Theme: Slate ── */
@@ -101,8 +109,9 @@
   --accent-2:      #7C3AED;
   --text-primary:  #0D1829;
   --text-muted:    #3A5270;
-  --error:         #DC2626;
-  --warning:       #D97706;
+  --error:         #B91C1C;
+  --warning:       #B45309;
+  --feature:       #B45A2C;
 }
 .dark.scheme-slate,
 .scheme-slate.dark {
@@ -117,9 +126,10 @@
   --text-muted:    #7A98BE;
   --error:         #F87171;
   --warning:       #FBBF24;
+  --feature:       #E8956A;
 }
 
-/* ── Theme: Sand ── */
+/* ── Theme: Sky ── */
 /*
  * Warm-neutral base (stone/sand) + violet accent.
  * Research-based for mobile: warm off-whites reduce eye strain vs pure white,
@@ -148,6 +158,7 @@
   --text-muted:    #57534E;   /* stone-600 — 7.3:1 on bg */
   --error:         #DC2626;
   --warning:       #B45309;   /* amber-700 — darker for warm bg contrast */
+  --feature:       #B45A2C;
 }
 .dark.scheme-sky,
 .scheme-sky.dark {
@@ -161,6 +172,7 @@
   --text-muted:    #A8A29E;   /* stone-400 — 5.2:1 on bg */
   --error:         #F87171;
   --warning:       #FBBF24;
+  --feature:       #E8956A;
 }
 
 /* ── Theme: Mono ── */
@@ -175,6 +187,7 @@
   --text-muted:    #71717A;
   --error:         #DC2626;
   --warning:       #D97706;
+  --feature:       #B45A2C;
 }
 .dark.scheme-mono,
 .scheme-mono.dark {
@@ -188,6 +201,7 @@
   --text-muted:    #A1A1AA;
   --error:         #F87171;
   --warning:       #FBBF24;
+  --feature:       #E8956A;
 }
 
 @theme inline {
@@ -201,8 +215,10 @@
   --color-muted:      var(--text-muted);
   --color-error:      var(--error);
   --color-warning:    var(--warning);
+  --color-feature:    var(--feature);
   --font-sans:        "Inter", system-ui, -apple-system, sans-serif;
   --font-mono:        "JetBrains Mono", "Fira Code", monospace;
+  --font-display:     var(--font-display);
 }
 
 html {

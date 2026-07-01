@@ -147,7 +147,7 @@ export function PlannerClient(props: Props) {
   const [editingBlock, setEditingBlock]         = useState<TrainingBlock | null>(null);
   const [showNewBlock, setShowNewBlock]         = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = format(new Date(), "yyyy-MM-dd");
 
   const editTemplate = useMemo<WorkoutTemplate | null>(() => {
     if (!editWorkout) return null;
@@ -278,7 +278,7 @@ export function PlannerClient(props: Props) {
   }
 
   // ── Update existing template — also used as the debounced auto-save while editing ──
-  async function handleTemplateAutoSave(data: BuilderData) {
+  async function handleTemplateAutoSave(data: BuilderData, signal?: AbortSignal) {
     if (!editingTemplate) return;
     const res = await fetch(`/api/planner/templates/${editingTemplate.id}`, {
       method: "PATCH",
@@ -287,7 +287,9 @@ export function PlannerClient(props: Props) {
         name: data.name, sportId: data.sportId, typeId: data.typeId,
         description: data.description, color: data.color, sections: data.sections,
       }),
-    });
+      signal,
+    }).catch(e => { if ((e as Error).name === "AbortError") return null; throw e; });
+    if (!res) return;
     if (res.ok) {
       const updated: WorkoutTemplate = await res.json();
       setTemplates(prev => prev.map(t => t.id === updated.id ? updated : t));
@@ -364,10 +366,21 @@ export function PlannerClient(props: Props) {
   }
 
   // ── Delete template ────────────────────────────────────────────────
-  async function handleDeleteTemplate(id: string) {
-    const res = await fetch(`/api/planner/templates/${id}`, { method: "DELETE" });
-    if (res.ok) setTemplates(prev => prev.filter(t => t.id !== id));
-    else showError("Failed to delete template — please try again.");
+  async function handleDeleteTemplate(templateId: string) {
+    const affectedCount = workouts.filter(w => w.templateId === templateId).length;
+    if (affectedCount > 0) {
+      const ok = window.confirm(
+        `Den här mallen används av ${affectedCount} planerade pass. Om du raderar mallen förlorar de sin koppling till sektioner och färginformation. Vill du fortsätta?`
+      );
+      if (!ok) return;
+    }
+    const res = await fetch(`/api/planner/templates/${templateId}`, { method: "DELETE" });
+    if (res.ok) {
+      setTemplates(prev => prev.filter(t => t.id !== templateId));
+      setWorkouts(ws => ws.map(w => w.templateId === templateId ? { ...w, templateId: null, template: null } : w));
+    } else {
+      showError("Failed to delete template — please try again.");
+    }
   }
 
   // ── Status save (past workouts) ────────────────────────────────────
@@ -387,7 +400,7 @@ export function PlannerClient(props: Props) {
   }
 
   // ── Edit save (future workouts via WorkoutBuilder) — also the debounced auto-save ──
-  async function handleWorkoutAutoSave(data: BuilderData) {
+  async function handleWorkoutAutoSave(data: BuilderData, signal?: AbortSignal) {
     if (!editWorkout) return;
     const id = editWorkout.id;
     const sport = sports.find(s => s.id === data.sportId);
@@ -405,7 +418,9 @@ export function PlannerClient(props: Props) {
         targetDuration: data.totalDuration,
         targetDistance: data.totalDistance,
       }),
-    });
+      signal,
+    }).catch(e => { if ((e as Error).name === "AbortError") return null; throw e; });
+    if (!res) return;
     if (res.ok) {
       const updated: PlannedWorkout = await res.json();
       setWorkouts(prev => prev.map(w => w.id === id ? { ...w, ...updated } : w));
@@ -427,7 +442,8 @@ export function PlannerClient(props: Props) {
           color: data.color,
           sections: data.sections,
         }),
-      });
+        signal,
+      }).catch(e => { if ((e as Error).name === "AbortError") return null; throw e; });
     }
   }
 
@@ -637,6 +653,7 @@ export function PlannerClient(props: Props) {
       {/* Workout builder — create new */}
       {showBuilder && (
         <WorkoutBuilder
+          key="new"
           sports={sports}
           paceZones={props.paceZoneRanges}
           hrZones={props.hrZoneRanges}
@@ -650,6 +667,7 @@ export function PlannerClient(props: Props) {
       {/* Workout builder — edit existing template */}
       {editingTemplate && (
         <WorkoutBuilder
+          key={editingTemplate.id}
           sports={sports}
           paceZones={props.paceZoneRanges}
           hrZones={props.hrZoneRanges}
@@ -675,6 +693,7 @@ export function PlannerClient(props: Props) {
       {/* Workout builder — edit future workout */}
       {editWorkout && editTemplate && (
         <WorkoutBuilder
+          key={editWorkout.id}
           sports={sports}
           paceZones={props.paceZoneRanges}
           hrZones={props.hrZoneRanges}

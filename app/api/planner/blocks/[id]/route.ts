@@ -14,7 +14,7 @@ const schema = z.object({
   targetIntensity: z.string().optional().nullable(),
   targetRaceId:    z.string().cuid().optional().nullable(),
   archived:        z.boolean().optional(),
-});
+}).refine(data => !data.startDate || !data.endDate || data.startDate <= data.endDate, { message: "endDate must be >= startDate", path: ["endDate"] });
 
 async function owned(id: string, userId: string) {
   const b = await prisma.trainingBlock.findUnique({ where: { id } });

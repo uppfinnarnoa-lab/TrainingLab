@@ -28,7 +28,7 @@ interface Props {
   onSportsUpdated?: (sports: SportCategory[]) => void;
   // Debounced, fired automatically as fields change while editing an existing
   // template/workout (never for new ones — there's nothing to attach to yet).
-  onAutoSave?: (data: BuilderData) => void;
+  onAutoSave?: (data: BuilderData, signal: AbortSignal) => void;
 }
 
 export interface BuilderData {
@@ -212,14 +212,14 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
     typeName?: string | null;
     type?: WorkoutType | null;
   }) {
-    if (sectionsCustomized || sections.length !== 1) return;
+    if (sections.length !== 1) return;
     const dur = opts.durMin !== undefined ? opts.durMin : totalDurMin;
     const dist = opts.distKm !== undefined ? opts.distKm : totalDistKm;
     const typeName = opts.typeName !== undefined ? opts.typeName : effectiveTypeName;
     const type = opts.type !== undefined ? opts.type : selectedType;
     const zone = type?.defaultZone ?? typeToZone(typeName);
-    const durationSec = typeof dur === "number" && dur > 0 ? Math.round(dur * 60) : null;
-    const distanceM   = typeof dist === "number" && dist > 0 ? Math.round(dist * 1000) : null;
+    const durationSec = typeof dur === "number" && dur >= 0 ? Math.round(dur * 60) : null;
+    const distanceM   = typeof dist === "number" && dist >= 0 ? Math.round(dist * 1000) : null;
     updateSection(sections[0]._key, {
       duration: durationSec,
       distance: distanceM,
@@ -363,9 +363,9 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
       if (s.restDurationType === "time" && s.restDuration) totalDuration = (totalDuration ?? 0) + s.restDuration * reps;
       else if (s.restDurationType === "distance" && s.restDistance) totalDistance = (totalDistance ?? 0) + s.restDistance * reps;
     }
-    if (!totalDuration && typeof totalDurMin === "number" && totalDurMin > 0)
+    if (!totalDuration && typeof totalDurMin === "number" && totalDurMin >= 0)
       totalDuration = Math.round(totalDurMin * 60);
-    if (!totalDistance && typeof totalDistKm === "number" && totalDistKm > 0)
+    if (!totalDistance && typeof totalDistKm === "number" && totalDistKm >= 0)
       totalDistance = Math.round(totalDistKm * 1000);
 
     return {
@@ -386,10 +386,16 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
   // the very first run so opening the modal doesn't immediately re-save
   // identical data back to the server.
   const autoSaveSkippedFirst = useRef(false);
+  const saveAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     if (!isEditing || !onAutoSave || !name.trim()) return;
     if (!autoSaveSkippedFirst.current) { autoSaveSkippedFirst.current = true; return; }
-    const timer = setTimeout(() => onAutoSave(buildData()), 800);
+    const timer = setTimeout(() => {
+      saveAbortRef.current?.abort();
+      const controller = new AbortController();
+      saveAbortRef.current = controller;
+      onAutoSave(buildData(), controller.signal);
+    }, 800);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, sportId, typeId, description, autoColor, sections, date, totalDurMin, totalDistKm]);
@@ -405,7 +411,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
           <h2 className="font-semibold text-primary">
             {isEditing ? (plannedWorkoutMode ? "Edit workout" : "Edit template") : "Build workout"}
           </h2>
-          <button onClick={onCancel} className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition">
+          <button onClick={() => { saveAbortRef.current?.abort(); onCancel(); }} className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface-2 transition">
             <X size={16} />
           </button>
         </div>
@@ -527,9 +533,9 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
             <div>
               <label className="text-xs font-medium text-muted mb-1 block">Total time (min) *</label>
               <input
-                type="number" min={1}
+                type="number" min={0}
                 value={totalDurMin}
-                onChange={e => handleTotalDurChange(parseFloat(e.target.value) || "")}
+                onChange={e => { const v = parseFloat(e.target.value); handleTotalDurChange(Number.isNaN(v) ? "" : v); }}
                 placeholder="e.g. 60"
                 className={inputCls}
               />
@@ -539,9 +545,9 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
             <div>
               <label className="text-xs font-medium text-muted mb-1 block">Total distance (km)</label>
               <input
-                type="number" min={0.1} step={0.1}
+                type="number" min={0} step={0.1}
                 value={totalDistKm}
-                onChange={e => handleTotalDistChange(parseFloat(e.target.value) || "")}
+                onChange={e => { const v = parseFloat(e.target.value); handleTotalDistChange(Number.isNaN(v) ? "" : v); }}
                 placeholder="e.g. 10"
                 className={inputCls}
               />
@@ -626,7 +632,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
           {onDelete && confirmDelete && (
             <>
               <span className="text-xs text-muted">Delete this workout?</span>
-              <button onClick={onDelete} className="px-3 py-1.5 rounded-lg bg-red-500 text-xs font-medium text-white hover:bg-red-400 transition">Confirm</button>
+              <button onClick={() => { saveAbortRef.current?.abort(); onDelete(); }} className="px-3 py-1.5 rounded-lg bg-red-500 text-xs font-medium text-white hover:bg-red-400 transition">Confirm</button>
               <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs text-muted hover:text-primary transition">No</button>
             </>
           )}
@@ -637,7 +643,7 @@ export function WorkoutBuilder({ sports: sportsProp, paceZones, hrZones, onSave,
             </label>
           )}
           <div className="flex-1" />
-          <button onClick={onCancel} className="px-4 py-2 text-sm text-muted hover:text-primary transition">Cancel</button>
+          <button onClick={() => { saveAbortRef.current?.abort(); onCancel(); }} className="px-4 py-2 text-sm text-muted hover:text-primary transition">Cancel</button>
           <button onClick={handleSave} disabled={!name.trim()}
             className="px-5 py-2 rounded-xl bg-accent text-sm font-semibold text-white dark:text-background hover:opacity-90 disabled:opacity-40 transition">
             {isEditing ? "Save changes" : date ? "Add to plan" : "Save template"}

@@ -22,7 +22,7 @@ export interface BackfillResult {
   done: number;
   total: number;
   errors: number;
-  stoppedAt: "complete" | "stopped";
+  stoppedAt: "complete" | "stopped" | "daily_limit";
 }
 
 function msUntilMidnightUTC(): number {
@@ -189,20 +189,8 @@ export async function runHistoricalBackfill(
         await new Promise(r => setTimeout(r, BETWEEN_REQ_MS));
       } catch (e) {
         if (e instanceof Error && e.message === "STRAVA_DAILY_LIMIT") {
-          const waitMs = msUntilMidnightUTC();
-          onProgress?.({ type: "daily_limit", done, total, errors, waitMs });
-          const r = await interruptibleWait(waitMs, getSignal,
-            () => onProgress?.({ type: "paused",  done, total, errors }),
-            () => onProgress?.({ type: "resumed", done, total, errors }),
-          );
-          if (r === "stopped") {
-            onProgress?.({ type: "stopped", done, total, errors });
-            return { done, total, errors, stoppedAt: "stopped" };
-          }
-          windowStart = Date.now();
-          windowCount = 0;
-          retrying = true; // retry this activity after reset
-          continue;
+          onProgress?.({ type: "daily_limit", done, total, errors, waitMs: 0 });
+          return { done, total, errors, stoppedAt: "daily_limit" };
         }
 
         if (e instanceof Error && e.message === "STRAVA_RATE_LIMIT") {

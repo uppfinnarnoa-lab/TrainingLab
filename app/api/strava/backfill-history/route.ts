@@ -38,7 +38,7 @@ export async function POST() {
     start(controller) {
       onEvent = (event: BackfillEvent) => {
         try { controller.enqueue(send(event)); } catch { /* connection closed */ }
-        if (event.type === "done" || event.type === "stopped") {
+        if (event.type === "done" || event.type === "stopped" || event.type === "daily_limit") {
           try { controller.close(); } catch { /* already closed */ }
           if (onEvent) backfillRunner.unsubscribe(userId, onEvent);
           onEvent = null;

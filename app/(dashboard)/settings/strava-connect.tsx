@@ -183,8 +183,8 @@ export function StravaConnectSection({
               setJobState(s => ({ ...s, status: "rate_limit", done: d.done, total: d.total, errors: d.errors, waitMs: d.waitMs,
                 message: `Rate limited — waiting ${formatWait(d.waitMs)}, continuing automatically…` }));
             } else if (d.type === "daily_limit") {
-              setJobState(s => ({ ...s, status: "daily_limit", done: d.done, total: d.total, errors: d.errors, waitMs: d.waitMs,
-                message: `Daily limit — waiting ${formatWait(d.waitMs)} until midnight UTC, then continuing…` }));
+              setJobState(s => ({ ...s, status: "idle", done: d.done, total: d.total, errors: d.errors, waitMs: undefined,
+                message: "Strava-dagsgränsen nådd — återstoden hämtas automatiskt vid nästa körning." }));
             } else if (d.type === "paused") {
               setJobState(s => ({ ...s, status: "paused", done: d.done, errors: d.errors, message: null }));
             } else if (d.type === "resumed") {
@@ -310,7 +310,7 @@ export function StravaConnectSection({
     setTimeout(() => setCopied(false), 2000);
   }
 
-  const isActive = jobState.status === "running" || jobState.status === "rate_limit" || jobState.status === "daily_limit";
+  const isActive = jobState.status === "running" || jobState.status === "rate_limit";
 
   return (
     <div className="space-y-5">

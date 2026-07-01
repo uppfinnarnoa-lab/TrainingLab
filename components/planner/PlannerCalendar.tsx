@@ -59,14 +59,14 @@ function DroppableDay({ dateStr, children }: {
 }
 
 // ── dnd-kit draggable workout pill wrapper ───────────────────────────────────
-function DraggableWorkout({ id, children }: { id: string; children: React.ReactNode }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id });
+function DraggableWorkout({ id, disabled, children }: { id: string; disabled?: boolean; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id, disabled });
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={cn("touch-none", isDragging && "opacity-40")}
+      className={cn(!disabled && "touch-none", isDragging && "opacity-40")}
     >
       {children}
     </div>
@@ -583,7 +583,7 @@ export function PlannerCalendar({
                       {/* Workouts — show up to 5, compact when >3 */}
                       <div className="space-y-0.5">
                         {dayWorkouts.slice(0, 5).map(w => (
-                          <DraggableWorkout key={w.id} id={w.id}>
+                          <DraggableWorkout key={w.id} id={w.id} disabled={!!w.status && w.status !== "planned"}>
                             <WorkoutPill
                               workout={w}
                               isPast={isPast}

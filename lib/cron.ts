@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { prisma } from "@/lib/db/prisma";
 import { syncActivities } from "@/lib/strava/sync";
-import { runHistoricalBackfill } from "@/lib/strava/backfill";
+import { backfillRunner } from "@/lib/strava/backfill-runner";
 import { syncGarminDaily } from "@/lib/garmin/sync";
 import { backfillWeather } from "@/lib/weather/backfill";
 
@@ -63,21 +63,18 @@ export function startCronJobs() {
   });
 
   // Historical activity backfill at 00:30 UTC (just after Strava's daily limit resets at midnight)
-  // Runs until done or daily limit is hit — resumes the next night automatically.
+  // Goes through backfillRunner.startIfIdle() — cannot run concurrently with a user-triggered
+  // backfill for the same account. A daily-limit hit ends the run immediately; this tick picks
+  // it up the next night from where it left off.
   cron.schedule("30 0 * * *", async () => {
     const accounts = await prisma.stravaAccount.findMany({ select: { userId: true } });
     for (const account of accounts) {
       const remaining = await prisma.activity.count({
-        where: { userId: account.userId, splitDetailFetched: false },
+        where: { userId: account.userId, OR: [{ splitDetailFetched: false }, { stream: null }] },
       });
       if (remaining === 0) continue;
-      console.log(`[cron] Historical backfill ${account.userId}: ${remaining} remaining`);
-      try {
-        const result = await runHistoricalBackfill(account.userId);
-        console.log(`[cron] Historical backfill ${account.userId}: ${result.done} fetched, stopped=${result.stoppedAt}`);
-      } catch (e) {
-        console.error(`[cron] Historical backfill failed for ${account.userId}:`, e);
-      }
+      const started = backfillRunner.startIfIdle(account.userId);
+      console.log(`[cron] Historical backfill ${account.userId}: ${remaining} remaining, started=${started}`);
     }
   });
 

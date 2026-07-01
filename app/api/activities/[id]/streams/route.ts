@@ -48,8 +48,11 @@ export async function GET(
       },
     );
   } catch (e) {
-    console.error("[streams] Strava fetch failed:", e);
-    return NextResponse.json({ error: "streams_unavailable" }, { status: 503 });
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[streams] fetch failed for activity ${id} (user ${session.user.id}):`, msg);
+    if (msg === "STRAVA_RATE_LIMIT") return NextResponse.json({ error: "streams_unavailable", reason: "rate_limited" }, { status: 503 });
+    if (msg === "STRAVA_DAILY_LIMIT") return NextResponse.json({ error: "streams_unavailable", reason: "daily_limit" }, { status: 503 });
+    return NextResponse.json({ error: "streams_unavailable", reason: "strava_error" }, { status: 503 });
   }
 
   // Compute Heart Rate Recovery: HR drop over 60s after the peak HR sample

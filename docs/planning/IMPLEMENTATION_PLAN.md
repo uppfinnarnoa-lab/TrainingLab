@@ -4291,3 +4291,59 @@ Transform applied:
 ---
 
 *Last updated: 2026-07-01e — T proportions revised (crossbar thickness = stem width = 12, from 9.4) and icon moved closer to text in all contexts.*
+
+---
+
+**Session 2026-07-01f — Executed all three pending plans via parallel sub-agents (Plan 1 UX/visual, Plan 2 AI coach reliability, Plan 3 interval toggle + planner save bug).**
+
+All changes below were implemented and verified by `pnpm build --no-lint` (clean, no errors).
+
+### Plan 1 — Frontend UX Audit (FRONTEND_UX_AUDIT_PLAN_2026_06_27.md)
+
+- **`components/sidebar.tsx`** — hamburger button `p-2` → `p-3`, close button `p-1.5` → `p-3` (WCAG 44px minimum tap target on mobile)
+- **`components/coach/ChatInterface.tsx`** — `useState(true)` for `sidebarOpen` → `useState(false)` + `useEffect` sets it to `window.innerWidth >= 768` on mount (sidebar closed by default on mobile, open on desktop)
+- **`app/globals.css`** — `--feature: #B45A2C` (burnt sienna) added to all 6 light themes; `--feature: #E8956A` to all 6 dark themes; `--color-feature: var(--feature)` in `@theme inline`; `--font-display: var(--font-display)` in `@theme inline`; `.scheme-slate` light: `--error` → `#B91C1C`, `--warning` → `#B45309` (WCAG AA on mid-gray); comment `/* Theme: Sand */` corrected to `/* Theme: Sky */`
+- **`app/layout.tsx`** — `Space_Grotesk` imported from `next/font/google` with `variable: "--font-display"`, applied to `<html>` className alongside Inter
+- **`@plugin "@tailwindcss/typography"`** added to `app/globals.css` (needed by coach chat markdown renderer, Task 6 of Plan 2)
+
+### Plan 2 — AI Coach Agentic Reliability (AI_COACH_AGENTIC_RELIABILITY_PLAN_2026_06_29.md)
+
+- **`lib/ai/kimi-fallback.ts`** (NEW) — Regex parser for Kimi K2's native tool-call delimiter tokens that leak into `content` when NVIDIA NIM fails to convert them to structured `tool_calls`. Exports `parseLeakedKimiToolCalls`, `stripLeakedKimiTokens`, `hasLeakedKimiTokens`.
+- **`lib/ai/agent-loop.ts`** (NEW) — `runOpenAICompatibleAgentLoop` for NVIDIA/Groq: up to 6 iterations, parallel tool execution, Kimi-token fallback, exponential-backoff retry on 429, `role: "tool"` for Groq vs. folded into `user` message for NVIDIA NIM.
+- **`lib/ai/gemini-loop.ts`** (NEW) — `runGeminiAgentLoop` for Gemini: same 6-iteration structure, uses Gemini SDK's `functionCall`/`functionResponse` part format.
+- **`app/api/coach/chat/route.ts`** — replaced single-tool-check blocks for NVIDIA/Groq and Gemini with `runOpenAICompatibleAgentLoop` / `runGeminiAgentLoop` calls; all three outcomes (pending write, done with final text, loop-max-hit with tool context) handled.
+- **`lib/strava/backfill.ts`** — `STRAVA_DAILY_LIMIT` handler now returns immediately (`stoppedAt: "daily_limit"`) instead of blocking up to 24h via `interruptibleWait`.
+- **`lib/strava/backfill-runner.ts`** — `daily_limit` event now settles to `status: "idle"` (was: stuck at `"daily_limit"`); added `startIfIdle(userId): boolean` for the cron entry point.
+- **`lib/cron.ts`** — nightly 00:30 job now calls `backfillRunner.startIfIdle()` instead of `runHistoricalBackfill()` directly (eliminates concurrent backfill runs between cron + UI triggers).
+- **`app/api/strava/backfill-history/route.ts`** — SSE auto-close condition extended to include `"daily_limit"` events.
+- **`app/(dashboard)/settings/strava-connect.tsx`** — `daily_limit` event now lands on `status: "idle"` with a one-line Swedish message; removed `"daily_limit"` from `isActive`.
+- **`app/api/activities/[id]/streams/route.ts`** — catch block now returns `{ error: "streams_unavailable", reason: "rate_limited" | "daily_limit" | "strava_error" }` (503) with specific reason codes.
+- **`app/(dashboard)/activities/[id]/activity-charts.tsx`** — error state changed from `boolean` to typed string enum; specific Swedish messages per reason (rate/daily-limit vs. no GPS data vs. generic Strava error).
+- **`lib/ai/training-science-reference.ts`** (NEW) — curated applied guidance on heat, altitude, and taper with literature attribution.
+- **`lib/ai/tools.ts`** — added `compare_activities` tool (side-by-side activity diff with rep-by-rep splits), `compare_periods` tool (aggregate deltas between two date ranges), `get_training_science_reference` tool; `search_activities` no-match path extended to return 5 most-recent activities as hint when `query` is set.
+- **`lib/ai/context-builder.ts`** — ACWR proactive warning added to `healthLines`: when `fitnessCache.acwr > 1.5`, pushes `⚠ ACWR elevated (X.XX)` to every system prompt.
+- **`lib/ai/prompts.ts`** — `compare_activities`, `compare_periods`, `get_training_science_reference` added to Read tools list; two new Coach instruction bullets (prefer compare tools over manual delta computation; prefer reference + hedged language for heat/altitude/taper); added chart-formatting bullet (markdown tables + `chat-chart` blocks).
+- **`components/coach/ChatChart.tsx`** (NEW) — recharts-based line/bar chart renderer for `chat-chart` fenced blocks in coach chat.
+- **`components/coach/ChatInterface.tsx`** — assistant messages now rendered via `ReactMarkdown` + `remark-gfm` with `prose prose-sm dark:prose-invert` styling; `chat-chart` blocks parsed and rendered as `ChatChart`; user bubbles still render as plain text (no markdown processing).
+- **`package.json` / `pnpm-lock.yaml`** — added `react-markdown`, `remark-gfm`, `@tailwindcss/typography`.
+- **`docs/api/coach.md`** — Providers section updated to document all four providers' loop behavior; stale "## Plan actions" section removed (was never implemented, superseded by `create_workout` tool); new "## Chat chart blocks" section documents `chat-chart` convention.
+- **`docs/integrations/strava.md`** — backfill concurrency fix documented.
+- **`docs/api/cron.md`** — 00:30 job description updated to reference `backfillRunner.startIfIdle()`.
+
+### Plan 3 — Interval Toggle + Planner Save Bug (INTERVAL_LAP_MERGE_AND_PLANNER_SAVE_BUG_PLAN_2026_06_30.md)
+
+**Del A (Interval toggle):**
+- **`lib/activity/interval-detection.ts`** (NEW) — exports `INTERVAL_PACE_THRESHOLD_SEC_PER_KM = 30` as shared constant.
+- **`lib/activity/interval-segments.ts`** (NEW) — `mergeLapsIntoSegments()`: sequential pace-delta state machine that groups autolap-fragmented laps into labeled segments (Uppvärmning / Intervall N / Vila N / Nedvarvning).
+- **`app/(dashboard)/activities/[id]/splits-section.tsx`** (NEW) — client component owning the toggle state; shows "Visa intervaller" / "Visa laps" pill button when `isLaps && workoutType === 3 && splits.length >= 3`; passes raw or merged splits to `SplitsChart` and `SplitsTable`.
+- **`app/(dashboard)/activities/[id]/splits-table.tsx`** — `split` field widened from `number` to `number | string`.
+- **`app/(dashboard)/activities/[id]/splits-chart.tsx`** — same type widening; tooltip now shows distance (km) and segment time (MM:SS).
+- **`app/(dashboard)/activities/[id]/page.tsx`** — `SplitsChart` + `SplitsTable` imports removed; replaced with single `<SplitsSection>` call.
+
+**Del B (Save bug fix):**
+- **`lib/planner/estimate.ts`** — `resolveSegment()`: added early return `{ sec: duration, m: distance }` when both dimensions are explicitly known, preventing pace-based re-estimation from overwriting the saved value.
+- **`app/api/planner/workouts/[id]/route.ts`** — `targetDistance`/`targetDuration`: `.positive()` → `.nonnegative()` (allows saving 0).
+- **`app/api/planner/workouts/route.ts`** — same change on POST schema.
+- **`components/planner/WorkoutBuilder.tsx`** — min attributes 1→0 (time) and 0.1→0 (distance); `|| ""` onChange handlers replaced with `Number.isNaN(v) ? "" : v`; `> 0` guards in `buildData()` and `syncDefaultSection()` → `>= 0`; removed `sectionsCustomized` from `syncDefaultSection` early return so Total-field changes propagate even for template-linked workouts.
+
+**Del C (Planner bug audit — C1.1-C1.7) — in progress, see session 2026-07-01f continuation.**

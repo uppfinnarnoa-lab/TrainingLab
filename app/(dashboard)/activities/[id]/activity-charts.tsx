@@ -58,7 +58,7 @@ function formatTimeAxis(sec: number) {
 export function ActivityCharts({ activityId }: { activityId: string }) {
   const [data, setData]       = useState<StreamPoint[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(false);
+  const [error, setError]     = useState<"rate_limited" | "daily_limit" | "strava_error" | "no_data" | null>(null);
   const [visible, setVisible] = useState<Set<Serie>>(new Set(["pace", "heartrate"]));
   const [hasAlt, setHasAlt]   = useState(false);
   const [xMode, setXMode]     = useState<XMode>("distance");
@@ -68,13 +68,13 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
     fetch(`/api/activities/${activityId}/streams`)
       .then(r => r.json())
       .then(raw => {
-        if (raw.error) { setError(true); return; }
+        if (raw.error) { setError(raw.reason ?? "strava_error"); return; }
         const dist = (raw.distance?.data as number[]) ?? [];
         const time = (raw.time?.data as number[]) ?? [];
         const hr   = (raw.heartrate?.data as number[]) ?? [];
         const vel  = (raw.velocity_smooth?.data as number[]) ?? [];
         const alt  = (raw.altitude?.data as number[]) ?? [];
-        if (dist.length === 0) { setError(true); return; }
+        if (dist.length === 0) { setError("no_data"); return; }
 
         const altPresent = alt.some(v => v != null);
         setHasAlt(altPresent);
@@ -106,7 +106,7 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
         }
         setData(points);
       })
-      .catch(() => setError(true))
+      .catch(() => setError("strava_error"))
       .finally(() => setLoading(false));
   }, [activityId]);
 
@@ -126,11 +126,14 @@ export function ActivityCharts({ activityId }: { activityId: string }) {
     </div>
   );
 
-  if (error || data.length === 0) return (
-    <p className="text-sm text-muted py-4">
-      Stream data not available — requires Strava connection and GPS data.
-    </p>
-  );
+  if (error || data.length === 0) {
+    const msg = error === "rate_limited" || error === "daily_limit"
+      ? "Strava-hastighetsgränsen är tillfälligt nådd — försök igen om en stund."
+      : error === "no_data"
+      ? "Stream-data saknas för detta pass — kräver GPS-data från Strava."
+      : "Kunde inte hämta stream-data från Strava just nu.";
+    return <p className="text-sm text-muted py-4">{msg}</p>;
+  }
 
   const xKey = xMode === "distance" ? "distKm" : "timeSec";
 

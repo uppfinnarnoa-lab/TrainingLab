@@ -50,10 +50,12 @@ function resolveSegment(
   paceZones: PaceZoneRanges | undefined,
 ): { sec: number; m: number } {
   if (durationType === "time" && duration) {
+    if (distance) return { sec: duration, m: distance }; // both known — use literally, don't estimate
     const pace = resolvePace(targetZone, paceLow, paceHigh, paceZones);
     return { sec: duration, m: pace > 0 ? (duration / pace) * 1000 : 0 };
   }
   if (durationType === "distance" && distance) {
+    if (duration) return { sec: duration, m: distance }; // both known — use literally
     const pace = resolvePace(targetZone, paceLow, paceHigh, paceZones);
     return { sec: (distance / 1000) * pace, m: distance };
   }

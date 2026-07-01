@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { safeDecrypt } from "@/lib/encrypt";
 import { addDays, subDays, format, startOfWeek } from "date-fns";
+import { TRAINING_SCIENCE_REFERENCE, type TrainingScienceTopic } from "./training-science-reference";
 
 // Tool calls run inline in the chat request — an unresponsive external API (Tavily, Open-Meteo,
 // PubMed, Strava) would otherwise hang the whole conversation with no feedback to the user.
@@ -88,6 +89,44 @@ export const COACH_TOOLS = [
         limit:      { type: "number", description: "Max efforts to return (default 10)" },
       },
       required: ["segment_id"],
+    },
+  },
+  {
+    name: "compare_activities",
+    description: "Compares two specific activities side by side: distance, time, pace, HR, elevation, weather deltas, and a rep-by-rep split comparison if both have comparable interval structure. Use this instead of calling get_activity_detail twice and comparing manually — the deltas are computed exactly, not estimated.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        activity_id_a: { type: "string", description: "First activity ID (e.g. the more recent one)" },
+        activity_id_b: { type: "string", description: "Second activity ID to compare against" },
+      },
+      required: ["activity_id_a", "activity_id_b"],
+    },
+  },
+  {
+    name: "compare_periods",
+    description: "Compares aggregate training volume, pace, HR, and TSS between two date ranges (e.g. this month vs the same month last year). Returns exact deltas computed server-side — use this instead of calling get_volume_stats twice and subtracting the numbers yourself.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date_from_a: { type: "string", description: "Period A start YYYY-MM-DD" },
+        date_to_a:   { type: "string", description: "Period A end YYYY-MM-DD" },
+        date_from_b: { type: "string", description: "Period B start YYYY-MM-DD" },
+        date_to_b:   { type: "string", description: "Period B end YYYY-MM-DD" },
+        sport:       { type: "string", description: "Sport filter (optional)" },
+      },
+      required: ["date_from_a", "date_to_a", "date_from_b", "date_to_b"],
+    },
+  },
+  {
+    name: "get_training_science_reference",
+    description: "Returns curated, pre-vetted applied guidance on common physiological adjustment questions (heat adaptation, altitude adaptation, tapering) with their literature basis. Use this instead of estimating pace/HR adjustments for heat, altitude, or taper from memory — these numbers are app-maintained and citable, not invented per-conversation.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        topic: { type: "string", description: "'heat' | 'altitude' | 'taper'" },
+      },
+      required: ["topic"],
     },
   },
 
@@ -434,7 +473,21 @@ export async function executeCoachTool(
           select: { id: true, name: true, sportType: true, startDate: true, distance: true, movingTime: true, averageHeartrate: true, averageSpeed: true, totalElevationGain: true, isRace: true, weatherTemp: true, description: true },
         });
 
-        if (acts.length === 0) return { success: true, message: "No activities found.", data: "No activities found matching the criteria." };
+        if (acts.length === 0) {
+          if (query) {
+            const recent = await prisma.activity.findMany({
+              where: { userId, startDate: { gte: dateFrom, lte: dateTo } },
+              orderBy: { startDate: "desc" }, take: 5,
+              select: { id: true, name: true, startDate: true, sportType: true },
+            });
+            const recentDesc = (recent as { id: string; name: string | null; startDate: Date; sportType: string | null }[]).map(a => `[id:${a.id}] ${format(a.startDate, "yyyy-MM-dd")} "${a.name ?? ""}" (${a.sportType ?? ""})`).join("; ");
+            const hint = recent.length > 0
+              ? `No match for "${query}". Most recent activities in range: ` + recentDesc
+              : "No activities found matching the criteria.";
+            return { success: true, message: "No exact match — recent activities listed instead.", data: hint };
+          }
+          return { success: true, message: "No activities found.", data: "No activities found matching the criteria." };
+        }
 
         type SA = typeof acts[number];
         const lines = (acts as SA[]).map(a => {
@@ -1256,6 +1309,94 @@ export async function executeCoachTool(
         const parts = Object.entries(data).map(([k, v]) => `${k}=${v}`).join(", ");
         const edit = await prisma.coachEdit.create({ data: { userId, conversationId, toolName: "update_profile", description: `Updated profile: ${parts}`, previousStateJson: (existing ?? {}) as Record<string, unknown>, newStateJson: data, entityId: userId, entityType: "AthleteProfile" } });
         return { success: true, message: `Profile updated: ${parts}`, data: `Profile updated`, editId: edit.id };
+      }
+
+      case "compare_activities": {
+        const [a, b] = await Promise.all([
+          prisma.activity.findUnique({ where: { id: input.activity_id_a as string }, select: { id: true, userId: true, name: true, sportType: true, startDate: true, distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, totalElevationGain: true, weatherTemp: true, splitsMetric: true } }),
+          prisma.activity.findUnique({ where: { id: input.activity_id_b as string }, select: { id: true, userId: true, name: true, sportType: true, startDate: true, distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, totalElevationGain: true, weatherTemp: true, splitsMetric: true } }),
+        ]);
+        if (!a || a.userId !== userId || !b || b.userId !== userId) return { success: false, message: "One or both activities not found.", data: "error: not found or unauthorized" };
+
+        const paceStr = (speedMs: number | null) => {
+          if (!speedMs) return "—";
+          const s = 1000 / speedMs;
+          return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}/km`;
+        };
+        const lines: string[] = [
+          `A: ${a.name} (${format(a.startDate, "yyyy-MM-dd")}) — ${(a.distance / 1000).toFixed(1)}km, ${Math.floor(a.movingTime / 60)}min, ${paceStr(a.averageSpeed)}, ${a.averageHeartrate ? Math.round(a.averageHeartrate) + "bpm" : "no HR"}, ${Math.round(a.totalElevationGain)}m elev${a.weatherTemp != null ? `, ${Math.round(a.weatherTemp)}°C` : ""}`,
+          `B: ${b.name} (${format(b.startDate, "yyyy-MM-dd")}) — ${(b.distance / 1000).toFixed(1)}km, ${Math.floor(b.movingTime / 60)}min, ${paceStr(b.averageSpeed)}, ${b.averageHeartrate ? Math.round(b.averageHeartrate) + "bpm" : "no HR"}, ${Math.round(b.totalElevationGain)}m elev${b.weatherTemp != null ? `, ${Math.round(b.weatherTemp)}°C` : ""}`,
+          "",
+          "Deltas (A − B):",
+          `  Distance: ${((a.distance - b.distance) / 1000).toFixed(1)}km`,
+          `  Time: ${Math.round((a.movingTime - b.movingTime) / 60)}min`,
+        ];
+        if (a.averageSpeed && b.averageSpeed) {
+          const paceDeltaSec = Math.round(1000 / a.averageSpeed - 1000 / b.averageSpeed);
+          lines.push(`  Pace: ${paceDeltaSec >= 0 ? "+" : ""}${paceDeltaSec}sec/km (positive = A slower)`);
+        }
+        if (a.averageHeartrate && b.averageHeartrate) lines.push(`  HR: ${Math.round(a.averageHeartrate - b.averageHeartrate)}bpm`);
+        if (a.weatherTemp != null && b.weatherTemp != null) lines.push(`  Weather: ${Math.round(a.weatherTemp - b.weatherTemp)}°C`);
+
+        type Split = { split: number; moving_time: number; average_speed: number; average_heartrate?: number };
+        const splitsA = (a.splitsMetric as Split[] | null)?.filter(s => s.moving_time > 0 && s.average_speed > 0) ?? [];
+        const splitsB = (b.splitsMetric as Split[] | null)?.filter(s => s.moving_time > 0 && s.average_speed > 0) ?? [];
+        if (splitsA.length >= 2 && splitsB.length >= 2) {
+          const n = Math.min(splitsA.length, splitsB.length);
+          lines.push("", `Rep-by-rep (first ${n} of ${splitsA.length} vs ${splitsB.length} — counts ${splitsA.length === splitsB.length ? "match" : "DIFFER, compare with care"}):`);
+          for (let i = 0; i < n; i++) {
+            const pa = paceStr(splitsA[i].average_speed), pb = paceStr(splitsB[i].average_speed);
+            const hrA = splitsA[i].average_heartrate ? `${Math.round(splitsA[i].average_heartrate!)}bpm` : "—";
+            const hrB = splitsB[i].average_heartrate ? `${Math.round(splitsB[i].average_heartrate!)}bpm` : "—";
+            lines.push(`  Rep ${i + 1}: A ${pa} ${hrA}  vs  B ${pb} ${hrB}`);
+          }
+        }
+        return { success: true, message: `Compared: ${a.name} vs ${b.name}`, data: lines.join("\n") };
+      }
+
+      case "compare_periods": {
+        const sport = input.sport as string | undefined;
+        const where = (from: Date, to: Date) => ({ userId, startDate: { gte: from, lte: to }, ...(sport ? { sportType: { contains: sport, mode: "insensitive" as const } } : {}) });
+        const [actsA, actsB] = await Promise.all([
+          prisma.activity.findMany({ where: where(new Date(input.date_from_a as string), new Date(input.date_to_a as string)), select: { distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, trainingLoad: true } }),
+          prisma.activity.findMany({ where: where(new Date(input.date_from_b as string), new Date(input.date_to_b as string)), select: { distance: true, movingTime: true, averageSpeed: true, averageHeartrate: true, trainingLoad: true } }),
+        ]);
+        type PeriodActivity = { distance: number; movingTime: number; averageSpeed: number | null; averageHeartrate: number | null; trainingLoad: number | null };
+        const agg = (acts: PeriodActivity[]) => ({
+          km: acts.reduce((s: number, a) => s + a.distance / 1000, 0),
+          hours: acts.reduce((s: number, a) => s + a.movingTime, 0) / 3600,
+          tss: acts.reduce((s: number, a) => s + (a.trainingLoad ?? 0), 0),
+          count: acts.length,
+          avgPaceSecKm: (() => {
+            const speeds = acts.map(a => a.averageSpeed).filter((v): v is number => !!v && v > 0);
+            return speeds.length ? 1000 / (speeds.reduce((s: number, v: number) => s + v, 0) / speeds.length) : null;
+          })(),
+          avgHR: (() => {
+            const hrs = acts.map(a => a.averageHeartrate).filter((v): v is number => !!v);
+            return hrs.length ? hrs.reduce((s: number, v: number) => s + v, 0) / hrs.length : null;
+          })(),
+        });
+        const A = agg(actsA), B = agg(actsB);
+        const pct = (a: number, b: number) => b === 0 ? "n/a" : `${a - b >= 0 ? "+" : ""}${Math.round((a - b) / b * 100)}%`;
+        const lines = [
+          `Period A: ${A.count} sessions, ${A.km.toFixed(1)}km, ${A.hours.toFixed(1)}h, ${Math.round(A.tss)} TSS${A.avgPaceSecKm ? `, avg ${Math.floor(A.avgPaceSecKm / 60)}:${String(Math.round(A.avgPaceSecKm % 60)).padStart(2, "0")}/km` : ""}${A.avgHR ? `, ${Math.round(A.avgHR)}bpm avg` : ""}`,
+          `Period B: ${B.count} sessions, ${B.km.toFixed(1)}km, ${B.hours.toFixed(1)}h, ${Math.round(B.tss)} TSS${B.avgPaceSecKm ? `, avg ${Math.floor(B.avgPaceSecKm / 60)}:${String(Math.round(B.avgPaceSecKm % 60)).padStart(2, "0")}/km` : ""}${B.avgHR ? `, ${Math.round(B.avgHR)}bpm avg` : ""}`,
+          "",
+          `Volume: ${pct(A.km, B.km)} (${(A.km - B.km).toFixed(1)}km)`,
+          `Time: ${pct(A.hours, B.hours)}`,
+          `TSS: ${pct(A.tss, B.tss)}`,
+          A.avgPaceSecKm && B.avgPaceSecKm ? `Pace: ${Math.round(A.avgPaceSecKm - B.avgPaceSecKm) >= 0 ? "+" : ""}${Math.round(A.avgPaceSecKm - B.avgPaceSecKm)}sec/km (positive = A slower)` : "",
+          A.avgHR && B.avgHR ? `HR: ${Math.round(A.avgHR - B.avgHR) >= 0 ? "+" : ""}${Math.round(A.avgHR - B.avgHR)}bpm` : "",
+        ].filter(Boolean);
+        return { success: true, message: "Period comparison", data: lines.join("\n") };
+      }
+
+      case "get_training_science_reference": {
+        const topic = input.topic as TrainingScienceTopic;
+        const entry = TRAINING_SCIENCE_REFERENCE[topic];
+        if (!entry) return { success: false, message: "Unknown topic.", data: `error: unknown topic, valid: ${Object.keys(TRAINING_SCIENCE_REFERENCE).join(", ")}` };
+        const lines = [entry.topic, ...entry.guidance.map(g => `- ${g}`), "", `Source: ${entry.citeAs}`];
+        return { success: true, message: `Reference: ${entry.topic}`, data: lines.join("\n") };
       }
 
       default:

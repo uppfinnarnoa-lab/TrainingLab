@@ -44,25 +44,40 @@ data: {"error": "Message text here"}       ← AI provider error
 - Dynamic (not cached): last 28 days of activities (name, date, sport, distance, time, HR, pace, weather, description)
 - Conversation history: last 20 messages
 
-**Providers:**
-- `claude` → `claude-sonnet-4-6`, uses `cache_control: ephemeral` on system prompt
-- `gemini` → `gemini-2.5-flash`, free tier
+**Providers and tool-calling loops:**
+- `claude` → `claude-sonnet-4-6` — multi-step agentic loop (`lib/ai/claude.ts`, up to 6 iterations), uses `cache_control: ephemeral` on system prompt, parallel tool execution with `Promise.all`
+- `nvidia` → NVIDIA NIM (Kimi K2.6 default), OpenAI-compatible loop (`lib/ai/agent-loop.ts`, up to 6 iterations), tool results folded into `user` role messages (NIM rejects `role: "tool"`), exponential-backoff retry on 429, fallback parser for leaked Kimi native tokens (`lib/ai/kimi-fallback.ts`)
+- `groq` → Groq (OpenAI-compatible), same loop as nvidia but with `role: "tool"` enabled
+- `gemini` → `gemini-2.5-flash` — Gemini loop (`lib/ai/gemini-loop.ts`, up to 6 iterations), free tier
+
+All providers share the same `COACH_TOOLS` schema and `executeCoachTool` executor (`lib/ai/tools.ts`). The `create_workout` tool and other write tools pause and emit `toolCall.pending: true` before executing, requiring user approval via the chat UI.
 
 **Apache note:** Requires `SetEnv proxy-sendchunked 1` and `ProxyPass` for streaming to work behind reverse proxy.
 
 ---
 
-## Plan actions
+## Chat chart blocks
 
-If the AI response contains a fenced code block tagged `plan-action`, the client should parse it and create planned workouts:
+The AI can embed simple charts in its responses using a fenced code block with the `chat-chart` language tag. The block body must be valid JSON:
 
 ```
-```plan-action
-[{"date": "2025-11-04", "name": "Easy run", "sportType": "Running", "targetDuration": 3600}]
+```chat-chart
+{"type": "line", "series": [{"name": "Weekly km", "data": [{"x": "W1", "y": 42}, {"x": "W2", "y": 38}]}]}
 ```
 ```
 
-The client sends each item to `POST /api/planner/workouts`.
+**Schema:**
+```typescript
+{
+  type: "line" | "bar";
+  xLabel?: string;
+  series: { name: string; data: { x: string | number; y: number }[] }[];
+}
+```
+
+Constraints: 1-3 series, ≤20 data points per series. Rendered client-side via `components/coach/ChatChart.tsx` using recharts. If the JSON is invalid or the spec doesn't match, the raw code block is shown instead.
+
+The system prompt instructs the model to prefer this block for time-series data (pace, HR, weekly volume trends) instead of markdown tables.
 
 ---
 

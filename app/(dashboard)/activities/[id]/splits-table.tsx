@@ -4,7 +4,7 @@ import { formatPace } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
 interface Split {
-  split: number;
+  split: number | string;
   distance: number;
   moving_time: number;
   average_heartrate?: number;

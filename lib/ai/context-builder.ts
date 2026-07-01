@@ -145,6 +145,9 @@ export async function buildCoachContext(userId: string): Promise<CoachContext> {
     const spo2 = garminRecent.at(-1)?.spo2Avg;
     if (spo2 != null && spo2 < 95) healthLines.push(`SpO₂: ${spo2.toFixed(0)}% ⚠ low`);
   }
+  if (fitnessCache?.acwr != null && fitnessCache.acwr > 1.5) {
+    healthLines.push(`⚠ ACWR elevated (${fitnessCache.acwr.toFixed(2)}) — sustained ratios above ~1.5 are associated with increased injury risk in the literature; consider an easier week`);
+  }
   if (missedWorkouts.length > 0) {
     const injuryStreak = missedWorkouts.filter((w: { missedReason: string | null }) => w.missedReason === "injury" || w.missedReason === "illness").length;
     healthLines.push(`Missed sessions (4w): ${missedWorkouts.length}${injuryStreak > 0 ? ` (${injuryStreak} injury/illness)` : ""}`);

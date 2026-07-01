@@ -9,7 +9,9 @@ import { buildSystemPrompt } from "@/lib/ai/prompts";
 import { estimateCost } from "@/lib/ai/client";
 import { getFallbackClient, isRateLimitError, modelDisplayName, FALLBACK_MODEL } from "@/lib/ai/fallback";
 import { safeDecrypt } from "@/lib/encrypt";
-import { COACH_TOOLS, toGeminiTools, toOpenAITools, executeCoachTool, WRITE_TOOLS } from "@/lib/ai/tools";
+import { COACH_TOOLS, executeCoachTool, WRITE_TOOLS } from "@/lib/ai/tools";
+import { runOpenAICompatibleAgentLoop } from "@/lib/ai/agent-loop";
+import { runGeminiAgentLoop } from "@/lib/ai/gemini-loop";
 import type { AIClient, AIMessage } from "@/lib/ai/client";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
@@ -282,72 +284,71 @@ export async function POST(req: NextRequest) {
           return;
         }
 
-        // ── Non-Claude providers (single tool call + stream) ─────────────────
+        // ── Non-Claude providers (agentic loop up to 6 iterations, then stream) ─
         const messages: AIMessage[] = [
           ...textMessages,
           { role: "user", content: message },
         ];
 
         if (provider === "nvidia" || provider === "groq") {
+          const OpenAI  = (await import("openai")).default;
+          const baseURL = provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.groq.com/openai/v1";
+          const model   = provider === "nvidia" ? resolveNvidiaModel(aiSettings?.nvidiaModel) : resolveGroqModel(aiSettings?.groqModel);
+          const oai     = new OpenAI({ apiKey, baseURL });
           try {
-            const OpenAI  = (await import("openai")).default;
-            const baseURL = provider === "nvidia" ? "https://integrate.api.nvidia.com/v1" : "https://api.groq.com/openai/v1";
-            const model   = provider === "nvidia" ? resolveNvidiaModel(aiSettings?.nvidiaModel) : resolveGroqModel(aiSettings?.groqModel);
-            const oai     = new OpenAI({ apiKey, baseURL });
-            const tc      = await oai.chat.completions.create({
-              model, max_tokens: 400, tools: toOpenAITools(), tool_choice: "auto",
-              messages: [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role as "user"|"assistant", content: m.content }))],
+            const loop = await runOpenAICompatibleAgentLoop({
+              client: oai, model, systemPrompt, userId, convId: convId!,
+              messages: messages.map(m => ({ role: m.role, content: m.content })),
+              describeAction, send, useToolRole: provider === "groq",
             });
-            const choice = tc.choices[0];
-            if (choice?.finish_reason === "tool_calls" && choice.message.tool_calls?.[0]) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const call = choice.message.tool_calls[0] as any;
-              const toolName  = call.function.name as string;
-              const toolInput = JSON.parse(call.function.arguments as string) as Record<string, unknown>;
-              if (WRITE_TOOLS.has(toolName)) {
-                send({ toolCall: { name: toolName, message: describeAction(toolName, toolInput), success: true, pending: true, pendingInput: toolInput, pendingTool: toolName } });
-                hasPending = true;
-              } else {
-                send({ status: "tool", tool: toolName });
-                const result = await executeCoachTool(toolName, toolInput, userId, convId!);
-                if (result.success) send({ toolCall: { name: toolName, message: result.message, success: true } });
-                messages.push({ role: "assistant", content: `[Tool: ${toolName}]\n${String(result.data ?? result.message)}` });
+            if (loop.hasPending && loop.pendingEvent) {
+              send({ toolCall: loop.pendingEvent });
+              hasPending = true;
+            } else if (loop.done) {
+              send({ text: loop.finalText });
+              fullResponse = loop.finalText;
+              await saveAssistantMessage(convId!, fullResponse, userId, provider, model, 0, 0, 0);
+              send({ done: true, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 });
+              controller.close();
+              return;
+            } else {
+              toolsUsed = loop.toolsUsed;
+              if (loop.toolContext) {
+                messages.push({ role: "assistant", content: loop.toolContext });
                 messages.push({ role: "user", content: "Answer my question using the tool data above." });
-                send({ status: "thinking" });
               }
             }
-          } catch (err) { console.error("[coach/chat] tool check failed:", err instanceof Error ? err.message : err); }
+          } catch (err) {
+            console.error("[coach/chat] nvidia/groq agent loop failed:", err instanceof Error ? err.message : err);
+          }
         } else {
-          // Gemini function calling
           try {
-            const { GoogleGenerativeAI } = await import("@google/generative-ai");
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({
-              model: "gemini-2.5-flash",
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              tools: [{ functionDeclarations: toGeminiTools() }] as any,
-              systemInstruction: systemPrompt,
+            const geminiHistory = messages.slice(0, -1).map(m => ({
+              role: (m.role === "assistant" ? "model" : "user") as "model" | "user",
+              parts: [{ text: m.content }],
+            }));
+            const loop = await runGeminiAgentLoop({
+              apiKey, systemPrompt, userId, convId: convId!, describeAction, send,
+              history: geminiHistory, latestUserText: messages.at(-1)!.content,
             });
-            const gHistory = messages.slice(0, -1).map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
-            const chat = model.startChat({ history: gHistory });
-            const res  = await chat.sendMessage(messages.at(-1)!.content);
-            const fc   = res.response.candidates?.[0]?.content.parts.find(p => "functionCall" in p);
-            if (fc && "functionCall" in fc && fc.functionCall) {
-              const { name, args } = fc.functionCall;
-              const toolInput = args as Record<string, unknown>;
-              if (WRITE_TOOLS.has(name)) {
-                send({ toolCall: { name, message: describeAction(name, toolInput), success: true, pending: true, pendingInput: toolInput, pendingTool: name } });
-                hasPending = true;
-              } else {
-                send({ status: "tool", tool: name });
-                const result = await executeCoachTool(name, toolInput, userId, convId!);
-                if (result.success) send({ toolCall: { name, message: result.message, success: true } });
-                messages.push({ role: "assistant", content: `[Tool: ${name}]\n${String(result.data ?? result.message)}` });
+            if (loop.hasPending && loop.pendingEvent) {
+              send({ toolCall: loop.pendingEvent });
+              hasPending = true;
+            } else if (loop.done) {
+              send({ text: loop.finalText });
+              fullResponse = loop.finalText;
+              await saveAssistantMessage(convId!, fullResponse, userId, provider, "gemini-2.5-flash", 0, 0, 0);
+              send({ done: true, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 });
+              controller.close();
+              return;
+            } else {
+              toolsUsed = loop.toolsUsed;
+              if (loop.toolContext) {
+                messages.push({ role: "assistant", content: loop.toolContext });
                 messages.push({ role: "user", content: "Answer my question using the tool data above." });
-                send({ status: "thinking" });
               }
             }
-          } catch (err) { console.error("[coach/chat] tool check failed:", err instanceof Error ? err.message : err); }
+          } catch (err) { console.error("[coach/chat] gemini agent loop failed:", err instanceof Error ? err.message : err); }
         }
 
         if (hasPending) {

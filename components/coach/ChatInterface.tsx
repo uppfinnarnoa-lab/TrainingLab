@@ -5,6 +5,9 @@ import { Send, Loader2, Bot, User, Plus, Trash2, ChevronLeft, ChevronRight, Chec
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { ChatChart, tryParseChatChart } from "./ChatChart";
 
 interface ToolAction {
   name: string;
@@ -93,7 +96,7 @@ export function ChatInterface({
   const [sessionCost, setSessionCost]   = useState(0);
   const [convId, setConvId]             = useState<string | undefined>(initialConversationId);
   const [totalSpend, setTotalSpend]     = useState(currentSpend);
-  const [sidebarOpen, setSidebarOpen]   = useState(true);
+  const [sidebarOpen, setSidebarOpen]   = useState(false);
   const [deletingId, setDeletingId]     = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [lockedEditIds, setLockedEditIds]     = useState<Set<string>>(new Set());
@@ -102,6 +105,10 @@ export function ChatInterface({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef        = useRef<HTMLTextAreaElement>(null);
   const rafRef             = useRef<number | null>(null);
+
+  useEffect(() => {
+    setSidebarOpen(window.innerWidth >= 768);
+  }, []);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -447,19 +454,33 @@ export function ChatInterface({
                   />
                 ))}
                 <div className={cn(
-                  "rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap",
+                  "rounded-2xl px-4 py-3 text-sm leading-relaxed",
                   msg.role === "user"
-                    ? "bg-accent/10 text-primary rounded-tr-none"
-                    : "bg-surface border border-border rounded-tl-none"
+                    ? "bg-accent/10 text-primary rounded-tr-none whitespace-pre-wrap"
+                    : "bg-surface border border-border rounded-tl-none prose prose-sm dark:prose-invert max-w-none [&_table]:text-xs [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5"
                 )}>
-                  {msg.content || (streaming && msg.role === "assistant"
-                    ? (
-                      <span className="flex items-center gap-2 text-muted">
-                        <Loader2 size={14} className="animate-spin shrink-0" />
-                        {msg.statusLabel && <span className="text-xs">{msg.statusLabel}</span>}
-                      </span>
-                    )
-                    : "")}
+                  {msg.role === "user" ? msg.content : msg.content
+                    ? <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ className, children }) {
+                            const lang = /language-(\w+)/.exec(className ?? "")?.[1];
+                            if (lang === "chat-chart") {
+                              const spec = tryParseChatChart(String(children));
+                              if (spec) return <ChatChart spec={spec} />;
+                            }
+                            return <code className={className}>{children}</code>;
+                          },
+                        }}
+                      >{msg.content}</ReactMarkdown>
+                    : (streaming && msg.role === "assistant"
+                      ? (
+                        <span className="flex items-center gap-2 text-muted not-prose">
+                          <Loader2 size={14} className="animate-spin shrink-0" />
+                          {msg.statusLabel && <span className="text-xs">{msg.statusLabel}</span>}
+                        </span>
+                      )
+                      : "")}
                 </div>
                 {msg.cost !== undefined && (
                   <p className="text-[10px] text-muted px-1">${msg.cost.toFixed(4)} · {msg.tokens?.toLocaleString()} tokens</p>

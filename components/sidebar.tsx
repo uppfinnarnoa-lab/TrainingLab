@@ -66,7 +66,7 @@ export function Sidebar() {
   const mobileMenuButton = (
     <button
       onClick={() => setMobileOpen(true)}
-      className="md:hidden fixed top-3 left-3 z-50 p-2 rounded-xl bg-surface border border-border text-muted hover:text-primary shadow-sm transition"
+      className="md:hidden fixed top-3 left-3 z-50 p-3 rounded-xl bg-surface border border-border text-muted hover:text-primary shadow-sm transition"
       aria-label="Open menu"
     >
       <Menu size={20} />
@@ -85,7 +85,7 @@ export function Sidebar() {
           <LogoText size={LOGO_SIZE} />
         </span>
         {mobileOpen && (
-          <button onClick={close} aria-label="Close menu" className="md:hidden ml-auto p-1.5 rounded-lg text-muted hover:text-primary transition shrink-0">
+          <button onClick={close} aria-label="Close menu" className="md:hidden ml-auto p-3 rounded-lg text-muted hover:text-primary transition shrink-0">
             <X size={18} />
           </button>
         )}

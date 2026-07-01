@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db/prisma";
 import { z } from "zod";
+import { format } from "date-fns";
 import { updateEvent, deleteEvent } from "@/lib/google-calendar/sync";
 
 const updateSchema = z.object({
@@ -10,8 +11,8 @@ const updateSchema = z.object({
   sportType: z.string().optional(),
   typeId: z.string().cuid().optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
-  targetDistance: z.number().positive().optional().nullable(),
-  targetDuration: z.number().int().positive().optional().nullable(),
+  targetDistance: z.number().nonnegative().optional().nullable(),
+  targetDuration: z.number().int().nonnegative().optional().nullable(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   status: z.enum(["planned", "completed", "missed", "partial"]).optional(),
   missedReason: z.string().optional().nullable(),
@@ -51,9 +52,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Enforce: cannot set status on future workout (compare date strings to avoid timezone issues)
   if (parsed.data.status && parsed.data.status !== "planned") {
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = format(new Date(), "yyyy-MM-dd");
     const workoutDateStr = workout.date instanceof Date
-      ? workout.date.toISOString().split("T")[0]
+      ? format(workout.date, "yyyy-MM-dd")
       : String(workout.date).slice(0, 10);
     if (workoutDateStr > todayStr) {
       return NextResponse.json({ error: "cannot_mark_future" }, { status: 422 });

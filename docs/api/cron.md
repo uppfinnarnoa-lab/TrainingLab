@@ -7,7 +7,7 @@
 - **06:00** — Strava incremental sync (`syncActivities`, since `lastSyncAt`)
 - **08:00** — Garmin sync for yesterday (so overnight sleep/HRV is ready)
 - **20:00** — Garmin sync for today + a yesterday catch-up re-sync (late-arriving fields)
-- **00:30** — Historical Strava backfill (`runHistoricalBackfill`) for activities missing split detail; resumes automatically across nights if Strava's daily limit is hit
+- **00:30** — Historical Strava backfill (via `backfillRunner.startIfIdle()`) for activities missing split detail or stream data; cannot run concurrently with a user-triggered backfill for the same account. A daily-limit hit ends the run immediately; resumes automatically the next night.
 - **07:00** — Weather backfill, 50 activities/user per run
 
 ---

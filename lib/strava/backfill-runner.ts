@@ -71,7 +71,7 @@ class BackfillRunner {
           job.status = "rate_limit"; job.waitMs = event.waitMs;
         } else if (event.type === "daily_limit") {
           job.done = event.done; job.total = event.total; job.errors = event.errors;
-          job.status = "daily_limit"; job.waitMs = event.waitMs;
+          job.status = "idle"; delete job.waitMs;
         } else if (event.type === "paused") {
           job.status = "paused"; job.done = event.done; job.errors = event.errors; delete job.waitMs;
         } else if (event.type === "resumed") {
@@ -90,6 +90,13 @@ class BackfillRunner {
       },
       () => job.signal,
     ).catch(() => { job.status = "idle"; delete job.waitMs; });
+  }
+
+  startIfIdle(userId: string): boolean {
+    const job = this.ensure(userId);
+    if (job.status === "running" || job.status === "paused" || job.status === "rate_limit") return false;
+    this.start(userId);
+    return true;
   }
 
   pause(userId: string) {
