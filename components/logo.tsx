@@ -20,7 +20,7 @@ export function Logo({ size = 32, className, style }: Props) {
         <mask id="act-cut">
           <rect width="40" height="40" fill="white" />
           <polyline
-            points="7,23 15,23 17,17 19,17 21,29 23,29 25,23 33,23"
+            points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5"
             stroke="black"
             strokeWidth="3"
             strokeLinecap="butt"
@@ -29,10 +29,8 @@ export function Logo({ size = 32, className, style }: Props) {
           />
         </mask>
       </defs>
-      {/* stem ends at y=35 — when placed next to text in a flex items-end row,
-          T visual bottom lands at the text's typographic baseline (~0.3 px off) */}
       <path
-        d="M1,5 H39 V14 H25 V35 H15 V14 H1 Z"
+        d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z"
         className="fill-accent"
         mask="url(#act-cut)"
       />
@@ -57,17 +55,6 @@ export function LogoText({ size = 32, className }: Props) {
   );
 }
 
-/**
- * Wordmark rendered as a single SVG — SVG coordinates control alignment
- * directly so there is no CSS flex layout involved.
- *
- * T stem ends at y=35; SVG text baseline sits at y=35.
- * Both share the same typographic floor by construction.
- *
- * ViewBox width 148 covers the T icon (40 units) + pull-in (-8) + "rainingLab"
- * at font-size 20.8 SVG units (= size×0.52 scaled to 40-unit height).
- * If text is clipped on screen: increase W and adjust width prop accordingly.
- */
 export function LogoWordmark({ size = 32, className }: Props) {
   const W = 148;
   return (
@@ -84,7 +71,7 @@ export function LogoWordmark({ size = 32, className }: Props) {
         <mask id="wm-cut">
           <rect width="40" height="40" fill="white" />
           <polyline
-            points="7,23 15,23 17,17 19,17 21,29 23,29 25,23 33,23"
+            points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5"
             stroke="black"
             strokeWidth="3"
             strokeLinecap="butt"
@@ -93,13 +80,13 @@ export function LogoWordmark({ size = 32, className }: Props) {
           />
         </mask>
       </defs>
+      {/* V35: T stem bottom matches text baseline at y=35 */}
       <path
-        d="M1,5 H39 V14 H25 V35 H15 V14 H1 Z"
+        d="M2,7 H38 V17 H27 V35 H13 V17 H2 Z"
         className="fill-accent"
         mask="url(#wm-cut)"
       />
-      {/* x=32: T right edge (40) minus pull-in (8 = 40×0.20)
-          y=35: text baseline — same y as T stem bottom above */}
+      {/* x=32: T right edge (40) minus pull-in (8 = 40×0.20); y=35: same as stem bottom */}
       <text
         x="32"
         y="35"
