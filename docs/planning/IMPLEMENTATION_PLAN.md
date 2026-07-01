@@ -4231,11 +4231,21 @@ Previous V40 approach still left T extending too far into the descender zone. Co
 
 Note on PDF: Chrome headless `--print-to-pdf` does not wait for Google Fonts (CDN) to load, producing wrong fallback fonts. Open the HTML in Chrome and print manually (Ctrl+P → Save as PDF) for correct font rendering.
 
-**Waveform redesign (same session):** The mask polyline was redesigned for cleaner shape and higher position per user sketch:
+**Session 2026-07-01c — HTML visual profile: flex lockup replaced with combined SVG.**
+
+The HTML visual profile (`FRONTEND_VISUAL_PROFILE_2026_06_27.html`) still had two broken lockup instances using the old flex-row approach (div.brand-row + separate SVG icon + text span). The text span's implicit line-height (~1.2×) made the span taller than the SVG, shifting the text baseline above the T's visual bottom. Fixed:
+
+- **Cover header** (line 117): replaced `<div class="brand-row">…<svg>…<span class="brand-word">…</span></div>` with a single combined SVG (`viewBox="0 0 148 40"`, height=40). T path y=35; SVG `<text>` baseline y=35 — shared floor by coordinate definition, identical to `LogoWordmark` in `logo.tsx`.
+- **Lockup card** (line 204): same replacement at height=32 (width=118 = round(32×148/40)). Letter-spacing applied via `style="letter-spacing: -0.025em"` for cross-browser consistency.
+- **CSS cleanup**: removed `.brand-row`, `.brand-logo`, `.brand-word` rules (no remaining uses). Replaced with `.brand-wm { display:block; margin-bottom:14px; }`.
+
+1. **`FRONTEND_VISUAL_PROFILE_2026_06_27.html`** — two flex lockups → combined SVGs; three unused CSS rules removed.
+
+**Waveform redesign (same session as 2026-07-01b):** The mask polyline was redesigned for cleaner shape and higher position per user sketch:
 - Old: `points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5"` (9 points, baseline y=27.5, awkward flat peak at y=22.5)
 - New: `points="7,25 15,25 18,20 21,31 24,25 33,25"` (6 points, baseline y=25 — raised 2.5 units, clean peak at y=20, trough at y=31, no kinks)
 - Updated in: `components/logo.tsx` (both Logo and LogoWordmark masks), `public/icon.svg`, `FRONTEND_VISUAL_PROFILE_2026_06_27.html` (all 11 instances), `FRONTEND_UX_AUDIT_PLAN_2026_06_27.md §8.7.1`.
 
 ---
 
-*Last updated: 2026-07-01b — Logo baseline correctly aligned: LogoWordmark is now a single combined SVG (T + text at identical y=35), Logo standalone uses V35 path. Pixel-verified with Playwright.*
+*Last updated: 2026-07-01c — HTML visual profile lockups fixed: both cover header and lockup card now use combined SVG approach (T + text at y=35) instead of broken flex layout.*
