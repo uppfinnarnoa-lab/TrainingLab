@@ -4248,4 +4248,23 @@ The HTML visual profile (`FRONTEND_VISUAL_PROFILE_2026_06_27.html`) still had tw
 
 ---
 
-*Last updated: 2026-07-01c — HTML visual profile lockups fixed: both cover header and lockup card now use combined SVG approach (T + text at y=35) instead of broken flex layout.*
+**Session 2026-07-01d — Logo replaced everywhere with the user's own hand-drawn SVG design.**
+
+User created a definitive T icon in OCAD orienteering software (`Logga egen.svgz`, gzip-compressed SVG). Cleaned up the OCAD boilerplate and replaced the previous mask-based logo with the new design in all three places it appears.
+
+The user's design uses **two separate filled shapes** (no mask). The white waveform in the stem appears where neither shape covers — the background shows through the gap. This is equivalent to the old mask approach but avoids SVG mask artifacts and duplicate ID issues when multiple logo instances appear on the same page.
+
+Coordinate normalization: original OCAD viewBox `0 0 31.45 30.40`. Scaled uniformly (s=1.1224) and offset (ox=3.0, oy=1.44) to fit in a 40×40 viewBox with the stem bottom at y=35 — matching the text baseline in the combined `LogoWordmark` SVG.
+
+- **Path 1** (lower stem, wavy top): `M18.5,23.3 19.2,21.3 20.8,26.6 22.3,26.6 23.3,23.3 25.3,23.3 25.3,35 15.9,35 16,23.3 Z`
+- **Path 2** (crossbar + upper stem, wavy bottom): `M15.9,21.7 17.4,21.7 18.5,18.5 20,18.5 21.6,23.7 22.2,21.7 25.3,21.7 25.3,11.4 37.7,11.4 37.7,2 3.6,2 3.6,11.4 15.9,11.4 Z`
+
+1. **`components/logo.tsx`** — `Logo`: both paths with `className="fill-accent"`, no mask/defs. `LogoWordmark`: same two paths + SVG `<text>` at x=32, y=35 — no mask/defs. `LogoText` and `logoPullIn` unchanged.
+2. **`public/icon.svg`** — same two paths with `fill="#6EE7B7"`, no mask/defs.
+3. **`docs/planning/Planerattköra/Visual/FRONTEND_VISUAL_PROFILE_2026_06_27.html`** — all 11 T instances replaced (5 with `fill="var(--accent)"`, 6 themed logos with their respective hardcoded hex colors); all 11 old `<polyline stroke="#fff">` overlays removed. Done via PowerShell regex replacement preserving per-instance indentation and fill color.
+
+**Verification:** `pnpm build --no-lint` clean (68 routes, no new errors). The two-path approach has no SVG `id` attributes, so multiple logo instances on the same page can never have ID collisions (the old mask approach had `id="act-cut"` / `id="wm-cut"` duplicated per instance). The waveform gap between the two shapes shows the background through, identical behavior to the old transparent mask.
+
+---
+
+*Last updated: 2026-07-01d — Logo replaced everywhere with the user's own OCAD-drawn SVG (two filled shapes, no mask): `components/logo.tsx`, `public/icon.svg`, and all 11 T instances in `FRONTEND_VISUAL_PROFILE_2026_06_27.html`.*

@@ -16,24 +16,8 @@ export function Logo({ size = 32, className, style }: Props) {
       style={style}
       aria-label="T"
     >
-      <defs>
-        <mask id="act-cut">
-          <rect width="40" height="40" fill="white" />
-          <polyline
-            points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5"
-            stroke="black"
-            strokeWidth="3"
-            strokeLinecap="butt"
-            strokeLinejoin="miter"
-            fill="none"
-          />
-        </mask>
-      </defs>
-      <path
-        d="M2,7 H38 V17 H27 V38 H13 V17 H2 Z"
-        className="fill-accent"
-        mask="url(#act-cut)"
-      />
+      <path d="M18.5,23.3 19.2,21.3 20.8,26.6 22.3,26.6 23.3,23.3 25.3,23.3 25.3,35 15.9,35 16,23.3 Z" className="fill-accent" />
+      <path d="M15.9,21.7 17.4,21.7 18.5,18.5 20,18.5 21.6,23.7 22.2,21.7 25.3,21.7 25.3,11.4 37.7,11.4 37.7,2 3.6,2 3.6,11.4 15.9,11.4 Z" className="fill-accent" />
     </svg>
   );
 }
@@ -67,26 +51,8 @@ export function LogoWordmark({ size = 32, className }: Props) {
       className={className}
       aria-label="TrainingLab"
     >
-      <defs>
-        <mask id="wm-cut">
-          <rect width="40" height="40" fill="white" />
-          <polyline
-            points="7,27.5 15,27.5 16.5,27 18.5,22.5 18.8,22.5 21,27.5 22,32.5 23.5,27.5 33,27.5"
-            stroke="black"
-            strokeWidth="3"
-            strokeLinecap="butt"
-            strokeLinejoin="miter"
-            fill="none"
-          />
-        </mask>
-      </defs>
-      {/* V35: T stem bottom matches text baseline at y=35 */}
-      <path
-        d="M2,7 H38 V17 H27 V35 H13 V17 H2 Z"
-        className="fill-accent"
-        mask="url(#wm-cut)"
-      />
-      {/* x=32: T right edge (40) minus pull-in (8 = 40×0.20); y=35: same as stem bottom */}
+      <path d="M18.5,23.3 19.2,21.3 20.8,26.6 22.3,26.6 23.3,23.3 25.3,23.3 25.3,35 15.9,35 16,23.3 Z" className="fill-accent" />
+      <path d="M15.9,21.7 17.4,21.7 18.5,18.5 20,18.5 21.6,23.7 22.2,21.7 25.3,21.7 25.3,11.4 37.7,11.4 37.7,2 3.6,2 3.6,11.4 15.9,11.4 Z" className="fill-accent" />
       <text
         x="32"
         y="35"
