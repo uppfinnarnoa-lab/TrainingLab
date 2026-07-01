@@ -3,7 +3,7 @@
     <mask id="act-cut">
       <rect width="40" height="40" fill="white"/>
       <polyline
-        points="7,22 15,22 18,17 21,28 24,22 33,22"
+        points="7,22 14,22 16,17 20,17 22,28 24,28 26,22 33,22"
         stroke="black"
         stroke-width="3"
         stroke-linecap="butt"
@@ -12,5 +12,5 @@
       />
     </mask>
   </defs>
-  <path d="M2,7 H38 V14 H27 V38 H13 V14 H2 Z" fill="#6EE7B7" mask="url(#act-cut)"/>
+  <path d="M1,5 H39 V14 H27 V38 H13 V14 H1 Z" fill="#6EE7B7" mask="url(#act-cut)"/>
 </svg>
