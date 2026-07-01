@@ -78,12 +78,9 @@
 
   footer{border-top:1px solid var(--border); padding-top:12px; margin-top:8px; font-family:'JetBrains Mono'; font-size:10px; color:var(--muted); display:flex; justify-content:space-between;}
 
-  /* Brand row — mirrors components/logo.tsx's Logo + LogoText sidebar layout: flex items-end,
-     icon margin-right = -(size*0.20). T path ends at y=35; at items-end the T's visual bottom
-     lands within ~0.3px of the text's typographic baseline — imperceptible. */
-  .brand-row{display:flex; align-items:flex-end; gap:0; margin-bottom:14px;}
-  .brand-logo{margin-right:-8px;}
-  .brand-word{font-family:'Inter'; font-weight:600; font-size:21px; color:var(--text); letter-spacing:-0.01em; padding-bottom:1px;}
+  /* Combined wordmark SVG — mirrors LogoWordmark in components/logo.tsx:
+     T stem ends at y=35, SVG text baseline at y=35 → shared floor by coordinate definition. */
+  .brand-wm{display:block; margin-bottom:14px;}
 
   /* 0. Logotyp */
   .logo-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;}
@@ -117,13 +114,11 @@
 <div class="sheet">
 
   <div class="cover">
-    <div class="brand-row">
-      <svg class="brand-logo" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="TrainingLab">
-        <path d="M2,7 H38 V17 H27 V35 H13 V17 H2 Z" fill="var(--accent)" />
-        <polyline points="7,25 15,25 18,20 21,31 24,25 33,25" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
-      </svg>
-      <span class="brand-word">raining<span style="color:var(--accent)">Lab</span></span>
-    </div>
+    <svg class="brand-wm" height="40" width="148" viewBox="0 0 148 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="TrainingLab">
+      <path d="M2,7 H38 V17 H27 V35 H13 V17 H2 Z" fill="var(--accent)" />
+      <polyline points="7,25 15,25 18,20 21,31 24,25 33,25" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+      <text x="32" y="35" font-family="Inter, sans-serif" font-size="20.8" font-weight="600" style="letter-spacing: -0.025em" fill="var(--text)">raining<tspan fill="var(--accent)">Lab</tspan></text>
+    </svg>
     <div class="kicker">Designdokument</div>
     <h1>Visuell profil</h1>
     <p>Tonad ner från <span class="mono">FRONTEND_DESIGN_SKILL_POC_2026_06_27.html</span>. Samma layout, navigation, informationsdensitet och 6-temasystem som idag — bara typografi, en accentfärg, sportikoner och diagramstil får mer karaktär. Se §8 i <span class="mono">FRONTEND_UX_AUDIT_PLAN_2026_06_27.md</span> för fullt resonemang och filreferenser. <strong>v2 (2026-06-30):</strong> hand-ritade sportikoner ersatta med riktiga Tabler Icons, loggan nu fullt specificerad som ett eget avsnitt (00) istället för bara dekorativt visad, och ett nytt avsnitt 05 visar elementen tillsammans i två verkliga komponentmönster. Ursprung 2026-06-27.</p>
@@ -206,13 +201,11 @@
 
     <div class="lockup-row">
       <div class="logo-card">
-        <div class="brand-row" style="margin:4px 0;">
-          <svg width="32" height="32" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right:-6.4px;">
-            <path d="M2,7 H38 V17 H27 V35 H13 V17 H2 Z" fill="var(--accent)" />
-            <polyline points="7,25 15,25 18,20 21,31 24,25 33,25" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
-          </svg>
-          <span class="brand-word" style="font-size:16.64px; padding-bottom:0.96px;">raining<span style="color:var(--accent)">Lab</span></span>
-        </div>
+        <svg height="32" width="118" viewBox="0 0 148 40" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin:4px 0;" aria-label="TrainingLab">
+          <path d="M2,7 H38 V17 H27 V35 H13 V17 H2 Z" fill="var(--accent)" />
+          <polyline points="7,25 15,25 18,20 21,31 24,25 33,25" stroke="#fff" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter" fill="none" />
+          <text x="32" y="35" font-family="Inter, sans-serif" font-size="20.8" font-weight="600" style="letter-spacing: -0.025em" fill="var(--text)">raining<tspan fill="var(--accent)">Lab</tspan></text>
+        </svg>
         <div class="lc-cap">Fullständig lockup (<span class="mono">LogoWordmark</span>) — märket är bokstaven T, "rainingLab" följer utan mellanrum. Inter 600, mellanrum = -20&nbsp;% av storleken.</div>
       </div>
       <div class="logo-card">
